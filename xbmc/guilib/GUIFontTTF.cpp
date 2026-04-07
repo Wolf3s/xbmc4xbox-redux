@@ -310,6 +310,11 @@ bool CGUIFontTTF::Load(const CStdString& strFilename, float height, float aspect
 
 void CGUIFontTTF::DrawTextInternal(float x, float y, const vecColors &colors, const vecText &text, uint32_t alignment, float maxPixelWidth, bool scrolling)
 {
+  if (text.empty())
+  {
+    return;
+  }
+
   Begin();
 
   // save the origin, which is scaled separately

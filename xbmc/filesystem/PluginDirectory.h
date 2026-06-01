@@ -14,8 +14,8 @@
 #include "threads/CriticalSection.h"
 #include "threads/Event.h"
 #include "threads/Thread.h"
-#include "threads/Atomics.h"
 
+#include <atomic.h>
 #include <map>
 #include <string>
 

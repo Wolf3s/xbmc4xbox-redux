@@ -218,7 +218,7 @@ bool CPluginDirectory::AddItem(int handle, const CFileItem *item, int totalItems
   dir->m_listItems->Add(pItem);
   dir->m_totalItems = totalItems;
 
-  return !dir->m_cancelled.read();
+  return !dir->m_cancelled.value();
 }
 
 bool CPluginDirectory::AddItems(int handle, const CFileItemList *items, int totalItems)
@@ -233,7 +233,7 @@ bool CPluginDirectory::AddItems(int handle, const CFileItemList *items, int tota
   dir->m_listItems->Append(pItemList);
   dir->m_totalItems = totalItems;
 
-  return !dir->m_cancelled.read();
+  return !dir->m_cancelled.value();
 }
 
 void CPluginDirectory::EndOfDirectory(int handle, bool success, bool replaceListing, bool cacheToDisc)
@@ -524,7 +524,7 @@ bool CPluginDirectory::WaitOnScriptResult(const std::string &scriptPath, int scr
   else
   {
     // Wait for directory fetch to complete, end, or be cancelled
-    while (!m_cancelled.read()
+    while (!m_cancelled.value()
         && CScriptInvocationManager::GetInstance().IsRunning(scriptId)
         && !m_fetchComplete.WaitMSec(20));
 
@@ -535,7 +535,7 @@ bool CPluginDirectory::WaitOnScriptResult(const std::string &scriptPath, int scr
           && !m_fetchComplete.WaitMSec(20));
   }
 
-  if (m_cancelled.read())
+  if (m_cancelled.value())
   { // cancel our script
     if (scriptId != -1 && CScriptInvocationManager::GetInstance().IsRunning(scriptId))
     {
@@ -544,7 +544,7 @@ bool CPluginDirectory::WaitOnScriptResult(const std::string &scriptPath, int scr
     }
   }
 
-  return !m_cancelled.read() && m_success;
+  return !m_cancelled.value() && m_success;
 }
 
 void CPluginDirectory::SetResolvedUrl(int handle, bool success, const CFileItem *resultItem)

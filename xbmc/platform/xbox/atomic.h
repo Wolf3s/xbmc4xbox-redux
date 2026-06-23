@@ -27,16 +27,16 @@ public:
 
   void set(bool value)
   {
-    InterlockedExchange(m_value, value ? 1 : 0);
+    InterlockedExchange(&m_value, value ? 1 : 0);
   }
 
-  bool value() const
+  bool value()
   {
-    return InterlockedCompareExchange(m_value, 0, 0) != 0;
+    return InterlockedCompareExchange(&m_value, 0, 0) != 0;
   }
 
 private:
-  LPLONG m_value;
+  LONG m_value;
 };
 
 template<>
@@ -50,16 +50,16 @@ public:
 
   void set(long value)
   {
-    InterlockedExchange(m_value, value);
+    InterlockedExchange(&m_value, value);
   }
 
-  long value() const
+  long value()
   {
-    return InterlockedCompareExchange(m_value, 0, 0);
+    return InterlockedCompareExchange(&m_value, 0, 0);
   }
 
 private:
-  LPLONG m_value;
+  LONG m_value;
 };
 
 typedef atomic<bool> atomic_bool;

@@ -146,12 +146,6 @@
 			Name="cores"
 			Filter="">
 			<File
-				RelativePath="..\..\xbmc\cores\DummyVideoPlayer.cpp">
-			</File>
-			<File
-				RelativePath="..\..\xbmc\cores\DummyVideoPlayer.h">
-			</File>
-			<File
 				RelativePath="..\..\xbmc\cores\IPlayer.h">
 			</File>
 			<File
@@ -1398,12 +1392,6 @@
 				</File>
 				<File
 					RelativePath="..\..\xbmc\music\tags\MusicInfoTagLoaderGYM.h">
-				</File>
-				<File
-					RelativePath="..\..\xbmc\music\tags\MusicInfoTagLoaderMod.cpp">
-				</File>
-				<File
-					RelativePath="..\..\xbmc\music\tags\MusicInfoTagLoaderMod.h">
 				</File>
 				<File
 					RelativePath="..\..\xbmc\music\tags\MusicInfoTagLoaderMP3.cpp">

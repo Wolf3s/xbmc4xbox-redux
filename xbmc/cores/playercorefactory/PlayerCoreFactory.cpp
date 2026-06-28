@@ -23,11 +23,6 @@
 #include "../dvdplayer/DVDPlayer.h"
 #ifdef HAS_XBOX_HARDWARE
 #include "../mplayer/mplayer.h"
-#else
-#include "../DummyVideoPlayer.h"
-#endif
-#ifdef HAS_MODPLAYER
-#include "../modplayer.h"
 #endif
 #include "../paplayer/paplayer.h"
 #include "dialogs/GUIDialogContextMenu.h"
@@ -204,12 +199,6 @@ void CPlayerCoreFactory::GetPlayers( const CFileItem& item, VECPLAYERCORES &vecC
       }
     }
   }
-#ifdef HAS_MODPLAYER
-  if( ModPlayer::IsSupportedFormat(url.GetFileType()) || (url.GetFileType() == "xm") || (url.GetFileType() == "mod") || (url.GetFileType() == "s3m") || (url.GetFileType() == "it") )
-  {
-    vecCores.push_back(EPC_MODPLAYER);
-  }
-#endif
 
   // Process defaults
 
@@ -330,10 +319,6 @@ bool CPlayerCoreFactory::LoadConfiguration(const std::string &file, bool clear)
     paplayer->m_bPlaysAudio = true;
     m_vecCoreConfigs.push_back(paplayer);
 
-    CPlayerCoreConfig* modplayer = new CPlayerCoreConfig("MODPlayer", "video", EPC_MODPLAYER, NULL);
-    modplayer->m_bPlaysAudio = true;
-    m_vecCoreConfigs.push_back(modplayer);
-
     for(std::vector<CPlayerSelectionRule *>::iterator it = m_vecCoreSelectionRules.begin(); it != m_vecCoreSelectionRules.end(); it++)
       delete *it;
 
@@ -361,7 +346,6 @@ bool CPlayerCoreFactory::LoadConfiguration(const std::string &file, bool clear)
       if (type == "dvdplayer") eCore = EPC_DVDPLAYER;
       if (type == "mplayer" ) eCore = EPC_MPLAYER;
       if (type == "paplayer" ) eCore = EPC_PAPLAYER;
-      if (type == "modplayer" ) eCore = EPC_MODPLAYER;
 
       if (eCore != EPC_NONE)
       {

@@ -27,6 +27,7 @@
 #include "DVDCodecs/DVDCodecs.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 
 #define RINT(x) ((x) >= 0 ? ((int)((x) + 0.5)) : ((int)((x) - 0.5)))
 
@@ -65,7 +66,7 @@ bool CDVDVideoCodecFFmpeg::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options
     return false;
   }
 
-  CLog::Log(LOGNOTICE,"CDVDVideoCodecFFmpeg::Open() Using codec: %s",pCodec->long_name ? pCodec->long_name : pCodec->name);
+  CLog::Log(LOGINFO,"CDVDVideoCodecFFmpeg::Open() Using codec: %s",pCodec->long_name ? pCodec->long_name : pCodec->name);
 
   m_pCodecContext = m_dllAvCodec.avcodec_alloc_context3(pCodec);
 
@@ -79,7 +80,7 @@ bool CDVDVideoCodecFFmpeg::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options
     m_pCodecContext->flags |= CODEC_FLAG_EMU_EDGE;
 
   // allow non spec compliant speedup tricks
-  if (CSettings::GetInstance().GetBool("videoplayer.fast"))
+  if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool("videoplayer.fast"))
     m_pCodecContext->flags2 |= CODEC_FLAG2_FAST;
 
   // if we don't do this, then some codecs seem to fail.
@@ -95,7 +96,7 @@ bool CDVDVideoCodecFFmpeg::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options
   }
 
   AVDiscard discardVals[] = {AVDISCARD_DEFAULT, AVDISCARD_NONREF, AVDISCARD_BIDIR, AVDISCARD_NONKEY, AVDISCARD_ALL};
-  AVDiscard avDiscard = discardVals[CSettings::GetInstance().GetInt("videoplayer.skiploopfilter")];
+  AVDiscard avDiscard = discardVals[CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("videoplayer.skiploopfilter")];
   if (avDiscard != AVDISCARD_DEFAULT)
     m_pCodecContext->skip_loop_filter = avDiscard;
 
@@ -104,7 +105,7 @@ bool CDVDVideoCodecFFmpeg::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options
   {
     m_dllAvUtil.av_opt_set(m_pCodecContext, it->m_name.c_str(), it->m_value.c_str(), 0);
   }
-  
+
   if (m_dllAvCodec.avcodec_open2(m_pCodecContext, pCodec, NULL) < 0)
   {
     CLog::Log(LOGDEBUG,"CDVDVideoCodecFFmpeg::Open() Unable to open codec");
@@ -115,7 +116,7 @@ bool CDVDVideoCodecFFmpeg::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options
   if (!m_pFrame) return false;
 
   if(pCodec->name)
-    m_name = CStdString("ff-") + pCodec->name;
+    m_name = std::string("ff-") + pCodec->name;
   else
     m_name = "ffmpeg";
 
@@ -225,7 +226,7 @@ int CDVDVideoCodecFFmpeg::Decode(BYTE* pData, int iSize, double dts, double pts)
       if(!m_dllSwScale.Load())
         return VC_ERROR;
 
-      m_dllSwScale.sws_rgb2rgb_init(SWS_CPU_CAPS_MMX2);    
+      m_dllSwScale.sws_rgb2rgb_init(SWS_CPU_CAPS_MMX2);
     }
 
     if (!m_pConvertFrame)

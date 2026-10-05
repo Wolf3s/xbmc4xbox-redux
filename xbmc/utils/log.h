@@ -20,8 +20,9 @@
  *
  */
 
+#include <stdint.h>
 #include <stdio.h>
-#include "utils/StdString.h"
+#include <string>
 
 #include "commons/ilog.h"
 #include "threads/CriticalSection.h"
@@ -32,6 +33,8 @@
 #else
 #define ATTRIB_LOG_FORMAT
 #endif
+
+// TODO: refactor CLog, get rid of CLogGlobals, add CSettings callbacks
 
 class CLog
 {
@@ -59,20 +62,12 @@ public:
   static bool Init(const char* path);
   static void SetLogLevel(int level);
   static int  GetLogLevel();
+  static bool CanLogComponent(uint32_t component);
   static void SetExtraLogLevels(int level);
 private:
   static void OutputDebugString(const std::string& line);
 };
 
 #undef ATTRIB_LOG_FORMAT
-
-namespace XbmcUtils
-{
-  class LogImplementation : public XbmcCommons::ILogger
-  {
-  public:
-    inline virtual void log(int logLevel, const char* message) { CLog::Log(logLevel,"%s",message); }
-  };
-}
 
 XBMC_GLOBAL_REF(CLog::CLogGlobals,g_log_globals);

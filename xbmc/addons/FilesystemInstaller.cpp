@@ -1,65 +1,27 @@
 /*
- *      Copyright (C) 2016 Team Kodi
- *      http://kodi.tv
+ *  Copyright (C) 2016-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 #include "FilesystemInstaller.h"
+
 #include "FileItem.h"
 #include "filesystem/Directory.h"
+#include "filesystem/File.h"
 #include "filesystem/SpecialProtocol.h"
-#include "utils/log.h"
 #include "utils/FileOperationJob.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
-#include "URL.h"
-
-#ifdef TARGET_POSIX
-#include "XTimeUtils.h"
-#endif
+#include "utils/log.h"
 
 using namespace XFILE;
 
-namespace
-{
-
-bool renameOrRetry(const std::string & source, const std::string & dest, const char * description)
-{
-  int count = 1;
-  bool result = false;
-  do
-  {
-    result = CFile::Rename(source, dest);
-    if (!result)
-    {
-      CLog::Log(LOGERROR, "Failed to move %s addon files from '%s' to '%s', retrying in 500ms",
-			          description, source.c_str(), dest.c_str());
-      Sleep(500);
-    }
-  } while (!result && count++ < 4);
-
-  return result;
-}
-
-} // end namespace unnamed
-
 CFilesystemInstaller::CFilesystemInstaller()
+  : m_addonFolder(CSpecialProtocol::TranslatePath("special://home/addons/")),
+    m_tempFolder(CSpecialProtocol::TranslatePath("special://home/addons/temp/"))
 {
-  m_addonFolder = CSpecialProtocol::TranslatePath("special://home/addons/");
-  m_tempFolder = CSpecialProtocol::TranslatePath("special://home/addons/temp/");
 }
 
 bool CFilesystemInstaller::InstallToFilesystem(const std::string& archive, const std::string& addonId)
@@ -80,12 +42,20 @@ bool CFilesystemInstaller::InstallToFilesystem(const std::string& archive, const
   bool hasOldData = CDirectory::Exists(addonFolder);
   if (hasOldData)
   {
-    if (!renameOrRetry(addonFolder, oldAddonData, "old"))
+    if (!CFile::Rename(addonFolder, oldAddonData))
+    {
+      CLog::Log(LOGERROR, "Failed to move old addon files from '%s' to '%s'", addonFolder.c_str(),
+                oldAddonData.c_str());
       return false;
+    }
   }
 
-  if (!renameOrRetry(newAddonData, addonFolder, "new"))
+  if (!CFile::Rename(newAddonData, addonFolder))
+  {
+    CLog::Log(LOGERROR, "Failed to move new addon files from '%s' to '%s'", newAddonData.c_str(),
+              addonFolder.c_str());
     return false;
+  }
 
   if (hasOldData)
   {
@@ -102,7 +72,8 @@ bool CFilesystemInstaller::UnInstallFromFilesystem(const std::string& addonFolde
   std::string tempFolder = URIUtils::AddFileToFolder(m_tempFolder, StringUtils::CreateUUID());
   if (!CFile::Rename(addonFolder, tempFolder))
   {
-    CLog::Log(LOGERROR, "Failed to move old addon files from '%s' to '%s'", addonFolder.c_str(), tempFolder.c_str());
+    CLog::Log(LOGERROR, "Failed to move old addon files from '%s' to '%s'", addonFolder.c_str(),
+              tempFolder.c_str());
     return false;
   }
 

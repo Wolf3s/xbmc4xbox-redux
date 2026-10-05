@@ -26,7 +26,7 @@ class CNetworkLocation
 public:
   CNetworkLocation() { id = 0; };
   int id;
-  CStdString path;
+  std::string path;
 };
 
 class CMediaManager
@@ -40,13 +40,33 @@ public:
   void GetLocalDrives(VECSOURCES &localDrives, bool includeQ = true);
   void GetNetworkLocations(VECSOURCES &locations);
 
-  bool AddNetworkLocation(const CStdString &path);
-  bool HasLocation(const CStdString& path) const;
-  bool RemoveLocation(const CStdString& path);
-  bool SetLocationPath(const CStdString& oldPath, const CStdString& newPath);
+  bool AddNetworkLocation(const std::string &path);
+  bool HasLocation(const std::string& path) const;
+  bool RemoveLocation(const std::string& path);
+  bool SetLocationPath(const std::string& oldPath, const std::string& newPath);
+
 protected:
   std::vector<CNetworkLocation> m_locations;
-};
 
-extern class CMediaManager g_mediaManager;
+private:
+  /*! \brief Loads the addon sources for the different supported browsable addon types
+   */
+  void LoadAddonSources() const;
+
+  /*! \brief Get the addons root source for the given content type
+   \param type the type of addon content desired
+   \return the given CMediaSource for the addon root directory
+   */
+  CMediaSource GetRootAddonTypeSource(const std::string& type) const;
+
+  /*! \brief Generate the addons source for the given content type
+   \param type the type of addon content desired
+   \param label the name of the addons source
+   \param thumb image to use as the icon
+   \return the given CMediaSource for the addon root directory
+   */
+  CMediaSource ComputeRootAddonTypeSource(const std::string& type,
+                                          const std::string& label,
+                                          const std::string& thumb) const;
+};
 

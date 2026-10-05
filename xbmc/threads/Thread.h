@@ -29,19 +29,10 @@
 #include "Event.h"
 #include "threads/ThreadImpl.h"
 #include "threads/ThreadLocal.h"
-#include "commons/ilog.h"
 
 #ifdef TARGET_DARWIN
 #include <mach/mach.h>
 #endif
-
-class IRunnable
-{
-public:
-  virtual void Run()=0;
-  virtual void Cancel() {};
-  virtual ~IRunnable() {}
-};
 
 #ifdef _XBOX
 #undef GetCurrentThread
@@ -52,10 +43,10 @@ public:
 
 namespace XbmcThreads { class ThreadSettings; }
 
+class IRunnable;
+
 class CThread
 {
-  static XbmcCommons::ILogger* logger;
-
 protected:
   CThread(const char* ThreadName);
 
@@ -87,8 +78,6 @@ public:
   static bool IsCurrentThread(const ThreadIdentifier tid);
   static ThreadIdentifier GetCurrentThreadId();
   static CThread* GetCurrentThread();
-  static inline void SetLogger(XbmcCommons::ILogger* logger_) { CThread::logger = logger_; }
-  static inline XbmcCommons::ILogger* GetLogger() { return CThread::logger; }
 
   virtual void OnException(){} // signal termination handler
 protected:

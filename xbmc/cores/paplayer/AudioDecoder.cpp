@@ -20,13 +20,18 @@
 
 #include "AudioDecoder.h"
 #include "CodecFactory.h"
-#include "Application.h"
+#include "ServiceBroker.h"
+#include "application/ApplicationComponents.h"
+#include "application/ApplicationVolumeHandling.h"
 #include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "FileItem.h"
 #include "threads/SingleLock.h"
 #include "utils/log.h"
 
-#include "defs_from_settings.h"
+#define REPLAY_GAIN_NONE 0
+#define REPLAY_GAIN_ALBUM 1
+#define REPLAY_GAIN_TRACK 2
 
 #define INTERNAL_BUFFER_LENGTH  sizeof(float)*2*44100       // float samples, 2 channels, 44100 samples per sec = 1 second
 
@@ -76,13 +81,13 @@ bool CAudioDecoder::Create(const CFileItem &file, __int64 seekOffset, unsigned i
   m_eof = false;
 
   // get correct cache size
-  unsigned int filecache = CSettings::GetInstance().GetInt("cacheaudio.internet");
+  unsigned int filecache = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("cacheaudio.internet");
   if ( file.IsHD() )
-    filecache = CSettings::GetInstance().GetInt("cache.harddisk");
+    filecache = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("cache.harddisk");
   else if ( file.IsOnDVD() )
-    filecache = CSettings::GetInstance().GetInt("cacheaudio.dvdrom");
+    filecache = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("cacheaudio.dvdrom");
   else if ( file.IsOnLAN() )
-    filecache = CSettings::GetInstance().GetInt("cacheaudio.lan");
+    filecache = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("cacheaudio.lan");
 
   // create our codec
   m_codec=CodecFactory::CreateCodecDemux(file.GetPath(), file.GetMimeType(), filecache * 1024);
@@ -123,7 +128,7 @@ __int64 CAudioDecoder::Seek(__int64 time)
   return m_codec->Seek(time);
 }
 
-__int64 CAudioDecoder::TotalTime()
+__int64 CAudioDecoder::TotalTime() const
 {
   if (m_codec)
     return m_codec->m_TotalTime;
@@ -213,7 +218,7 @@ int CAudioDecoder::ReadSamples(int numsamples)
     else
       result = ReadPCMSamples(m_inputBuffer, numsamples, &actualsamples);
 
-    if ( result != READ_ERROR && actualsamples ) 
+    if ( result != READ_ERROR && actualsamples )
     {
       // do any post processing of the audio (eg replaygain etc.)
       ProcessAudio(m_inputBuffer, actualsamples);
@@ -257,7 +262,10 @@ int CAudioDecoder::ReadSamples(int numsamples)
 
 void CAudioDecoder::ProcessAudio(float *data, int numsamples)
 {
-  const ReplayGainSettings &replayGainSettings = g_application.GetReplayGainSettings();
+  CApplicationComponents &components = CServiceBroker::GetAppComponents();
+  const boost::shared_ptr<CApplicationVolumeHandling> appVolume = components.GetComponent<CApplicationVolumeHandling>();
+
+  const CApplicationVolumeHandling::ReplayGainSettings &replayGainSettings = appVolume->GetReplayGainSettings();
   if (replayGainSettings.iType != REPLAY_GAIN_NONE)
   {
     float gainFactor = GetReplayGain();
@@ -274,7 +282,9 @@ void CAudioDecoder::ProcessAudio(float *data, int numsamples)
 float CAudioDecoder::GetReplayGain()
 {
 #define REPLAY_GAIN_DEFAULT_LEVEL 89.0f
-  const ReplayGainSettings &replayGainSettings = g_application.GetReplayGainSettings();
+  CApplicationComponents &components = CServiceBroker::GetAppComponents();
+  const boost::shared_ptr<CApplicationVolumeHandling> appVolume = components.GetComponent<CApplicationVolumeHandling>();
+  const CApplicationVolumeHandling::ReplayGainSettings &replayGainSettings = appVolume->GetReplayGainSettings();
   // Compute amount of gain
   float replaydB = (float)replayGainSettings.iNoGainPreAmp;
   float peak = 0.0f;

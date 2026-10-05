@@ -22,6 +22,7 @@
 
 #include <string>
 #include "utils/BitstreamStats.h"
+#include "utils/Geometry.h"
 #include "filesystem/IFileTypes.h"
 
 #include "FileItem.h"
@@ -48,7 +49,6 @@ namespace XFILE
 {
   class CFile;
 }
-class CPoint;
 
 class CDVDInputStream
 {
@@ -148,7 +148,7 @@ public:
    *  This could be used to throttle caching rate. Should
    *  be seen as only a hint
    */
-  virtual void SetReadRate(unsigned rate) {}
+  virtual void SetReadRate(uint32_t rate) {}
 
   /*! \brief Get the cache status
    \return true when cache status was succesfully obtained

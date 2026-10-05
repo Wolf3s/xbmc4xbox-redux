@@ -28,6 +28,7 @@
 #include "utils/SystemInfo.h"
 #endif
 #include "settings/AdvancedSettings.h"
+#include "settings/SettingsComponent.h"
 
 #include "threads/SystemClock.h"
 #include "interfaces/AnnouncementManager.h"
@@ -53,13 +54,13 @@ XBPython::XBPython()
   m_vecPlayerCallbackList.clear();
   m_vecMonitorCallbackList.clear();
 
-  ANNOUNCEMENT::CAnnouncementManager::GetInstance().AddAnnouncer(this);
+  CServiceBroker::GetAnnouncementManager()->AddAnnouncer(this);
 }
 
 XBPython::~XBPython()
 {
   XBMC_TRACE;
-  ANNOUNCEMENT::CAnnouncementManager::GetInstance().RemoveAnnouncer(this);
+  CServiceBroker::GetAnnouncementManager()->RemoveAnnouncer(this);
 }
 
 #define LOCK_AND_COPY(type, dest, src) \
@@ -72,85 +73,57 @@ XBPython::~XBPython()
 #define CHECK_FOR_ENTRY(l,v) \
   (l.hadSomethingRemoved ? (std::find(l.begin(),l.end(),v) != l.end()) : true)
 
-void XBPython::Announce(ANNOUNCEMENT::AnnouncementFlag flag, const char *sender, const char *message, const CVariant &data)
+void XBPython::Announce(ANNOUNCEMENT::AnnouncementFlag flag, const std::string& sender, const std::string& message, const CVariant &data)
 {
   if (flag & ANNOUNCEMENT::VideoLibrary)
   {
-   if (strcmp(message, "OnScanFinished") == 0)
+   if (message == "OnScanFinished")
      OnScanFinished("video");
-   else if (strcmp(message, "OnScanStarted") == 0)
+   else if (message == "OnScanStarted")
      OnScanStarted("video");
-   else if (strcmp(message, "OnCleanStarted") == 0)
+   else if (message == "OnCleanStarted")
      OnCleanStarted("video");
-   else if (strcmp(message, "OnCleanFinished") == 0)
+   else if (message == "OnCleanFinished")
      OnCleanFinished("video");
   }
   else if (flag & ANNOUNCEMENT::AudioLibrary)
   {
-   if (strcmp(message, "OnScanFinished") == 0)
+   if (message == "OnScanFinished")
      OnScanFinished("music");
-   else if (strcmp(message, "OnScanStarted") == 0)
+   else if (message == "OnScanStarted")
      OnScanStarted("music");
-   else if (strcmp(message, "OnCleanStarted") == 0)
+   else if (message == "OnCleanStarted")
      OnCleanStarted("music");
-   else if (strcmp(message, "OnCleanFinished") == 0)
+   else if (message == "OnCleanFinished")
      OnCleanFinished("music");
   }
   else if (flag & ANNOUNCEMENT::GUI)
   {
-   if (strcmp(message, "OnScreensaverDeactivated") == 0)
+   if (message == "OnScreensaverDeactivated")
      OnScreensaverDeactivated();
-   else if (strcmp(message, "OnScreensaverActivated") == 0)
+   else if (message == "OnScreensaverActivated")
      OnScreensaverActivated();
-   else if (strcmp(message, "OnDPMSDeactivated") == 0)
+   else if (message == "OnDPMSDeactivated")
      OnDPMSDeactivated();
-   else if (strcmp(message, "OnDPMSActivated") == 0)
+   else if (message == "OnDPMSActivated")
      OnDPMSActivated();
   }
 
-  std::string jsonData = CJSONVariantWriter::Write(data, g_advancedSettings.m_jsonOutputCompact);
+  std::string jsonData = CJSONVariantWriter::Write(data, CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_jsonOutputCompact);
   if (!jsonData.empty())
     OnNotification(sender, std::string(ANNOUNCEMENT::AnnouncementFlagToString(flag)) + "." + std::string(message), jsonData);
 }
 
 // message all registered callbacks that we started playing
-void XBPython::OnPlayBackStarted()
+void XBPython::OnPlayBackStarted(const CFileItem& file)
 {
   XBMC_TRACE;
   LOCK_AND_COPY(std::vector<void*>,tmp,m_vecPlayerCallbackList);
   for (PlayerCallbackList::iterator it = tmp.begin(); (it != tmp.end()); ++it)
   {
     if (CHECK_FOR_ENTRY(m_vecPlayerCallbackList, (*it)))
-      ((IPlayerCallback*)(*it))->OnPlayBackStarted();
+      ((IPlayerCallback*)(*it))->OnPlayBackStarted(file);
   }
-}
-
-// message all registered callbacks that we changed stream
-void XBPython::OnAVStarted(const CFileItem &file)
-{
-#ifndef _XBOX
-  XBMC_TRACE;
-  LOCK_AND_COPY(std::vector<void*>, tmp, m_vecPlayerCallbackList);
-  for (auto& it : tmp)
-  {
-    if (CHECK_FOR_ENTRY(m_vecPlayerCallbackList, it))
-      ((IPlayerCallback*)it)->OnAVStarted(file);
-  }
-#endif
-}
-
-// message all registered callbacks that we changed stream
-void XBPython::OnAVChange()
-{
-#ifndef _XBOX
-  XBMC_TRACE;
-  LOCK_AND_COPY(std::vector<void*>, tmp, m_vecPlayerCallbackList);
-  for (auto& it : tmp)
-  {
-    if (CHECK_FOR_ENTRY(m_vecPlayerCallbackList, it))
-      ((IPlayerCallback*)it)->OnAVChange();
-  }
-#endif
 }
 
 // message all registered callbacks that we paused playing
@@ -228,7 +201,7 @@ void XBPython::OnPlayBackSpeedChanged(int iSpeed)
 }
 
 // message all registered callbacks that player is seeking
-void XBPython::OnPlayBackSeek(int iTime, int seekOffset)
+void XBPython::OnPlayBackSeek(int64_t iTime, int64_t seekOffset)
 {
   XBMC_TRACE;
   LOCK_AND_COPY(std::vector<void*>,tmp,m_vecPlayerCallbackList);
@@ -528,7 +501,7 @@ void XBPython::Uninitialize()
   // don't handle any more announcements as most scripts are probably already
   // stopped and executing a callback on one of their already destroyed classes
   // would lead to a crash
-  ANNOUNCEMENT::CAnnouncementManager::GetInstance().RemoveAnnouncer(this);
+  CServiceBroker::GetAnnouncementManager()->RemoveAnnouncer(this);
 
   LOCK_AND_COPY(std::vector<PyElem>,tmpvec,m_vecPyList);
   m_vecPyList.clear();
@@ -696,7 +669,7 @@ void XBPython::OnScriptStarted(ILanguageInvoker *invoker)
   m_vecPyList.push_back(inf);
 }
 
-void XBPython::OnScriptAbortRequested(ILanguageInvoker *invoker)
+void XBPython::NotifyScriptAborting(ILanguageInvoker *invoker)
 {
   XBMC_TRACE;
 
@@ -710,7 +683,7 @@ void XBPython::OnScriptAbortRequested(ILanguageInvoker *invoker)
     if (CHECK_FOR_ENTRY(m_vecMonitorCallbackList, (*it)))
     {
       if (invokerId < 0 || (*it)->GetInvokerId() == invokerId)
-        (*it)->OnAbortRequested();
+        (*it)->AbortNotify();
     }
   }
 }

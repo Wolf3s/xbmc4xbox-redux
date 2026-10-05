@@ -1,50 +1,40 @@
 /*
- *      Copyright (C) 2005-2013 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include "system.h"
 #include "GUIWindow.h"
-#include "GUIWindowManager.h"
-#include "TextureManager.h"
-#include "settings/AdvancedSettings.h"
-#include "guilib/Key.h"
+
+#include "application/Application.h" // IsCurrentThread
+#include "GUIAudioManager.h"
+#include "GUIComponent.h"
 #include "GUIControlFactory.h"
 #include "GUIControlGroup.h"
-
-#include "addons/Skin.h"
 #include "GUIInfoManager.h"
-#include "utils/log.h"
-#include "threads/SingleLock.h"
-#include "utils/TimeUtils.h"
+#include "GUIWindowManager.h"
+#include "ServiceBroker.h"
+#include "TextureManager.h"
+#include "addons/Skin.h"
 #include "input/ButtonTranslator.h"
-#include "utils/XMLUtils.h"
-#include "GUIAudioManager.h"
-#include "Application.h"
+#include "input/actions/Action.h"
+#include "input/actions/ActionIDs.h"
 #include "messaging/ApplicationMessenger.h"
-#include "utils/Variant.h"
+#include "settings/AdvancedSettings.h"
+#include "settings/SettingsComponent.h"
+#include "threads/SingleLock.h"
+#include "utils/ColorUtils.h"
 #include "utils/StringUtils.h"
+#include "utils/TimeUtils.h"
+#include "utils/Variant.h"
+#include "utils/XMLUtils.h"
+#include "utils/log.h"
 
-#ifdef HAS_PERFORMANCE_SAMPLE
-#include "utils/PerformanceSample.h"
-#endif
+#include <boost/move/make_unique.hpp>
 
-using namespace KODI::MESSAGING;
+using namespace KODI;
 
 bool CGUIWindow::icompare::operator()(const std::string &s1, const std::string &s2) const
 {
@@ -53,7 +43,7 @@ bool CGUIWindow::icompare::operator()(const std::string &s1, const std::string &
 
 CGUIWindow::CGUIWindow(int id, const std::string &xmlFile)
 {
-  SetID(id);
+  CGUIWindow::SetID(id);
   SetProperty("xmlfile", xmlFile);
   m_lastControlID = 0;
   m_needsScaling = true;
@@ -66,31 +56,23 @@ CGUIWindow::CGUIWindow(int id, const std::string &xmlFile)
   m_previousWindow = WINDOW_INVALID;
   m_animationsEnabled = true;
   m_manualRunActions = false;
-  m_exclusiveMouseControl = 0;
   m_clearBackground = 0xff000000; // opaque black -> always clear
-  m_windowXMLRootElement = NULL;
   m_menuControlID = 0;
   m_menuLastFocusedControlID = 0;
   m_custom = false;
 }
 
-CGUIWindow::~CGUIWindow(void)
+CGUIWindow::~CGUIWindow()
 {
-  delete m_windowXMLRootElement;
 }
 
 bool CGUIWindow::Load(const std::string& strFileName, bool bContainsPath)
 {
-#ifdef HAS_PERFORMANCE_SAMPLE
-  CPerformanceSample aSample("WindowLoad-" + strFileName, true);
-#endif
-
-  if (m_windowLoaded || g_SkinInfo == NULL)
+  if (m_windowLoaded || !g_SkinInfo)
     return true;      // no point loading if it's already there
 
 #ifdef _DEBUG
-  int64_t start;
-  start = CurrentHostCounter();
+  int64_t start = CurrentHostCounter();
 #endif
 
   const char* strLoadType;
@@ -130,10 +112,9 @@ bool CGUIWindow::Load(const std::string& strFileName, bool bContainsPath)
     OnWindowLoaded();
 
 #ifdef _DEBUG
-    int64_t end, freq;
-    end = CurrentHostCounter();
-    freq = CurrentHostFrequency();
-    CLog::Log(LOGDEBUG, "Skin file %s loaded in %.2fms", strPath.c_str(), 1000.f * (end - start) / freq);
+    int64_t end = CurrentHostCounter();
+    int64_t freq = CurrentHostFrequency();
+    CLog::Log(LOGDEBUG, "Skin file %s loaded in %.2f ms", strPath.c_str(), 1000.f * (end - start) / freq);
 #endif
   }
 
@@ -150,7 +131,8 @@ bool CGUIWindow::LoadXML(const std::string &strPath, const std::string &strLower
     StringUtils::ToLower(strPathLower);
     if (!xmlDoc.LoadFile(strPath) && !xmlDoc.LoadFile(strPathLower) && !xmlDoc.LoadFile(strLowerPath))
     {
-      CLog::Log(LOGERROR, "Unable to load window XML: %s. Line %d\n%s", strPath.c_str(), xmlDoc.ErrorRow(), xmlDoc.ErrorDesc());
+      CLog::Log(LOGERROR, "Unable to load window XML: %s. Line %i\n%s", strPath.c_str(), xmlDoc.ErrorRow(),
+                xmlDoc.ErrorDesc());
       SetID(WINDOW_INVALID);
       return false;
     }
@@ -158,12 +140,13 @@ bool CGUIWindow::LoadXML(const std::string &strPath, const std::string &strLower
     // xml need a <window> root element
     if (!StringUtils::EqualsNoCase(xmlDoc.RootElement()->Value(), "window"))
     {
-      CLog::Log(LOGERROR, "XML file %s does not contain a <window> root element", GetProperty("xmlfile").c_str());
+      CLog::Log(LOGERROR, "XML file %s does not contain a <window> root element",
+                GetProperty("xmlfile").asString().c_str());
       return false;
     }
 
     // store XML for further processing if window's load type is LOAD_EVERY_TIME or a reload is needed
-    m_windowXMLRootElement = static_cast<TiXmlElement*>(xmlDoc.RootElement()->Clone());
+    m_windowXMLRootElement.reset(static_cast<TiXmlElement*>(xmlDoc.RootElement()->Clone()));
   }
   else
     CLog::Log(LOGDEBUG, "Using already stored xml root node for %s", strPath.c_str());
@@ -171,13 +154,13 @@ bool CGUIWindow::LoadXML(const std::string &strPath, const std::string &strLower
   return Load(Prepare(m_windowXMLRootElement).get());
 }
 
-boost::movelib::unique_ptr<TiXmlElement> CGUIWindow::Prepare(TiXmlElement *pRootElement)
+boost::movelib::unique_ptr<TiXmlElement> CGUIWindow::Prepare(const boost::movelib::unique_ptr<TiXmlElement>& rootElement)
 {
-  if (!pRootElement)
+  if (!rootElement)
     return NULL;
 
-  // clone the root element as we will manipulate it
-  boost::movelib::unique_ptr<TiXmlElement> preparedRoot = boost::movelib::unique_ptr<TiXmlElement>(static_cast<TiXmlElement*>(pRootElement->Clone()));
+  // copy the root element as we will manipulate it
+  boost::movelib::unique_ptr<TiXmlElement> preparedRoot = boost::movelib::make_unique<TiXmlElement>(*rootElement);
 
   // Resolve any includes, constants, expressions that may be present
   // and save include's conditions to the given map
@@ -193,7 +176,7 @@ bool CGUIWindow::Load(TiXmlElement *pRootElement)
 
   // set the scaling resolution so that any control creation or initialisation can
   // be done with respect to the correct aspect ratio
-  g_graphicsContext.SetScalingResolution(m_coordsRes, m_needsScaling);
+  CServiceBroker::GetWinSystem()->GetGfxContext().SetScalingResolution(m_coordsRes, m_needsScaling);
 
   // now load in the skin file
   SetDefaults();
@@ -201,7 +184,8 @@ bool CGUIWindow::Load(TiXmlElement *pRootElement)
   CGUIControlFactory::GetInfoColor(pRootElement, "backgroundcolor", m_clearBackground, GetID());
   CGUIControlFactory::GetActions(pRootElement, "onload", m_loadActions);
   CGUIControlFactory::GetActions(pRootElement, "onunload", m_unloadActions);
-  CGUIControlFactory::GetHitRect(pRootElement, m_hitRect);
+  CRect parentRect(0, 0, static_cast<float>(m_coordsRes.iWidth), static_cast<float>(m_coordsRes.iHeight));
+  CGUIControlFactory::GetHitRect(pRootElement, m_hitRect, parentRect);
 
   TiXmlElement *pChild = pRootElement->FirstChildElement();
   while (pChild)
@@ -214,7 +198,7 @@ bool CGUIWindow::Load(TiXmlElement *pRootElement)
     else if (strValue == "defaultcontrol" && pChild->FirstChild())
     {
       const char *always = pChild->Attribute("always");
-      if (always && strcmpi(always, "true") == 0)
+      if (always && StringUtils::EqualsNoCase(always, "true"))
         m_defaultAlways = true;
       m_defaultControl = atoi(pChild->FirstChild()->Value());
     }
@@ -233,11 +217,11 @@ bool CGUIWindow::Load(TiXmlElement *pRootElement)
         m_visibleCondition.reset();
       }
 #endif
-      m_visibleCondition = g_infoManager.Register(condition, GetID());
+      m_visibleCondition = CServiceBroker::GetGUI()->GetInfoManager().Register(condition, GetID());
     }
     else if (strValue == "animation" && pChild->FirstChild())
     {
-      CRect rect(0, 0, (float)m_coordsRes.iWidth, (float)m_coordsRes.iHeight);
+      CRect rect(0, 0, static_cast<float>(m_coordsRes.iWidth), static_cast<float>(m_coordsRes.iHeight));
       CAnimation anim;
       anim.Create(pChild, rect, GetID());
       m_animations.push_back(anim);
@@ -257,33 +241,28 @@ bool CGUIWindow::Load(TiXmlElement *pRootElement)
       while (originElement)
       {
         COrigin origin;
-        originElement->QueryFloatAttribute("x", &origin.x);
-        originElement->QueryFloatAttribute("y", &origin.y);
+        origin.x = CGUIControlFactory::ParsePosition(originElement->Attribute("x"), static_cast<float>(m_coordsRes.iWidth));
+        origin.y = CGUIControlFactory::ParsePosition(originElement->Attribute("y"), static_cast<float>(m_coordsRes.iHeight));
         if (originElement->FirstChild())
-          origin.condition = g_infoManager.Register(originElement->FirstChild()->Value(), GetID());
+          origin.condition = CServiceBroker::GetGUI()->GetInfoManager().Register(originElement->FirstChild()->Value(), GetID());
         m_origins.push_back(origin);
         originElement = originElement->NextSiblingElement("origin");
       }
     }
     else if (strValue == "camera")
     { // z is fixed
-      pChild->QueryFloatAttribute("x", &m_camera.x);
-      pChild->QueryFloatAttribute("y", &m_camera.y);
+      m_camera.x = CGUIControlFactory::ParsePosition(pChild->Attribute("x"), static_cast<float>(m_coordsRes.iWidth));
+      m_camera.y = CGUIControlFactory::ParsePosition(pChild->Attribute("y"), static_cast<float>(m_coordsRes.iHeight));
       m_hasCamera = true;
-    }
-    else if (strValue == "depth" && pChild->FirstChild())
-    {
-      float stereo = (float)atof(pChild->FirstChild()->Value());;
-      m_stereo = std::max(-1.f, std::min(1.f, stereo));
     }
     else if (strValue == "controls")
     {
       TiXmlElement *pControl = pChild->FirstChildElement();
       while (pControl)
       {
-        if (strcmpi(pControl->Value(), "control") == 0)
+        if (StringUtils::EqualsNoCase(pControl->Value(), "control"))
         {
-          LoadControl(pControl, NULL, CRect(0, 0, (float)m_coordsRes.iWidth, (float)m_coordsRes.iHeight));
+          LoadControl(pControl, nullptr, CRect(0, 0, static_cast<float>(m_coordsRes.iWidth), static_cast<float>(m_coordsRes.iHeight)));
         }
         pControl = pControl->NextSiblingElement();
       }
@@ -322,7 +301,7 @@ void CGUIWindow::LoadControl(TiXmlElement* pControl, CGUIControlGroup *pGroup, c
     // if the new control is a group, then add it's controls
     if (pGUIControl->IsGroup())
     {
-      CGUIControlGroup *grp = (CGUIControlGroup *)pGUIControl;
+      CGUIControlGroup *grp = static_cast<CGUIControlGroup*>(pGUIControl);
       TiXmlElement *pSubControl = pControl->FirstChildElement("control");
       CRect grpRect(grp->GetXPosition(), grp->GetYPosition(),
                     grp->GetXPosition() + grp->GetWidth(), grp->GetYPosition() + grp->GetHeight());
@@ -348,10 +327,13 @@ void CGUIWindow::CenterWindow()
 
 void CGUIWindow::DoProcess(unsigned int currentTime, CDirtyRegionList &dirtyregions)
 {
-  g_graphicsContext.SetRenderingResolution(m_coordsRes, m_needsScaling);
-  g_graphicsContext.AddGUITransform();
+  if (!IsControlDirty() && CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_guiSmartRedraw)
+    return;
+
+  CServiceBroker::GetWinSystem()->GetGfxContext().SetRenderingResolution(m_coordsRes, m_needsScaling);
+  CServiceBroker::GetWinSystem()->GetGfxContext().AddGUITransform();
   CGUIControlGroup::DoProcess(currentTime, dirtyregions);
-  g_graphicsContext.RemoveTransform();
+  CServiceBroker::GetWinSystem()->GetGfxContext().RemoveTransform();
 
   // check if currently focused control can have it
   // and fallback to default control if not
@@ -368,11 +350,11 @@ void CGUIWindow::DoRender()
   // to occur.
   if (!m_bAllocated) return;
 
-  g_graphicsContext.SetRenderingResolution(m_coordsRes, m_needsScaling);
+  CServiceBroker::GetWinSystem()->GetGfxContext().SetRenderingResolution(m_coordsRes, m_needsScaling);
 
-  g_graphicsContext.AddGUITransform();
+  CServiceBroker::GetWinSystem()->GetGfxContext().AddGUITransform();
   CGUIControlGroup::DoRender();
-  g_graphicsContext.RemoveTransform();
+  CServiceBroker::GetWinSystem()->GetGfxContext().RemoveTransform();
 }
 
 void CGUIWindow::AfterRender()
@@ -388,18 +370,20 @@ void CGUIWindow::AfterRender()
 
 void CGUIWindow::Close_Internal(bool forceClose /*= false*/, int nextWindowID /*= 0*/, bool enableSound /*= true*/)
 {
-  CSingleLock lock(g_graphicsContext);
+  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
   if (!m_active)
     return;
 
-  forceClose |= (nextWindowID == WINDOW_FULLSCREEN_VIDEO);
+  forceClose |= (nextWindowID == WINDOW_FULLSCREEN_VIDEO ||
+                 nextWindowID == WINDOW_FULLSCREEN_GAME);
+
   if (!forceClose && HasAnimation(ANIM_TYPE_WINDOW_CLOSE))
   {
     if (!m_closing)
     {
       if (enableSound && IsSoundEnabled())
-        g_audioManager.PlayWindowSound(GetID(), SOUND_DEINIT);
+        CServiceBroker::GetGUI()->GetAudioManager().PlayWindowSound(GetID(), SOUND_DEINIT);
 
       // Perform the window out effect
       QueueAnimation(ANIM_TYPE_WINDOW_CLOSE);
@@ -416,18 +400,20 @@ void CGUIWindow::Close_Internal(bool forceClose /*= false*/, int nextWindowID /*
 void CGUIWindow::Close(bool forceClose /*= false*/, int nextWindowID /*= 0*/, bool enableSound /*= true*/, bool bWait /* = true */)
 {
 #ifdef HAS_XBOX_D3D
-  if (!g_application.IsCurrentThread() && !g_graphicsContext.IsFullScreenVideo())
+  if (!CServiceBroker::GetAppMessenger()->IsProcessThread() && !CServiceBroker::GetWinSystem()->GetGfxContext().IsFullScreenVideo())
 #else
-  if (!g_application.IsCurrentThread())
+  if (!CServiceBroker::GetAppMessenger()->IsProcessThread())
 #endif
   {
     // make sure graphics lock is not held
-    CSingleExit leaveIt(g_graphicsContext);
+    CSingleExit leaveIt(CServiceBroker::GetWinSystem()->GetGfxContext());
     int param2 = (forceClose ? 0x01 : 0) | (enableSound ? 0x02 : 0);
     if (bWait)
-      CApplicationMessenger::Get().SendMsg(TMSG_GUI_WINDOW_CLOSE, nextWindowID, param2, static_cast<void*>(this));
+      CServiceBroker::GetAppMessenger()->SendMsg(TMSG_GUI_WINDOW_CLOSE, nextWindowID, param2,
+                                                 static_cast<void*>(this));
     else
-      CApplicationMessenger::Get().PostMsg(TMSG_GUI_WINDOW_CLOSE, nextWindowID, param2, static_cast<void*>(this));
+      CServiceBroker::GetAppMessenger()->PostMsg(TMSG_GUI_WINDOW_CLOSE, nextWindowID, param2,
+                                                 static_cast<void*>(this));
   }
   else
     Close_Internal(forceClose, nextWindowID, enableSound);
@@ -441,8 +427,12 @@ bool CGUIWindow::OnAction(const CAction &action)
   CGUIControl *focusedControl = GetFocusedControl();
   if (focusedControl)
   {
-    if (focusedControl->OnAction(action))
-      return true;
+    while (focusedControl && focusedControl != this)
+    {
+      if (focusedControl->OnAction(action))
+        return true;
+      focusedControl = focusedControl->GetParentControl();
+    }
   }
   else
   {
@@ -497,7 +487,7 @@ CPoint CGUIWindow::GetPosition() const
   for (unsigned int i = 0; i < m_origins.size(); i++)
   {
     // no condition implies true
-    if (!m_origins[i].condition || m_origins[i].condition->Get())
+    if (!m_origins[i].condition || m_origins[i].condition->Get(INFO::DEFAULT_CONTEXT))
     { // found origin
       return CPoint(m_origins[i].x, m_origins[i].y);
     }
@@ -517,7 +507,7 @@ void CGUIWindow::OnInitWindow()
 {
   //  Play the window specific init sound
   if (IsSoundEnabled())
-    g_audioManager.PlayWindowSound(GetID(), SOUND_INIT);
+    CServiceBroker::GetGUI()->GetAudioManager().PlayWindowSound(GetID(), SOUND_INIT);
 
   // set our rendered state
   m_hasProcessed = false;
@@ -569,8 +559,8 @@ bool CGUIWindow::OnMessage(CGUIMessage& message)
 
   case GUI_MSG_WINDOW_INIT:
     {
-      CLog::Log(LOGDEBUG, "------ Window Init (%s) ------", GetProperty("xmlfile").c_str());
-      if (m_dynamicResourceAlloc || !m_bAllocated) AllocResources();
+      CLog::Log(LOGDEBUG, "------ Window Init (%s) ------", GetProperty("xmlfile").asString().c_str());
+      if (m_dynamicResourceAlloc || !m_bAllocated) AllocResources(false);
       OnInitWindow();
       return true;
     }
@@ -578,27 +568,13 @@ bool CGUIWindow::OnMessage(CGUIMessage& message)
 
   case GUI_MSG_WINDOW_DEINIT:
     {
-      CLog::Log(LOGDEBUG, "------ Window Deinit (%s) ------", GetProperty("xmlfile").c_str());
+      CLog::Log(LOGDEBUG, "------ Window Deinit (%s) ------", GetProperty("xmlfile").asString().c_str());
       OnDeinitWindow(message.GetParam1());
       // now free the window
-      if (m_dynamicResourceAlloc) FreeResources(!g_advancedSettings.m_guiKeepInMemory);
+      if (m_dynamicResourceAlloc) FreeResources();
       return true;
     }
     break;
-
-  case GUI_MSG_CLICKED:
-    {
-      // a specific control was clicked
-      CLICK_EVENT clickEvent = m_mapClickEvents[ message.GetSenderId() ];
-
-      // determine if there are any handlers for this event
-      if (clickEvent.HasAHandler())
-      {
-        // fire the message to all handlers
-        clickEvent.Fire(message);
-      }
-      break;
-    }
 
   case GUI_MSG_UNFOCUS_ALL:
     {
@@ -609,29 +585,25 @@ bool CGUIWindow::OnMessage(CGUIMessage& message)
         //tell focused control that it has lost the focus
         CGUIMessage msgLostFocus(GUI_MSG_LOSTFOCUS, GetID(), control->GetID(), control->GetID());
         control->OnMessage(msgLostFocus);
-        CLog::Log(LOGDEBUG, "Unfocus WindowID: %i, ControlID: %i",GetID(), control->GetID());
+        CLog::Log(LOGDEBUG, "Unfocus WindowID: %i, ControlID: %i", GetID(), control->GetID());
       }
       return true;
     }
 
-  case GUI_MSG_SELCHANGED:
-    {
-      // a selection within a specific control has changed
-      SELECTED_EVENT selectedEvent = m_mapSelectedEvents[ message.GetSenderId() ];
-
-      // determine if there are any handlers for this event
-      if (selectedEvent.HasAHandler())
-      {
-        // fire the message to all handlers
-        selectedEvent.Fire(message);
-      }
-      break;
-    }
   case GUI_MSG_FOCUSED:
     { // a control has been focused
       if (HasID(message.GetSenderId()))
       {
         m_focusedControl = message.GetControlId();
+        // We ensure that all others childrens have focus disabled,
+        // this can happen when one control overlap the other one in the same
+        // coordinates with similar sizes and the mouse pointer is over them
+        // in this case only the control in the highest layer will have the focus
+        for (iControls it = m_children.begin(); it != m_children.end(); ++it)
+        {
+          if ((*it)->GetID() != m_focusedControl)
+            (*it)->SetFocus(false);
+        }
         return true;
       }
       break;
@@ -649,7 +621,6 @@ bool CGUIWindow::OnMessage(CGUIMessage& message)
     }
   case GUI_MSG_SETFOCUS:
     {
-//      CLog::Log(LOGDEBUG,"set focus to control:%i window:%i (%i)\n", message.GetControlId(),message.GetSenderId(), GetID());
       if ( message.GetControlId() )
       {
         // first unfocus the current control
@@ -671,17 +642,11 @@ bool CGUIWindow::OnMessage(CGUIMessage& message)
       return true;
     }
     break;
-  case GUI_MSG_EXCLUSIVE_MOUSE:
-    {
-      m_exclusiveMouseControl = message.GetSenderId();
-      return true;
-    }
-    break;
   case GUI_MSG_ADD_CONTROL:
     {
       if (message.GetPointer())
       {
-        CGUIControl *control = (CGUIControl *)message.GetPointer();
+        CGUIControl *control = static_cast<CGUIControl*>(message.GetPointer());
         control->AllocResources();
         AddControl(control);
       }
@@ -691,7 +656,7 @@ bool CGUIWindow::OnMessage(CGUIMessage& message)
     {
       if (message.GetPointer())
       {
-        CGUIControl *control = (CGUIControl *)message.GetPointer();
+        CGUIControl *control = static_cast<CGUIControl*>(message.GetPointer());
         RemoveControl(control);
         control->FreeResources(true);
         delete control;
@@ -704,9 +669,9 @@ bool CGUIWindow::OnMessage(CGUIMessage& message)
       if (HasID(message.GetSenderId()) || !message.GetSenderId())
       {
         if (message.GetParam1() == GUI_MSG_PAGE_CHANGE ||
-            message.GetParam1() == GUI_MSG_REFRESH_THUMBS ||
-            message.GetParam1() == GUI_MSG_REFRESH_LIST ||
-            message.GetParam1() == GUI_MSG_WINDOW_RESIZE)
+          message.GetParam1() == GUI_MSG_REFRESH_THUMBS ||
+          message.GetParam1() == GUI_MSG_REFRESH_LIST ||
+          message.GetParam1() == GUI_MSG_WINDOW_RESIZE)
         { // alter the message accordingly, and send to all controls
           for (iControls it = m_children.begin(); it != m_children.end(); ++it)
           {
@@ -715,26 +680,27 @@ bool CGUIWindow::OnMessage(CGUIMessage& message)
             control->OnMessage(msg);
           }
         }
+        else if (message.GetParam1() == GUI_MSG_STATE_CHANGED)
+          MarkDirtyRegion(DIRTY_STATE_CHILD); //Don't force an dirtyRect, we don't know if / what has changed.
       }
     }
     break;
   }
 
-  return SendControlMessage(message);
+  return CGUIControlGroup::OnMessage(message);
 }
 
 bool CGUIWindow::NeedLoad() const
 {
-  return !m_windowLoaded || g_infoManager.ConditionsChangedValues(m_xmlIncludeConditions);
+  return !m_windowLoaded || CServiceBroker::GetGUI()->GetInfoManager().ConditionsChangedValues(m_xmlIncludeConditions);
 }
 
-void CGUIWindow::AllocResources(bool forceLoad /*= FALSE */)
+void CGUIWindow::AllocResources(bool forceLoad /*= false */)
 {
-  CSingleLock lock(g_graphicsContext);
+  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
 #ifdef _DEBUG
-  int64_t start;
-  start = CurrentHostCounter();
+  int64_t start = CurrentHostCounter();
 #endif
   // use forceLoad to determine if window needs (re)loading
   forceLoad |= NeedLoad() || (m_loadType == LOAD_EVERY_TIME);
@@ -748,53 +714,52 @@ void CGUIWindow::AllocResources(bool forceLoad /*= FALSE */)
     std::string xmlFile = GetProperty("xmlfile").asString();
     if (xmlFile.size())
     {
-      bool bHasPath = xmlFile.find("\\") != std::string::npos || xmlFile.find("/") != std::string::npos;
+      bool bHasPath =
+          xmlFile.find('\\') != std::string::npos || xmlFile.find('/') != std::string::npos;
       Load(xmlFile, bHasPath);
     }
   }
 
 #ifdef _DEBUG
-  int64_t slend;
-  slend = CurrentHostCounter();
+  int64_t slend = CurrentHostCounter();
 #endif
 
   // and now allocate resources
 #ifdef HAS_XBOX_D3D
-  g_TextureManager.StartPreLoad();
+  CServiceBroker::GetGUI()->GetTextureManager().StartPreLoad();
   CGUIControlGroup::PreAllocResources();
-  g_TextureManager.EndPreLoad();
+  CServiceBroker::GetGUI()->GetTextureManager().EndPreLoad();
 #endif
   CGUIControlGroup::AllocResources();
 
 #ifdef HAS_XBOX_D3D
-  g_TextureManager.FlushPreLoad();
+  CServiceBroker::GetGUI()->GetTextureManager().FlushPreLoad();
 #endif
 #ifdef _DEBUG
-  int64_t end, freq;
-  end = CurrentHostCounter();
-  freq = CurrentHostFrequency();
+  int64_t end = CurrentHostCounter();
+  int64_t freq = CurrentHostFrequency();
+
   if (forceLoad)
-    CLog::Log(LOGDEBUG,"Alloc resources: %.2fms  (%.2f ms skin load)", 1000.f * (end - start) / freq, 1000.f * (slend - start) / freq);
+    CLog::Log(LOGDEBUG, "Alloc resources: %.2f ms (%.2f ms skin load)", 1000.f * (end - start) / freq, 1000.f * (slend - start) / freq);
   else
   {
-    CLog::Log(LOGDEBUG,"Window %s was already loaded", GetProperty("xmlfile").c_str());
-    CLog::Log(LOGDEBUG,"Alloc resources: %.2fms", 1000.f * (end - start) / freq);
+    CLog::Log(LOGDEBUG, "Window %s was already loaded", GetProperty("xmlfile").asString().c_str());
+    CLog::Log(LOGDEBUG, "Alloc resources: %.2f ms", 1000.f * (end - start) / freq);
   }
 #endif
   m_bAllocated = true;
 }
 
-void CGUIWindow::FreeResources(bool forceUnload /*= FALSE */)
+void CGUIWindow::FreeResources(bool forceUnload /*= false */)
 {
   m_bAllocated = false;
   CGUIControlGroup::FreeResources();
-  //g_TextureManager.Dump();
+  //CServiceBroker::GetGUI()->GetTextureManager().Dump();
   // unload the skin
   if (m_loadType == LOAD_EVERY_TIME || forceUnload) ClearAll();
   if (forceUnload)
   {
-    delete m_windowXMLRootElement;
-    m_windowXMLRootElement = NULL;
+    m_windowXMLRootElement.reset();
     m_xmlIncludeConditions.clear();
   }
 }
@@ -827,18 +792,18 @@ void CGUIWindow::ClearAll()
 
 bool CGUIWindow::Initialize()
 {
-  if (!g_windowManager.Initialized())
+  if (!CServiceBroker::GetGUI()->GetWindowManager().Initialized())
     return false;
   if (!NeedLoad())
     return true;
-  if (g_application.IsCurrentThread())
-    AllocResources();
+  if (CServiceBroker::GetAppMessenger()->IsProcessThread())
+    AllocResources(false);
   else
   {
     // if not app thread, send gui msg via app messenger
     // and wait for results, so windowLoaded flag would be updated
     CGUIMessage msg(GUI_MSG_WINDOW_LOAD, 0, 0);
-    CApplicationMessenger::Get().SendGUIMessage(msg, GetID(), true);
+    CServiceBroker::GetAppMessenger()->SendGUIMessage(msg, GetID(), true);
   }
   return m_windowLoaded;
 }
@@ -846,13 +811,15 @@ bool CGUIWindow::Initialize()
 void CGUIWindow::SetInitialVisibility()
 {
   // reset our info manager caches
-  g_infoManager.ResetCache();
+  CGUIInfoManager& infoMgr = CServiceBroker::GetGUI()->GetInfoManager();
+  infoMgr.ResetCache();
+  infoMgr.GetInfoProviders().GetGUIControlsInfoProvider().ResetContainerMovingCache();
   CGUIControlGroup::SetInitialVisibility();
 }
 
 bool CGUIWindow::IsActive() const
 {
-  return g_windowManager.IsWindowActive(GetID());
+  return CServiceBroker::GetGUI()->GetWindowManager().IsWindowActive(GetID());
 }
 
 bool CGUIWindow::CheckAnimation(ANIMATION_TYPE animType)
@@ -864,7 +831,7 @@ bool CGUIWindow::CheckAnimation(ANIMATION_TYPE animType)
       return false;
     // make sure we update our visibility prior to queuing the window close anim
     for (unsigned int i = 0; i < m_children.size(); i++)
-      m_children[i]->UpdateVisibility();
+      m_children[i]->UpdateVisibility(nullptr);
   }
   return true;
 }
@@ -913,7 +880,7 @@ bool CGUIWindow::ControlGroupHasFocus(int groupID, int controlID)
     {
       CGUIMessage message(GUI_MSG_ITEM_SELECTED, GetID(), group->GetID());
       group->OnMessage(message);
-      return (controlID == (int) message.GetParam1());
+      return (controlID == message.GetParam1());
     }
   }
   return false;
@@ -932,7 +899,7 @@ void CGUIWindow::RestoreControlStates()
 {
   for (std::vector<CControlState>::iterator it = m_controlStates.begin(); it != m_controlStates.end(); ++it)
   {
-    CGUIMessage message(GUI_MSG_ITEM_SELECT, GetID(), (*it).m_id, (*it).m_data);
+    CGUIMessage message(GUI_MSG_ITEM_SELECT, GetID(), it->m_id, it->m_data);
     OnMessage(message);
   }
   int focusControl = (!m_defaultAlways && m_lastControlID) ? m_lastControlID : m_defaultControl;
@@ -948,7 +915,7 @@ void CGUIWindow::ResetControlStates()
 
 bool CGUIWindow::OnBack(int actionID)
 {
-  g_windowManager.PreviousWindow();
+  CServiceBroker::GetGUI()->GetWindowManager().PreviousWindow();
   return true;
 }
 
@@ -958,8 +925,7 @@ bool CGUIWindow::OnMove(int fromControl, int moveAction)
   if (!control) control = GetControl(fromControl);
   if (!control)
   { // no current control??
-    CLog::Log(LOGERROR, "Unable to find control %i in window %u",
-              fromControl, GetID());
+    CLog::Log(LOGERROR, "Unable to find control %i in window %i", fromControl, GetID());
     return false;
   }
   std::vector<int> moveHistory;
@@ -1000,23 +966,22 @@ void CGUIWindow::SetDefaults()
   m_animations.clear();
   m_origins.clear();
   m_hasCamera = false;
-  m_stereo = 0.f;
   m_animationsEnabled = true;
   m_clearBackground = 0xff000000; // opaque black -> clear
-  m_hitRect.SetRect(0, 0, (float)m_coordsRes.iWidth, (float)m_coordsRes.iHeight);
+  m_hitRect.SetRect(0, 0, static_cast<float>(m_coordsRes.iWidth), static_cast<float>(m_coordsRes.iHeight));
   m_menuControlID = 0;
   m_menuLastFocusedControlID = 0;
 }
 
 CRect CGUIWindow::GetScaledBounds() const
 {
-  CSingleLock lock(g_graphicsContext);
-  g_graphicsContext.SetScalingResolution(m_coordsRes, m_needsScaling);
+  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  CServiceBroker::GetWinSystem()->GetGfxContext().SetScalingResolution(m_coordsRes, m_needsScaling);
   CPoint pos(GetPosition());
   CRect rect(pos.x, pos.y, pos.x + m_width, pos.y + m_height);
   float z = 0;
-  g_graphicsContext.ScaleFinalCoords(rect.x1, rect.y1, z);
-  g_graphicsContext.ScaleFinalCoords(rect.x2, rect.y2, z);
+  CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalCoords(rect.x1, rect.y1, z);
+  CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalCoords(rect.x2, rect.y2, z);
   return rect;
 }
 
@@ -1032,14 +997,13 @@ bool CGUIWindow::SendMessage(int message, int id, int param1 /* = 0*/, int param
   CGUIMessage msg(message, GetID(), id, param1, param2);
   return OnMessage(msg);
 }
-
+#ifdef _DEBUG
 void CGUIWindow::DumpTextureUse()
 {
-#ifdef _DEBUG
-  CLog::Log(LOGDEBUG, "%s for window %u", __FUNCTION__, GetID());
+  CLog::Log(LOGDEBUG, "%s for window %i", __FUNCTION__, GetID());
   CGUIControlGroup::DumpTextureUse();
-#endif
 }
+#endif
 
 void CGUIWindow::SetProperty(const std::string &strKey, const CVariant &value)
 {
@@ -1049,7 +1013,7 @@ void CGUIWindow::SetProperty(const std::string &strKey, const CVariant &value)
 
 CVariant CGUIWindow::GetProperty(const std::string &strKey) const
 {
-  CSingleLock lock(*this);
+  CSingleLock lock(const_cast<CGUIWindow&>(*this));
   std::map<std::string, CVariant, icompare>::const_iterator iter = m_mapProperties.find(strKey);
   if (iter == m_mapProperties.end())
     return CVariant(CVariant::VariantTypeNull);
@@ -1068,12 +1032,12 @@ void CGUIWindow::SetRunActionsManually()
   m_manualRunActions = true;
 }
 
-void CGUIWindow::RunLoadActions()
+void CGUIWindow::RunLoadActions() const
 {
   m_loadActions.ExecuteActions(GetID(), GetParentID());
 }
 
-void CGUIWindow::RunUnloadActions()
+void CGUIWindow::RunUnloadActions() const
 {
   m_unloadActions.ExecuteActions(GetID(), GetParentID());
 }
@@ -1081,9 +1045,9 @@ void CGUIWindow::RunUnloadActions()
 void CGUIWindow::ClearBackground()
 {
   m_clearBackground.Update();
-  color_t color = m_clearBackground;
+  UTILS::COLOR::Color color = m_clearBackground;
   if (color)
-    g_graphicsContext.Clear(color);
+    CServiceBroker::GetWinSystem()->GetGfxContext().Clear(color);
 }
 
 void CGUIWindow::SetID(int id)

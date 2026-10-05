@@ -1,61 +1,54 @@
 /*
- *      Copyright (C) 2005-2013 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "ApplicationMessenger.h"
-#include "Application.h"
 
+#include "guilib/GUIMessage.h"
+#include "messaging/IMessageTarget.h"
 #include "threads/SingleLock.h"
-#include "guilib/GraphicContext.h"
+#include "utils/log.h"
+#include "windowing/GraphicContext.h"
 
 #include <boost/make_shared.hpp>
+#include <utility>
 
 namespace KODI
 {
 namespace MESSAGING
 {
 
-CDelayedMessage::CDelayedMessage(ThreadMessage& msg, unsigned int delay) : CThread("DelayedMessage")
+class CDelayedMessage : public CThread
 {
-  m_msg = msg;
+  public:
+    CDelayedMessage(const ThreadMessage& msg, unsigned int delay);
+    virtual void Process();
 
+  private:
+    unsigned int   m_delay;
+    ThreadMessage  m_msg;
+};
+
+CDelayedMessage::CDelayedMessage(const ThreadMessage& msg, unsigned int delay)
+  : CThread("DelayedMessage"), m_msg(msg)
+{
   m_delay = delay;
 }
 
 void CDelayedMessage::Process()
 {
-  Sleep(m_delay);
+  CThread::Sleep(m_delay);
 
   if (!m_bStop)
-    CApplicationMessenger::Get().PostMsg(m_msg.dwMessage, m_msg.param1, m_msg.param1, m_msg.lpVoid, m_msg.strParam, m_msg.params);
+    CServiceBroker::GetAppMessenger()->PostMsg(m_msg.dwMessage, m_msg.param1, m_msg.param1,
+                                               m_msg.lpVoid, m_msg.strParam, m_msg.params);
 }
 
-
-CApplicationMessenger& CApplicationMessenger::Get()
-{
-  static CApplicationMessenger appMessenger;
-  return appMessenger;
-}
-
-CApplicationMessenger::CApplicationMessenger()
-{
-}
+CApplicationMessenger::CApplicationMessenger() : m_bStop(false) {}
 
 CApplicationMessenger::~CApplicationMessenger()
 {
@@ -64,7 +57,7 @@ CApplicationMessenger::~CApplicationMessenger()
 
 void CApplicationMessenger::Cleanup()
 {
-  CSingleLock lock (m_critSection);
+  CSingleLock lock(m_critSection);
 
   while (!m_vecMessages.empty())
   {
@@ -100,9 +93,9 @@ int CApplicationMessenger::SendMsg(ThreadMessage& message, bool wait)
     message.result = boost::make_shared<int>(-1);
     // check that we're not being called from our application thread, else we'll be waiting
     // forever!
-    if (!g_application.IsCurrentThread())
+    if (m_guiThreadId != CThread::GetCurrentThreadId())
     {
-      message.waitEvent.reset(new CEvent(true));
+      message.waitEvent = boost::make_shared<CEvent>(true);
       waitEvent = message.waitEvent;
       result = message.result;
     }
@@ -116,29 +109,36 @@ int CApplicationMessenger::SendMsg(ThreadMessage& message, bool wait)
   }
 
 
-  if (g_application.m_bStop)
+  if (m_bStop)
     return -1;
 
-  ThreadMessage* msg = new ThreadMessage(boost::move(message));
+  ThreadMessage* msg = new ThreadMessage(message);
 
-  CSingleLock lock (m_critSection);
+  CSingleLock lock(m_critSection);
 
   if (msg->dwMessage == TMSG_GUI_MESSAGE)
     m_vecWindowMessages.push(msg);
   else
     m_vecMessages.push(msg);
-  lock.Leave();  // this releases the lock on the vec of messages and
-                 //   allows the ProcessMessage to execute and therefore
-                 //   delete the message itself. Therefore any accesss
-                 //   of the message itself after this point consittutes
-                 //   a race condition (yarc - "yet another race condition")
-                 //
+  lock.unlock(); // this releases the lock on the vec of messages and
+      //   allows the ProcessMessage to execute and therefore
+      //   delete the message itself. Therefore any access
+      //   of the message itself after this point constitutes
+      //   a race condition (yarc - "yet another race condition")
+      //
   if (waitEvent) // ... it just so happens we have a spare reference to the
                  //  waitEvent ... just for such contingencies :)
   {
     // ensure the thread doesn't hold the graphics lock
-    CSingleExit exit(g_graphicsContext);
-    waitEvent->Wait();
+    CWinSystemBase* winSystem = CServiceBroker::GetWinSystem();
+    //! @todo This won't really help as winSystem can die every single
+    // moment on shutdown. A shared ptr would be a more valid solution
+    // depending on the design dependencies.
+    if (winSystem)
+    {
+      CSingleExit exit(winSystem->GetGfxContext());
+      waitEvent->Wait();
+    }
     return *result;
   }
 
@@ -147,7 +147,7 @@ int CApplicationMessenger::SendMsg(ThreadMessage& message, bool wait)
 
 int CApplicationMessenger::SendMsg(uint32_t messageId)
 {
-  return SendMsg(ThreadMessage( messageId ), true);
+   return SendMsg(ThreadMessage( messageId ), true);
 }
 
 int CApplicationMessenger::SendMsg(uint32_t messageId, int param1, int param2, void* payload)
@@ -157,17 +157,26 @@ int CApplicationMessenger::SendMsg(uint32_t messageId, int param1, int param2, v
 
 int CApplicationMessenger::SendMsg(uint32_t messageId, int param1, int param2, void* payload, std::string strParam)
 {
-  return SendMsg(ThreadMessage( messageId, param1, param2, payload, strParam, std::vector<std::string>() ), true);
+  return SendMsg(ThreadMessage(messageId, param1, param2, payload, strParam,
+                               std::vector<std::string>()),
+                 true);
 }
 
 int CApplicationMessenger::SendMsg(uint32_t messageId, int param1, int param2, void* payload, std::string strParam, std::vector<std::string> params)
 {
-  return SendMsg(ThreadMessage( messageId, param1, param2, payload, strParam, params ), true);
+  return SendMsg(
+      ThreadMessage(messageId, param1, param2, payload, strParam, params),
+      true);
 }
 
 void CApplicationMessenger::PostMsg(uint32_t messageId)
 {
   SendMsg(ThreadMessage( messageId ), false);
+}
+
+void CApplicationMessenger::PostMsg(uint32_t messageId, int64_t param3)
+{
+  SendMsg(ThreadMessage( messageId, param3 ), false);
 }
 
 void CApplicationMessenger::PostMsg(uint32_t messageId, int param1, int param2, void* payload)
@@ -177,18 +186,21 @@ void CApplicationMessenger::PostMsg(uint32_t messageId, int param1, int param2, 
 
 void CApplicationMessenger::PostMsg(uint32_t messageId, int param1, int param2, void* payload, std::string strParam)
 {
-  SendMsg(ThreadMessage( messageId, param1, param2, payload, strParam, std::vector<std::string>() ), false);
+  SendMsg(ThreadMessage(messageId, param1, param2, payload, strParam,
+                        std::vector<std::string>()),
+          false);
 }
 
 void CApplicationMessenger::PostMsg(uint32_t messageId, int param1, int param2, void* payload, std::string strParam, std::vector<std::string> params)
 {
-  SendMsg(ThreadMessage( messageId, param1, param2, payload, strParam, params ), false);
+  SendMsg(ThreadMessage(messageId, param1, param2, payload, strParam, params),
+          false);
 }
 
 void CApplicationMessenger::ProcessMessages()
 {
   // process threadmessages
-  CSingleLock lock (m_critSection);
+  CSingleLock lock(m_critSection);
   while (!m_vecMessages.empty())
   {
     ThreadMessage* pMsg = m_vecMessages.front();
@@ -199,7 +211,7 @@ void CApplicationMessenger::ProcessMessages()
     //thread call processmessages or sendmessage
 
     boost::shared_ptr<CEvent> waitEvent = pMsg->waitEvent;
-    lock.Leave(); // <- see the large comment in SendMessage ^
+    lock.unlock(); // <- see the large comment in SendMessage ^
 
     ProcessMessage(pMsg);
 
@@ -207,40 +219,28 @@ void CApplicationMessenger::ProcessMessages()
       waitEvent->Set();
     delete pMsg;
 
-    lock.Enter();
+    lock.lock();
   }
 }
 
 void CApplicationMessenger::ProcessMessage(ThreadMessage *pMsg)
 {
-  //special case for this that we handle ourselves
-  if (pMsg->dwMessage == TMSG_CALLBACK)
-  {
-    ThreadMessageCallback *callback = static_cast<ThreadMessageCallback*>(pMsg->lpVoid);
-    callback->callback(callback->userptr);
-    return;
-  }
-
   CSingleLock lock(m_critSection);
   int mask = pMsg->dwMessage & TMSG_MASK_MESSAGE;
 
-#ifdef _XBOX
-  // stupid C++98
-  std::map<int, IMessageTarget*>::iterator it = m_mapTargets.find(mask);
-  IMessageTarget* target = it != m_mapTargets.end() ? it->second : NULL;
-#else
-  IMessageTarget* target = m_mapTargets.at(mask);
-#endif
-  if (target != NULL)
+  const std::map<int, KODI::MESSAGING::IMessageTarget *>::iterator it = m_mapTargets.find(mask);
+  if (it != m_mapTargets.end())
   {
     CSingleExit exit(m_critSection);
-    target->OnApplicationMessage(pMsg);
+    it->second->OnApplicationMessage(pMsg);
   }
+  else
+    CLog::Log(LOGERROR, "receiver %i is not defined", mask);
 }
 
 void CApplicationMessenger::ProcessWindowMessages()
 {
-  CSingleLock lock (m_critSection);
+  CSingleLock lock(m_critSection);
   //message type is window, process window messages
   while (!m_vecWindowMessages.empty())
   {
@@ -251,14 +251,14 @@ void CApplicationMessenger::ProcessWindowMessages()
     // leave here in case we make more thread messages from this one
 
     boost::shared_ptr<CEvent> waitEvent = pMsg->waitEvent;
-    lock.Leave(); // <- see the large comment in SendMessage ^
+    lock.unlock(); // <- see the large comment in SendMessage ^
 
     ProcessMessage(pMsg);
     if (waitEvent)
       waitEvent->Set();
     delete pMsg;
 
-    lock.Enter();
+    lock.lock();
   }
 }
 
@@ -267,7 +267,7 @@ void CApplicationMessenger::SendGUIMessage(const CGUIMessage &message, int windo
   ThreadMessage tMsg(TMSG_GUI_MESSAGE);
   tMsg.param1 = windowID == WINDOW_INVALID ? 0 : windowID;
   tMsg.lpVoid = new CGUIMessage(message);
-  SendMsg(boost::move(tMsg), waitResult);
+  SendMsg(tMsg, waitResult);
 }
 
 void CApplicationMessenger::RegisterReceiver(IMessageTarget* target)
@@ -276,32 +276,9 @@ void CApplicationMessenger::RegisterReceiver(IMessageTarget* target)
   m_mapTargets.insert(std::make_pair(target->GetMessageMask(), target));
 }
 
-#ifdef _XBOX
-int CApplicationMessenger::SetResponse(std::string response)
+bool CApplicationMessenger::IsProcessThread() const
 {
-  CSingleLock lock (m_critBuffer);
-  bufferResponse=response;
-  lock.Leave();
-  return 0;
+  return m_processThreadId == CThread::GetCurrentThreadId();
 }
-
-std::string CApplicationMessenger::GetResponse()
-{
-  std::string tmp;
-  CSingleLock lock (m_critBuffer);
-  tmp=bufferResponse;
-  lock.Leave();
-  return tmp;
-}
-
-void CApplicationMessenger::HttpApi(std::string cmd, bool wait)
-{
-  SetResponse("");
-  ThreadMessage tMsg(TMSG_HTTPAPI);
-  tMsg.strParam = cmd;
-  SendMsg(boost::move(tMsg), wait);
-}
-#endif
-
 }
 }

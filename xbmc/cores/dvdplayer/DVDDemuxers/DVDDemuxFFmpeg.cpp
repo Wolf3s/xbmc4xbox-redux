@@ -17,7 +17,7 @@
  *  <http://www.gnu.org/licenses/>.
  *
  */
- 
+
 #include "system.h"
 #ifndef __STDC_CONSTANT_MACROS
 #define __STDC_CONSTANT_MACROS
@@ -32,6 +32,7 @@
 #include "DVDClock.h" // for DVD_TIME_BASE
 #include "commons/Exception.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/SettingsComponent.h"
 #include "filesystem/File.h"
 #include "filesystem/CurlFile.h"
 #include "filesystem/Directory.h"
@@ -88,20 +89,20 @@ void CDemuxStreamSubtitleFFmpeg::GetStreamInfo(std::string& strInfo)
 // these need to be put somewhere that are compiled, we should have some better place for it
 
 CCriticalSection DllAvCodec::m_critSection;
-std::map<DWORD, CStdString> g_logbuffer;
+std::map<DWORD, std::string> g_logbuffer;
 
 void ff_avutil_log(void* ptr, int level, const char* format, va_list va)
 {
   CSingleLock lock(DllAvCodec::m_critSection);
   DWORD threadId = GetCurrentThreadId();
-  CStdString &buffer = g_logbuffer[threadId];
+  std::string &buffer = g_logbuffer[threadId];
 
   AVClass* avc= ptr ? *(AVClass**)ptr : NULL;
 
-  if(level >= AV_LOG_DEBUG && 
-     (g_advancedSettings.m_extraLogLevels & LOGFFMPEG) == 0)
+  if(level >= AV_LOG_DEBUG &&
+     !CLog::CanLogComponent(LOGFFMPEG))
     return;
-  else if(g_advancedSettings.m_logLevel <= LOG_LEVEL_NORMAL)
+  else if(CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_logLevel <= LOG_LEVEL_NORMAL)
     return;
 
   int type;
@@ -113,16 +114,16 @@ void ff_avutil_log(void* ptr, int level, const char* format, va_list va)
     default            : type = LOGDEBUG;   break;
   }
 
-  CStdString message, prefix;
+  std::string message, prefix;
   message = StringUtils::FormatV(format, va);
 
-  prefix.Format("ffmpeg[%X]: ", threadId);
+  prefix = StringUtils::Format("ffmpeg[%X]: ", threadId);
   if(avc)
   {
     if(avc->item_name)
-      prefix += CStdString("[") + avc->item_name(ptr) + "] ";
+      prefix += std::string("[") + avc->item_name(ptr) + "] ";
     else if(avc->class_name)
-      prefix += CStdString("[") + avc->class_name + "] ";
+      prefix += std::string("[") + avc->class_name + "] ";
   }
 
   buffer += message;
@@ -143,9 +144,9 @@ static void ff_flush_avutil_log_buffers(void)
   /* Loop through the logbuffer list and remove any blank buffers
      If the thread using the buffer is still active, it will just
      add a new buffer next time it writes to the log */
-  std::map<DWORD, CStdString>::iterator it;
+  std::map<DWORD, std::string>::iterator it;
   for (it = g_logbuffer.begin(); it != g_logbuffer.end(); )
-    if ((*it).second.IsEmpty())
+    if ((*it).second.empty())
       g_logbuffer.erase(it++);
     else
       ++it;
@@ -296,7 +297,7 @@ bool CDVDDemuxFFmpeg::Open(CDVDInputStream* pInput)
       {
         url.SetProtocol("mmst");
         strFile = url.Get();
-      } 
+      }
     }
     if (result < 0 && m_dllAvFormat.avformat_open_input(&m_pFormatContext, strFile.c_str(), iformat, &options) < 0 )
     {
@@ -358,7 +359,7 @@ bool CDVDDemuxFFmpeg::Open(CDVDInputStream* pInput)
         // the advancedsetting is for allowing the user to force outputting the
         // 44.1 kHz DTS wav file as PCM, so that an A/V receiver can decode
         // it (this is temporary until we handle 44.1 kHz passthrough properly)
-        if (trySPDIFonly || (iformat && strcmp(iformat->name, "wav") == 0 && !g_advancedSettings.m_dvdplayerIgnoreDTSinWAV))
+        if (trySPDIFonly || (iformat && strcmp(iformat->name, "wav") == 0 && !CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_VideoPlayerIgnoreDTSinWAV))
         {
           // check for spdif and dts
           // This is used with wav files and audio CDs that may contain
@@ -438,7 +439,7 @@ bool CDVDDemuxFFmpeg::Open(CDVDInputStream* pInput)
     m_pFormatContext->max_analyze_duration = 500000;
 
   // we need to know if this is matroska or avi later
-  m_bMatroska = strncmp(m_pFormatContext->iformat->name, "matroska", 8) == 0;	// for "matroska.webm"
+  m_bMatroska = strncmp(m_pFormatContext->iformat->name, "matroska", 8) == 0;    // for "matroska.webm"
   m_bAVI = strcmp(m_pFormatContext->iformat->name, "avi") == 0;
 
   if (streaminfo)
@@ -591,12 +592,12 @@ AVDictionary *CDVDDemuxFFmpeg::GetFFMpegOptionsFromInput()
     bool hasUserAgent = false;
     for(std::map<std::string, std::string> ::const_iterator it = protocolOptions.begin(); it != protocolOptions.end(); ++it)
     {
-      const CStdString &name = it->first;
-      const CStdString &value = it->second;
+      const std::string &name = it->first;
+      const std::string &value = it->second;
 
-      if (name.Equals("seekable"))
+      if (name == "seekable")
         m_dllAvUtil.av_dict_set(&options, "seekable", value.c_str(), 0);
-      else if (name.Equals("User-Agent"))
+      else if (name == "User-Agent")
       {
         m_dllAvUtil.av_dict_set(&options, "user-agent", value.c_str(), 0);
         hasUserAgent = true;
@@ -607,7 +608,7 @@ AVDictionary *CDVDDemuxFFmpeg::GetFFMpegOptionsFromInput()
     }
     if (!hasUserAgent)
       // set default xbmc user-agent.
-      m_dllAvUtil.av_dict_set(&options, "user-agent", g_advancedSettings.m_userAgent.c_str(), 0);
+      m_dllAvUtil.av_dict_set(&options, "user-agent", CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_userAgent.c_str(), 0);
 
     if (!headers.empty())
       m_dllAvUtil.av_dict_set(&options, "headers", headers.c_str(), 0);
@@ -1083,7 +1084,7 @@ CDemuxStream* CDVDDemuxFFmpeg::AddStream(int iId)
         st->iBlockAlign = pStream->codec->block_align;
         st->iBitRate = pStream->codec->bit_rate;
         st->iBitsPerSample = pStream->codec->bits_per_coded_sample;
-	
+
         if(m_dllAvUtil.av_dict_get(pStream->metadata, "title", NULL, 0))
           st->m_description = m_dllAvUtil.av_dict_get(pStream->metadata, "title", NULL, 0)->value;
 
@@ -1163,10 +1164,10 @@ CDemuxStream* CDVDDemuxFFmpeg::AddStream(int iId)
         {
           CDemuxStreamSubtitleFFmpeg* st = new CDemuxStreamSubtitleFFmpeg(this, pStream);
           stream = st;
-	    
+
           if(m_dllAvUtil.av_dict_get(pStream->metadata, "title", NULL, 0))
             st->m_description = m_dllAvUtil.av_dict_get(pStream->metadata, "title", NULL, 0)->value;
-	
+
           break;
         }
       }
@@ -1294,7 +1295,7 @@ void CDVDDemuxFFmpeg::AddStream(int iId, CDemuxStream* stream)
     delete res.first->second;
     res.first->second = stream;
   }
-  if(g_advancedSettings.m_logLevel > LOG_LEVEL_NORMAL)
+  if(CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_logLevel > LOG_LEVEL_NORMAL)
     CLog::Log(LOGDEBUG, "CDVDDemuxFFmpeg::AddStream(%d, ...) -> %d", iId, stream->iId);
 }
 
@@ -1342,7 +1343,7 @@ int CDVDDemuxFFmpeg::GetChapter()
 void CDVDDemuxFFmpeg::GetChapterName(std::string& strChapterName)
 {
   CDVDInputStream::IChapter* ich = dynamic_cast<CDVDInputStream::IChapter*>(m_pInput);
-  if(ich)  
+  if(ich)
     ich->GetChapterName(strChapterName);
   else
   {
@@ -1387,7 +1388,7 @@ bool CDVDDemuxFFmpeg::SeekChapter(int chapter, double* startpts)
   return SeekTime(DVD_TIME_TO_MSEC(dts), true, startpts);
 }
 
-void CDVDDemuxFFmpeg::GetStreamCodecName(int iStreamId, CStdString &strName)
+void CDVDDemuxFFmpeg::GetStreamCodecName(int iStreamId, std::string &strName)
 {
   CDemuxStream *stream = GetStream(iStreamId);
   if (stream)
@@ -1412,7 +1413,7 @@ void CDVDDemuxFFmpeg::GetStreamCodecName(int iStreamId, CStdString &strName)
       if (strlen(fourcc) == 4)
       {
         strName = fourcc;
-        strName.MakeLower();
+        StringUtils::ToLower(strName);
         return;
       }
     }

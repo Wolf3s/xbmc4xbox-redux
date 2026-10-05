@@ -22,6 +22,7 @@
 #include "music/tags/ImusicInfoTagLoader.h"
 #include "cores/paplayer/ReplayGain.h"
 #include <math.h>
+#include <string>
 
 namespace MUSIC_INFO
 {
@@ -54,7 +55,7 @@ public:
     float fb = m_SeekOffset[iOffset + 1];
     return (__int64)(fa + (fb - fa) * (fOffset - iOffset));
   };
-  
+
   __int64 GetTimeOffset(__int64 iBytes)
   {
     if (!m_iSeekOffsets) return 0;  // no seek info
@@ -92,7 +93,7 @@ public:
   const float *GetOffsets() const { return m_SeekOffset; };
 
   void SetSampleRange(int firstSample, int lastSample)
-  { 
+  {
     m_iFirstSample = firstSample;
     m_iLastSample = lastSample;
   };
@@ -112,13 +113,13 @@ class CMusicInfoTagLoaderMP3: public IMusicInfoTagLoader
 public:
   CMusicInfoTagLoaderMP3(void);
   virtual ~CMusicInfoTagLoaderMP3();
-  virtual bool Load(const CStdString& strFileName, CMusicInfoTag& tag, EmbeddedArt *art = NULL);
+  virtual bool Load(const std::string& strFileName, CMusicInfoTag& tag, EmbeddedArt *art = NULL);
   void GetSeekInfo(CVBRMP3SeekHelper &info) const;
   bool GetReplayGain(CReplayGain &info) const;
-  bool ReadSeekAndReplayGainInfo(const CStdString &strFileName);
+  bool ReadSeekAndReplayGainInfo(const std::string &strFileName);
   static unsigned int IsID3v2Header(unsigned char* pBuf, size_t bufLen);
 protected:
-  virtual int ReadDuration(const CStdString& strFileName);
+  virtual int ReadDuration(const std::string& strFileName);
   bool ReadLAMETagInfo(BYTE *p);
   int IsMp3FrameHeader(unsigned long head);
   virtual bool PrioritiseAPETags() const;

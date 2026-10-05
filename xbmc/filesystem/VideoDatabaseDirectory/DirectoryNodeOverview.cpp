@@ -1,31 +1,21 @@
 /*
- *      Copyright (C) 2016 Team Kodi
- *      http://kodi.tv
+ *  Copyright (C) 2016-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with Kodi; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "DirectoryNodeOverview.h"
 
-#include <utility>
-
 #include "FileItem.h"
+#include "ServiceBroker.h"
 #include "guilib/LocalizeStrings.h"
 #include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "video/VideoDatabase.h"
+
+#include <utility>
 
 using namespace XFILE::VIDEODATABASEDIRECTORY;
 
@@ -66,34 +56,34 @@ bool CDirectoryNodeOverview::GetContent(CFileItemList& items) const
 {
   CVideoDatabase database;
   database.Open();
-  bool hasMovies = database.HasContent(VIDEODB_CONTENT_MOVIES);
-  bool hasTvShows = database.HasContent(VIDEODB_CONTENT_TVSHOWS);
-  bool hasMusicVideos = database.HasContent(VIDEODB_CONTENT_MUSICVIDEOS);
+  bool hasMovies = database.HasContent(VideoDbContentType::MOVIES);
+  bool hasTvShows = database.HasContent(VideoDbContentType::TVSHOWS);
+  bool hasMusicVideos = database.HasContent(VideoDbContentType::MUSICVIDEOS);
   std::vector<std::pair<const char*, int> > vec;
   if (hasMovies)
   {
-    if (CSettings::GetInstance().GetBool("myvideos.flatten"))
+    if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_MYVIDEOS_FLATTEN))
       vec.push_back(std::make_pair("movies/titles", 342));
     else
-      vec.push_back(std::make_pair("movies", 342));   // Movies
+      vec.push_back(std::make_pair("movies", 342)); // Movies
   }
   if (hasTvShows)
   {
-    if (CSettings::GetInstance().GetBool("myvideos.flatten"))
+    if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_MYVIDEOS_FLATTEN))
       vec.push_back(std::make_pair("tvshows/titles", 20343));
     else
       vec.push_back(std::make_pair("tvshows", 20343)); // TV Shows
   }
   if (hasMusicVideos)
   {
-    if (CSettings::GetInstance().GetBool("myvideos.flatten"))
+    if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_MYVIDEOS_FLATTEN))
       vec.push_back(std::make_pair("musicvideos/titles", 20389));
     else
       vec.push_back(std::make_pair("musicvideos", 20389)); // Music Videos
   }
   {
     if (hasMovies)
-      vec.push_back(std::make_pair("recentlyaddedmovies", 20386));  // Recently Added Movies
+      vec.push_back(std::make_pair("recentlyaddedmovies", 20386)); // Recently Added Movies
     if (hasTvShows)
     {
       vec.push_back(std::make_pair("recentlyaddedepisodes", 20387)); // Recently Added Episodes
@@ -107,7 +97,7 @@ bool CDirectoryNodeOverview::GetContent(CFileItemList& items) const
   {
     CFileItemPtr pItem(new CFileItem(path + vec[i].first + "/", true));
     pItem->SetLabel(g_localizeStrings.Get(vec[i].second));
-    pItem->SetLabelPreformated(true);
+    pItem->SetLabelPreformatted(true);
     pItem->SetCanQueue(false);
     items.Add(pItem);
   }

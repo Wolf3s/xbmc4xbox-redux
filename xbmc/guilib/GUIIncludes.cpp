@@ -1,33 +1,24 @@
 /*
- *      Copyright (C) 2005-2013 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "GUIIncludes.h"
-#include "addons/Skin.h"
+
 #include "GUIInfoManager.h"
-#include "GUIInfoTypes.h"
-#include "utils/log.h"
+#include "addons/Skin.h"
+#include "guilib/GUIComponent.h"
+#include "guilib/guiinfo/GUIInfoLabel.h"
+#include "interfaces/info/SkinVariable.h"
+#include "utils/StringUtils.h"
 #include "utils/XBMCTinyXML.h"
 #include "utils/XMLUtils.h"
-#include "utils/StringUtils.h"
-#include "interfaces/info/SkinVariable.h"
-#include "boost/ref.hpp"
+#include "utils/log.h"
+
+using namespace KODI::GUILIB;
 
 CGUIIncludes::CGUIIncludes()
 {
@@ -93,9 +84,7 @@ CGUIIncludes::CGUIIncludes()
   m_expressionNodes.insert("selected");
 }
 
-CGUIIncludes::~CGUIIncludes()
-{
-}
+CGUIIncludes::~CGUIIncludes() {}
 
 void CGUIIncludes::Clear()
 {
@@ -124,7 +113,8 @@ bool CGUIIncludes::Load_Internal(const std::string &file)
   CXBMCTinyXML doc;
   if (!doc.LoadFile(file))
   {
-    CLog::Log(LOGINFO, "Error loading include file %s: %s (row: %i, col: %i)", file.c_str(), doc.ErrorDesc(), doc.ErrorRow(), doc.ErrorCol());
+    CLog::Log(LOGINFO, "Error loading include file %s: %s (row: %i, col: %i)", file.c_str(),
+              doc.ErrorDesc(), doc.ErrorRow(), doc.ErrorCol());
     return false;
   }
 
@@ -243,7 +233,8 @@ void CGUIIncludes::LoadIncludes(const TiXmlElement *node)
 
       if (condition)
       { // load include file if condition evals to true
-        if (g_infoManager.Register(condition)->Get())
+        if (CServiceBroker::GetGUI()->GetInfoManager().Register(condition)->Get(
+                INFO::DEFAULT_CONTEXT))
           Load_Internal(file);
       }
       else
@@ -267,7 +258,7 @@ void CGUIIncludes::FlattenExpression(std::string &expression, const std::vector<
 {
   std::string original(expression);
   ExpressionFlattener flattener(this, original, resolved);
-  CGUIInfoLabel::ReplaceSpecialKeywordReferences(expression, "EXP", boost::ref(flattener));
+  GUIINFO::CGUIInfoLabel::ReplaceSpecialKeywordReferences(expression, "EXP", boost::ref(flattener));
 }
 
 void CGUIIncludes::FlattenSkinVariableConditions()
@@ -290,7 +281,7 @@ bool CGUIIncludes::HasLoaded(const std::string &file) const
 {
   for (std::vector<std::string>::const_iterator it = m_files.begin(); it != m_files.end(); ++it)
   {
-    if ((*it) == file)
+    if (*it == file)
       return true;
   }
   return false;
@@ -409,11 +400,17 @@ void CGUIIncludes::ResolveIncludes(TiXmlElement *node, std::map<INFO::InfoPtr, b
     const char *condition = include->Attribute("condition");
     if (condition)
     {
-      INFO::InfoPtr conditionID = g_infoManager.Register(ResolveExpressions(condition));
-      bool value = conditionID->Get();
+      INFO::InfoPtr conditionID =
+          CServiceBroker::GetGUI()->GetInfoManager().Register(ResolveExpressions(condition));
+      bool value = false;
 
-      if (xmlIncludeConditions)
-        xmlIncludeConditions->insert(std::make_pair(conditionID, value));
+      if (conditionID)
+      {
+        value = conditionID->Get(INFO::DEFAULT_CONTEXT);
+
+        if (xmlIncludeConditions)
+          xmlIncludeConditions->insert(std::make_pair(conditionID, value));
+      }
 
       if (!value)
       {
@@ -424,7 +421,8 @@ void CGUIIncludes::ResolveIncludes(TiXmlElement *node, std::map<INFO::InfoPtr, b
 
     Params params;
     std::string tagName;
-    // normal or old-style include
+
+    // determine which form of include call we have
     const char *name = include->Attribute("content");
     if (name)
     {
@@ -453,22 +451,31 @@ void CGUIIncludes::ResolveIncludes(TiXmlElement *node, std::map<INFO::InfoPtr, b
     std::map<std::string, std::pair<TiXmlElement, Params> >::const_iterator it = m_includes.find(tagName);
     if (it != m_includes.end())
     {
-      const TiXmlElement *includeBody = &it->second.first;
-      const Params& defaultParams = it->second.second;
-      const TiXmlElement *tag = includeBody->FirstChildElement();
+      const TiXmlElement *includeDefinition = &it->second.first;
+
       // combine passed include parameters with their default values into a single list (no overwrites)
+      const Params& defaultParams = it->second.second;
       params.insert(defaultParams.begin(), defaultParams.end());
-      while (tag)
+
+      // process include definition
+      const TiXmlElement *includeDefinitionChild = includeDefinition->FirstChildElement();
+      while (includeDefinitionChild)
       {
-        // we insert before the <include> element to keep the correct
-        // order (we render in the order given in the xml file)
-        TiXmlElement *insertedTag = static_cast<TiXmlElement*>(node->InsertBeforeChild(include, *tag));
-        // after insertion we resolve parameters even if parameter list is empty (to remove param references)
-        ResolveParametersForNode(insertedTag, params);
-        tag = tag->NextSiblingElement();
+        // insert before <include> element to keep order of occurrence in xml file
+        TiXmlElement *insertedNode = static_cast<TiXmlElement*>(node->InsertBeforeChild(include, *includeDefinitionChild));
+
+        // process nested
+        InsertNested(node, include, insertedNode);
+
+        // resolve parameters even if parameter list is empty (to remove param references)
+        ResolveParametersForNode(insertedNode, params);
+
+        includeDefinitionChild = includeDefinitionChild->NextSiblingElement();
       }
+
       // remove the include element itself
       node->RemoveChild(include);
+
       include = node->FirstChildElement("include");
     }
     else
@@ -477,6 +484,41 @@ void CGUIIncludes::ResolveIncludes(TiXmlElement *node, std::map<INFO::InfoPtr, b
       include = include->NextSiblingElement("include");
     }
   }
+}
+
+void CGUIIncludes::InsertNested(TiXmlElement *controls, TiXmlElement *include, TiXmlElement *node)
+{
+  TiXmlElement *target;
+  TiXmlElement *nested;
+
+  if (node->ValueStr() == "nested")
+  {
+    nested = node;
+    target = controls;
+  }
+  else
+  {
+    nested = node->FirstChildElement("nested");
+    target = node;
+  }
+
+  if (nested)
+  {
+    // copy all child elements except param elements
+    const TiXmlElement *child = include->FirstChildElement();
+    while (child)
+    {
+      if (child->ValueStr() != "param")
+      {
+        // insert before <nested> element to keep order of occurrence in xml file
+        target->InsertBeforeChild(nested, *child);
+      }
+      child = child->NextSiblingElement();
+    }
+    if (nested != node)
+      target->RemoveChild(nested);
+  }
+
 }
 
 bool CGUIIncludes::GetParameters(const TiXmlElement *include, const char *valueAttribute, Params& params)
@@ -513,7 +555,7 @@ bool CGUIIncludes::GetParameters(const TiXmlElement *include, const char *valueA
             paramValue = child->ValueStr();                           // and then tag value
         }
 
-        params.insert(make_pair(paramName, paramValue));              // no overwrites
+        params.insert(std::make_pair( paramName, paramValue ));                     // no overwrites
       }
       param = param->NextSiblingElement("param");
     }
@@ -563,12 +605,17 @@ void CGUIIncludes::ResolveParametersForNode(TiXmlElement *node, const Params& pa
       else if (result != NO_PARAMS_FOUND)
         child->SetValue(newValue);
     }
-    else if (child->Type() == TiXmlNode::TINYXML_ELEMENT)
+    else if (child->Type() == TiXmlNode::TINYXML_ELEMENT ||
+             child->Type() == TiXmlNode::TINYXML_COMMENT)
     {
       do
       {
-        TiXmlElement *next = child->NextSiblingElement();   // save next as current child might be removed from the tree
-        ResolveParametersForNode(static_cast<TiXmlElement *>(child), params);
+        // save next as current child might be removed from the tree
+        TiXmlElement* next = child->NextSiblingElement();
+
+        if (child->Type() == TiXmlNode::TINYXML_ELEMENT)
+          ResolveParametersForNode(static_cast<TiXmlElement*>(child), params);
+
         child = next;
       }
       while (child);
@@ -582,9 +629,9 @@ class ParamReplacer
   // keep some stats so that we know exactly what's been resolved
   int m_numTotalParams;
   int m_numUndefinedParams;
+
 public:
-  ParamReplacer(const std::map<std::string, std::string>& params)
-    : m_params(params), m_numTotalParams(0), m_numUndefinedParams(0) {}
+  explicit ParamReplacer(const std::map<std::string, std::string>& params) : m_params(params), m_numTotalParams(0), m_numUndefinedParams(0) {}
   int GetNumTotalParams() const { return m_numTotalParams; }
   int GetNumDefinedParams() const { return m_numTotalParams - m_numUndefinedParams; }
   int GetNumUndefinedParams() const { return m_numUndefinedParams; }
@@ -603,7 +650,7 @@ public:
 CGUIIncludes::ResolveParamsResult CGUIIncludes::ResolveParameters(const std::string& strInput, std::string& strOutput, const Params& params)
 {
   ParamReplacer paramReplacer(params);
-  if (CGUIInfoLabel::ReplaceSpecialKeywordReferences(strInput, "PARAM", boost::ref(paramReplacer), strOutput))
+  if (GUIINFO::CGUIInfoLabel::ReplaceSpecialKeywordReferences(strInput, "PARAM", boost::ref(paramReplacer), strOutput))
     // detect special input values of the form "$PARAM[undefinedParam]" (with no extra characters around)
     return paramReplacer.GetNumUndefinedParams() == 1 && paramReplacer.GetNumTotalParams() == 1 && strOutput.empty() ? SINGLE_UNDEFINED_PARAM_RESOLVED : PARAMS_RESOLVED;
   return NO_PARAMS_FOUND;
@@ -625,7 +672,7 @@ std::string CGUIIncludes::ResolveExpressions(const std::string &expression) cons
 {
   std::string work(expression);
   ExpressionReplacer replacer(m_expressions);
-  CGUIInfoLabel::ReplaceSpecialKeywordReferences(work, "EXP", boost::ref(replacer));
+  GUIINFO::CGUIInfoLabel::ReplaceSpecialKeywordReferences(work, "EXP", boost::ref(replacer));
 
   return work;
 }

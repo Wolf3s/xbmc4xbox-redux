@@ -33,19 +33,19 @@ CMusicInfoTagLoaderASAP::~CMusicInfoTagLoaderASAP()
 {
 }
 
-bool CMusicInfoTagLoaderASAP::Load(const CStdString &strFile, CMusicInfoTag &tag, EmbeddedArt *art)
+bool CMusicInfoTagLoaderASAP::Load(const std::string &strFile, CMusicInfoTag &tag, EmbeddedArt *art)
 {
   tag.SetLoaded(false);
 
   if (!m_dll.Load())
     return false;
 
-  CStdString strFileToLoad = strFile;
+  std::string strFileToLoad = strFile;
   int song = -1;
   if (URIUtils::HasExtension(strFile, ".asapstream"))
   {
-    CStdString strFileName = URIUtils::GetFileName(strFile);
-    int iStart = strFileName.ReverseFind('-') + 1;
+    std::string strFileName = URIUtils::GetFileName(strFile);
+    int iStart = strFileName.rfind('-') + 1;
     song = atoi(strFileName.substr(iStart, strFileName.size() - iStart - 11).c_str()) - 1;
     strFileToLoad = URIUtils::GetDirectory(strFile);
     URIUtils::RemoveSlashAtEnd(strFileToLoad);
@@ -66,8 +66,14 @@ bool CMusicInfoTagLoaderASAP::Load(const CStdString &strFile, CMusicInfoTag &tag
     tag.SetDuration(songInfo.duration / 1000);
   if (songInfo.year > 0)
   {
-    SYSTEMTIME dateTime = { songInfo.year, songInfo.month, 0, songInfo.day, 0, 0, 0, 0 };
-    tag.SetReleaseDate(dateTime);
+    std::string releaseDate;
+    if (songInfo.month > 0 && songInfo.day > 0)
+      releaseDate = StringUtils::Format("%04d-%02d-%02d", songInfo.year, songInfo.month, songInfo.day);
+    else if (songInfo.month > 0)
+      releaseDate = StringUtils::Format("%04d-%02d", songInfo.year, songInfo.month);
+    else
+      releaseDate = StringUtils::Format("%04d", songInfo.year);
+    tag.SetReleaseDate(releaseDate);
   }
   tag.SetLoaded(true);
   return true;

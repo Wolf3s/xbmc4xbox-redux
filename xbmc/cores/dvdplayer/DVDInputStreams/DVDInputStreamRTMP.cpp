@@ -20,7 +20,9 @@
 
 #include "FileItem.h"
 
+#include "ServiceBroker.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/SettingsComponent.h"
 #include "DVDInputStreamRTMP.h"
 #include "threads/SingleLock.h"
 #include "utils/log.h"
@@ -32,7 +34,7 @@ using namespace XFILE;
 using namespace std;
 
 static int RTMP_level=0;
-extern "C" 
+extern "C"
 {
   static void CDVDInputStreamRTMP_Log(int level, const char *fmt, va_list args)
   {
@@ -41,13 +43,13 @@ extern "C"
     if (level > RTMP_level)
       return;
 
-    switch(level) 
+    switch(level)
     {
       default:
       case RTMP_LOGCRIT:    level = LOGFATAL;   break;
       case RTMP_LOGERROR:   level = LOGERROR;   break;
       case RTMP_LOGWARNING: level = LOGWARNING; break;
-      case RTMP_LOGINFO:    level = LOGNOTICE;  break;
+      case RTMP_LOGINFO:    level = LOGINFO;  break;
       case RTMP_LOGDEBUG:   level = LOGINFO;    break;
       case RTMP_LOGDEBUG2:  level = LOGDEBUG;   break;
     }
@@ -66,7 +68,7 @@ CDVDInputStreamRTMP::CDVDInputStreamRTMP(CFileItem &fileitem)
     RTMP_LogLevel level;
 
     m_libRTMP.LogSetCallback(CDVDInputStreamRTMP_Log);
-    switch (g_advancedSettings.m_logLevel)
+    switch (CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_logLevel)
     {
       case LOG_LEVEL_DEBUG_FREEMEM:
       case LOG_LEVEL_DEBUG: level = RTMP_LOGDEBUG; break;
@@ -74,12 +76,12 @@ CDVDInputStreamRTMP::CDVDInputStreamRTMP(CFileItem &fileitem)
       default: level = RTMP_LOGCRIT; break;
     }
 
-    if (g_advancedSettings.m_extraLogLevels & LOGRTMP)
+    if (CLog::CanLogComponent(LOGRTMP))
       level = RTMP_LOGDEBUG2;
 
     m_libRTMP.LogSetLevel(level);
     RTMP_level = level;
-    
+
     m_rtmp = m_libRTMP.Alloc();
     m_libRTMP.Init(m_rtmp);
   }
@@ -159,7 +161,7 @@ bool CDVDInputStreamRTMP::Open()
   m_optionvalues.clear();
   for (int i=0; options[i].name; i++)
   {
-    CStdString tmp = m_item.GetProperty(options[i].name).asString();
+    std::string tmp = m_item.GetProperty(options[i].name).asString();
     if (!tmp.empty())
     {
       m_optionvalues.push_back(tmp);
@@ -213,7 +215,7 @@ int64_t CDVDInputStreamRTMP::Seek(int64_t offset, int whence)
 
 bool CDVDInputStreamRTMP::SeekTime(int iTimeInMsec)
 {
-  CLog::Log(LOGNOTICE, "RTMP Seek to %i requested", iTimeInMsec);
+  CLog::Log(LOGINFO, "RTMP Seek to %i requested", iTimeInMsec);
   CSingleLock lock(m_RTMPSection);
 
   // don't try to seek in live streams as it can cause librtmp to stall
@@ -237,7 +239,7 @@ bool CDVDInputStreamRTMP::Pause(double dTime)
 
   m_bPaused = !m_bPaused;
 
-  CLog::Log(LOGNOTICE, "RTMP Pause %s requested", m_bPaused ? "TRUE" : "FALSE");
+  CLog::Log(LOGINFO, "RTMP Pause %s requested", m_bPaused ? "TRUE" : "FALSE");
 
   if (m_rtmp)
     m_libRTMP.Pause(m_rtmp, m_bPaused);

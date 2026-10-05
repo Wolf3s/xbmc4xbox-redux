@@ -7,7 +7,8 @@
  */
 
 #include "Variant.h"
-#include "xbox/PlatformDefs.h" // nullptr, strtoll
+
+#include "platform/xbox/PlatformDefs.h" // nullptr, strtoll
 
 #include <stdlib.h>
 #include <string.h>
@@ -627,6 +628,17 @@ bool CVariant::operator==(const CVariant &rhs) const
   }
 
   return false;
+}
+
+void CVariant::reserve(size_t length)
+{
+  if (m_type == VariantTypeNull)
+  {
+    m_type = VariantTypeArray;
+    m_data.array = new VariantArray;
+  }
+  if (m_type == VariantTypeArray)
+    m_data.array->reserve(length);
 }
 
 void CVariant::push_back(const CVariant &variant)

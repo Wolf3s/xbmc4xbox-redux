@@ -20,10 +20,11 @@
 
 #include "SlideShowPicture.h"
 #include "system.h"
-#include "guilib/GraphicContext.h"
+#include "windowing/GraphicContext.h"
 #include "guilib/Texture.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "threads/SingleLock.h"
 
 #define M_PI       3.14159265358979323846
@@ -59,11 +60,7 @@ CSlideShowPic::~CSlideShowPic()
 void CSlideShowPic::Close()
 {
   CSingleLock lock(m_textureAccess);
-  if (m_pImage)
-  {
-    delete m_pImage;
-    m_pImage = NULL;
-  }
+  m_pImage.reset();
   m_bIsLoaded = false;
   m_bIsFinished = false;
   m_bDrawNextImage = false;
@@ -76,7 +73,7 @@ void CSlideShowPic::Reset(DISPLAY_EFFECT dispEffect, TRANSISTION_EFFECT transEff
 {
   CSingleLock lock(m_textureAccess);
   if (m_pImage)
-    SetTexture_Internal(m_iSlideNumber, m_pImage, dispEffect, transEffect);
+    SetTexture_Internal(m_iSlideNumber, boost::move(m_pImage), dispEffect, transEffect);
   else
     Close();
 }
@@ -90,14 +87,14 @@ bool CSlideShowPic::DisplayEffectNeedChange(DISPLAY_EFFECT newDispEffect) const
   return true;
 }
 
-void CSlideShowPic::SetTexture(int iSlideNumber, CBaseTexture* pTexture, DISPLAY_EFFECT dispEffect, TRANSISTION_EFFECT transEffect)
+void CSlideShowPic::SetTexture(int iSlideNumber, boost::movelib::unique_ptr<CTexture> pTexture, DISPLAY_EFFECT dispEffect, TRANSISTION_EFFECT transEffect)
 {
   CSingleLock lock(m_textureAccess);
   Close();
-  SetTexture_Internal(iSlideNumber, pTexture, dispEffect, transEffect);
+  SetTexture_Internal(iSlideNumber, boost::move(pTexture), dispEffect, transEffect);
 }
 
-void CSlideShowPic::SetTexture_Internal(int iSlideNumber, CBaseTexture* pTexture, DISPLAY_EFFECT dispEffect, TRANSISTION_EFFECT transEffect)
+void CSlideShowPic::SetTexture_Internal(int iSlideNumber, boost::movelib::unique_ptr<CTexture> pTexture, DISPLAY_EFFECT dispEffect, TRANSISTION_EFFECT transEffect)
 {
   CSingleLock lock(m_textureAccess);
   m_bPause = false;
@@ -106,9 +103,9 @@ void CSlideShowPic::SetTexture_Internal(int iSlideNumber, CBaseTexture* pTexture
   m_iSlideNumber = iSlideNumber;
 
   m_bIsDirty = true;
-  m_pImage = pTexture;
-  m_fWidth = (float)pTexture->GetWidth();
-  m_fHeight = (float)pTexture->GetHeight();
+  m_pImage = boost::move(pTexture);
+  m_fWidth = static_cast<float>(m_pImage->GetWidth());
+  m_fHeight = static_cast<float>(m_pImage->GetHeight());
   // reset our counter
   m_iCounter = 0;
   // initialize our transistion effect
@@ -129,23 +126,23 @@ void CSlideShowPic::SetTexture_Internal(int iSlideNumber, CBaseTexture* pTexture
   // the +1's make sure it actually occurs
   float fadeTime = 0.2f;
   if (m_displayEffect != EFFECT_NO_TIMEOUT)
-    fadeTime = std::min(0.2f*CSettings::GetInstance().GetInt("slideshow.staytime"), 3.0f);
-  m_transistionStart.length = (int)(g_graphicsContext.GetFPS() * fadeTime); // transition time in frames
+    fadeTime = std::min(0.2f*CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("slideshow.staytime"), 3.0f);
+  m_transistionStart.length = (int)(CServiceBroker::GetWinSystem()->GetGfxContext().GetFPS() * fadeTime); // transition time in frames
   m_transistionEnd.type = transEffect;
   m_transistionEnd.length = m_transistionStart.length;
   m_transistionTemp.type = TRANSISTION_NONE;
   m_fTransistionAngle = 0;
   m_fTransistionZoom = 0;
   m_fAngle = 0.0f;
-  if (pTexture->GetOrientation() == 7)
+  if (m_pImage->GetOrientation() == 7)
   { // rotate to 270 degrees
     m_fAngle = 270.0f;
   }
-  if (pTexture->GetOrientation() == 2)
+  if (m_pImage->GetOrientation() == 2)
   { // rotate to 180 degrees
       m_fAngle = 180.0f;
   }
-  if (pTexture->GetOrientation() == 5)
+  if (m_pImage->GetOrientation() == 5)
   { // rotate to 90 degrees
     m_fAngle = 90.0f;
   }
@@ -155,10 +152,10 @@ void CSlideShowPic::SetTexture_Internal(int iSlideNumber, CBaseTexture* pTexture
   m_fPosX = m_fPosY = 0.0f;
   m_fPosZ = 1.0f;
   m_fVelocityX = m_fVelocityY = m_fVelocityZ = 0.0f;
-  int iFrames = std::max((int)(g_graphicsContext.GetFPS() * CSettings::GetInstance().GetInt("slideshow.staytime")), 1);
+  int iFrames = std::max((int)(CServiceBroker::GetWinSystem()->GetGfxContext().GetFPS() * CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("slideshow.staytime")), 1);
   if (m_displayEffect == EFFECT_PANORAMA)
   {
-    RESOLUTION_INFO res = g_graphicsContext.GetResInfo();
+    RESOLUTION_INFO res = CServiceBroker::GetWinSystem()->GetGfxContext().GetResInfo();
     float fScreenWidth  = (float)res.Overscan.right  - res.Overscan.left;
     float fScreenHeight = (float)res.Overscan.bottom - res.Overscan.top;
 
@@ -192,15 +189,15 @@ void CSlideShowPic::SetTexture_Internal(int iSlideNumber, CBaseTexture* pTexture
       // Calculate start and end positions
       // choose a random direction
       float angle = (rand() % 1000) / 1000.0f * 2 * (float)M_PI;
-      m_fPosX = cos(angle) * g_advancedSettings.m_slideshowPanAmount * m_iTotalFrames * 0.00005f;
-      m_fPosY = sin(angle) * g_advancedSettings.m_slideshowPanAmount * m_iTotalFrames * 0.00005f;
+      m_fPosX = cos(angle) * CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_slideshowPanAmount * m_iTotalFrames * 0.00005f;
+      m_fPosY = sin(angle) * CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_slideshowPanAmount * m_iTotalFrames * 0.00005f;
       m_fVelocityX = -m_fPosX * 2.0f / m_iTotalFrames;
       m_fVelocityY = -m_fPosY * 2.0f / m_iTotalFrames;
     }
     else if (m_displayEffect == EFFECT_ZOOM)
     {
       m_fPosZ = 1.0f;
-      m_fVelocityZ = 0.0001f * g_advancedSettings.m_slideshowZoomAmount;
+      m_fVelocityZ = 0.0001f * CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_slideshowZoomAmount;
     }
   }
 
@@ -237,21 +234,12 @@ int CSlideShowPic::GetOriginalHeight()
     return m_iOriginalHeight;
 }
 
-void CSlideShowPic::UpdateTexture(CBaseTexture* pTexture)
+void CSlideShowPic::UpdateTexture(boost::movelib::unique_ptr<CTexture> pTexture)
 {
   CSingleLock lock(m_textureAccess);
-  if (m_pImage)
-  {
-#ifdef HAS_XBOX_D3D
-    while (m_pImage->GetTextureObject()->IsBusy())
-      Sleep(1);
-#endif
-    delete m_pImage;
-    m_pImage = NULL;
-  }
-  m_pImage = pTexture;
-  m_fWidth = (float)pTexture->GetWidth();
-  m_fHeight = (float)pTexture->GetHeight();
+  m_pImage = boost::move(pTexture);
+  m_fWidth = static_cast<float>(m_pImage->GetWidth());
+  m_fHeight = static_cast<float>(m_pImage->GetHeight());
   m_bIsDirty = true;
 }
 
@@ -272,8 +260,8 @@ void CSlideShowPic::UpdateVertices(float cur_x[4], float cur_y[4], const float n
   || memcmp(cur_y, new_y, count)
   || m_bIsDirty)
   {
-    dirtyregions.push_back(GetRectangle(cur_x, cur_y));
-    dirtyregions.push_back(GetRectangle(new_x, new_y));
+    dirtyregions.push_back(CDirtyRegion(GetRectangle(cur_x, cur_y)));
+    dirtyregions.push_back(CDirtyRegion(GetRectangle(new_x, new_y)));
     memcpy(cur_x, new_x, count);
     memcpy(cur_y, new_y, count);
   }
@@ -282,16 +270,16 @@ void CSlideShowPic::UpdateVertices(float cur_x[4], float cur_y[4], const float n
 void CSlideShowPic::Process(unsigned int currentTime, CDirtyRegionList &dirtyregions)
 {
   if (!m_pImage || !m_bIsLoaded || m_bIsFinished) return ;
-  color_t alpha = m_alpha;
+  UTILS::COLOR::Color alpha = m_alpha;
   if (m_iCounter <= m_transistionStart.length)
   { // do start transistion
     if (m_transistionStart.type == CROSSFADE)
     { // fade in at 1x speed
-      alpha = (color_t)((float)m_iCounter / (float)m_transistionStart.length * 255.0f);
+      alpha = (UTILS::COLOR::Color)((float)m_iCounter / (float)m_transistionStart.length * 255.0f);
     }
     else if (m_transistionStart.type == FADEIN_FADEOUT)
     { // fade in at 2x speed, then keep solid
-      alpha = (color_t)((float)m_iCounter / (float)m_transistionStart.length * 255.0f * 2);
+      alpha = (UTILS::COLOR::Color)((float)m_iCounter / (float)m_transistionStart.length * 255.0f * 2);
       if (alpha > 255) alpha = 255;
     }
     else // m_transistionEffect == TRANSISTION_NONE
@@ -344,7 +332,7 @@ void CSlideShowPic::Process(unsigned int currentTime, CDirtyRegionList &dirtyreg
     {
       m_fPosX += m_fVelocityX;
       m_fPosY += m_fVelocityY;
-      float fMoveAmount = g_advancedSettings.m_slideshowPanAmount * m_iTotalFrames * 0.0001f;
+      float fMoveAmount = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_slideshowPanAmount * m_iTotalFrames * 0.0001f;
       if (m_fPosX > fMoveAmount)
       {
         m_fPosX = fMoveAmount;
@@ -369,9 +357,9 @@ void CSlideShowPic::Process(unsigned int currentTime, CDirtyRegionList &dirtyreg
     else if (m_displayEffect == EFFECT_ZOOM)
     {
       m_fPosZ += m_fVelocityZ;
-/*      if (m_fPosZ > 1.0f + 0.01f*CSettings::GetInstance().GetInt("Slideshow.ZoomAmount"))
+/*      if (m_fPosZ > 1.0f + 0.01f*CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("Slideshow.ZoomAmount"))
       {
-        m_fPosZ = 1.0f + 0.01f * CSettings::GetInstance().GetInt("Slideshow.ZoomAmount");
+        m_fPosZ = 1.0f + 0.01f * CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("Slideshow.ZoomAmount");
         m_fVelocityZ = -m_fVelocityZ;
       }
       if (m_fPosZ < 1.0f)
@@ -391,11 +379,11 @@ void CSlideShowPic::Process(unsigned int currentTime, CDirtyRegionList &dirtyreg
     m_bDrawNextImage = true;
     if (m_transistionEnd.type == CROSSFADE)
     { // fade out at 1x speed
-      alpha = 255 - (color_t)((float)(m_iCounter - m_transistionEnd.start) / (float)m_transistionEnd.length * 255.0f);
+      alpha = 255 - (UTILS::COLOR::Color)((float)(m_iCounter - m_transistionEnd.start) / (float)m_transistionEnd.length * 255.0f);
     }
     else if (m_transistionEnd.type == FADEIN_FADEOUT)
     { // keep solid, then fade out at 2x speed
-      alpha = (color_t)((float)(m_transistionEnd.length - m_iCounter + m_transistionEnd.start) / (float)m_transistionEnd.length * 255.0f * 2);
+      alpha = (UTILS::COLOR::Color)((float)(m_transistionEnd.length - m_iCounter + m_transistionEnd.start) / (float)m_transistionEnd.length * 255.0f * 2);
       if (alpha > 255) alpha = 255;
     }
     else // m_transistionEffect == TRANSISTION_NONE
@@ -419,7 +407,7 @@ void CSlideShowPic::Process(unsigned int currentTime, CDirtyRegionList &dirtyreg
   if (m_iCounter > m_transistionEnd.start + m_transistionEnd.length)
     m_bIsFinished = true;
 
-  RESOLUTION_INFO info = g_graphicsContext.GetResInfo();
+  RESOLUTION_INFO info = CServiceBroker::GetWinSystem()->GetGfxContext().GetResInfo();
 
   // calculate where we should render (and how large it should be)
   // calculate aspect ratio correction factor
@@ -454,7 +442,7 @@ void CSlideShowPic::Process(unsigned int currentTime, CDirtyRegionList &dirtyreg
   float fScaleInv = fScreenWidth / m_fHeight;
 
   bool bFillScreen = false;
-  float fComp = 1.0f + 0.01f * g_advancedSettings.m_slideshowBlackBarCompensation;
+  float fComp = 1.0f + 0.01f * CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_slideshowBlackBarCompensation;
   float fScreenRatio = fScreenWidth / fScreenHeight * fPixelRatio;
   // work out if we should be compensating the zoom to minimize blackbars
   // we should compute this based on the % of black bars on screen perhaps??
@@ -479,7 +467,7 @@ void CSlideShowPic::Process(unsigned int currentTime, CDirtyRegionList &dirtyreg
       fScale *= m_fHeight / fScreenHeight * fScreenWidth / m_fWidth;
   }
   if (m_displayEffect == EFFECT_FLOAT)
-    fScale *= (1.0f + g_advancedSettings.m_slideshowPanAmount * m_iTotalFrames * 0.0001f);
+    fScale *= (1.0f + CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_slideshowPanAmount * m_iTotalFrames * 0.0001f);
   if (m_displayEffect == EFFECT_ZOOM)
     fScale *= m_fPosZ;
   // zoom image
@@ -700,7 +688,7 @@ void CSlideShowPic::Rotate(float fRotateAngle, bool immediate /* = false */)
   m_transistionTemp.length = IMMEDIATE_TRANSISTION_TIME;
   m_fTransistionAngle = (float)fRotateAngle / (float)m_transistionTemp.length;
   // reset the timer
-  m_transistionEnd.start = m_iCounter + m_transistionStart.length + (int)(g_graphicsContext.GetFPS() * CSettings::GetInstance().GetInt("slideshow.staytime"));
+  m_transistionEnd.start = m_iCounter + m_transistionStart.length + (int)(CServiceBroker::GetWinSystem()->GetGfxContext().GetFPS() * CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("slideshow.staytime"));
 }
 
 void CSlideShowPic::Zoom(float fZoom, bool immediate /* = false */)
@@ -717,7 +705,7 @@ void CSlideShowPic::Zoom(float fZoom, bool immediate /* = false */)
   m_transistionTemp.length = IMMEDIATE_TRANSISTION_TIME;
   m_fTransistionZoom = (fZoom - m_fZoomAmount) / (float)m_transistionTemp.length;
   // reset the timer
-  m_transistionEnd.start = m_iCounter + m_transistionStart.length + (int)(g_graphicsContext.GetFPS() * CSettings::GetInstance().GetInt("slideshow.staytime"));
+  m_transistionEnd.start = m_iCounter + m_transistionStart.length + (int)(CServiceBroker::GetWinSystem()->GetGfxContext().GetFPS() * CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("slideshow.staytime"));
   // turn off the render effects until we're back down to normal zoom
   m_bNoEffect = true;
 }
@@ -727,24 +715,24 @@ void CSlideShowPic::Move(float fDeltaX, float fDeltaY)
   m_fZoomLeft += fDeltaX;
   m_fZoomTop += fDeltaY;
   // reset the timer
- // m_transistionEnd.start = m_iCounter + m_transistionStart.length + (int)(g_graphicsContext.GetFPS() * CSettings::GetInstance().GetInt("slideshow.staytime"));
+ // m_transistionEnd.start = m_iCounter + m_transistionStart.length + (int)(CServiceBroker::GetWinSystem()->GetGfxContext().GetFPS() * CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("slideshow.staytime"));
 }
 
 void CSlideShowPic::Render()
 {
   CSingleLock lock(m_textureAccess);
 
-  Render(m_ax, m_ay, m_pImage, (m_alpha << 24) | 0xFFFFFF);
+  Render(m_ax, m_ay, m_pImage.get(), (m_alpha << 24) | 0xFFFFFF);
 
   // now render the image in the top right corner if we're zooming
   if (m_fZoomAmount == 1.0f || m_bIsComic) return ;
 
   Render(m_bx, m_by, NULL, PICTURE_VIEW_BOX_BACKGROUND);
-  Render(m_sx, m_sy, m_pImage, 0xFFFFFFFF);
+  Render(m_sx, m_sy, m_pImage.get(), 0xFFFFFFFF);
   Render(m_ox, m_oy, NULL, PICTURE_VIEW_BOX_COLOR, D3DFILL_WIREFRAME);
 }
 
-void CSlideShowPic::Render(float *x, float *y, CBaseTexture* pTexture, color_t color, _D3DFILLMODE fillmode)
+void CSlideShowPic::Render(float *x, float *y, CTexture* pTexture, UTILS::COLOR::Color color, _D3DFILLMODE fillmode)
 {
   struct VERTEX
   {
@@ -786,48 +774,48 @@ void CSlideShowPic::Render(float *x, float *y, CBaseTexture* pTexture, color_t c
   if (pTexture)
   {
 #ifdef HAS_XBOX_D3D
-    g_graphicsContext.Get3DDevice()->SetTexture( 0, pTexture->GetTextureObject() );
+    CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->SetTexture( 0, pTexture->GetTextureObject() );
 #else
     pTexture->LoadToGPU();
     pTexture->BindToUnit(0);
 #endif
   }
 
-  g_graphicsContext.Get3DDevice()->SetTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_MODULATE );
-  g_graphicsContext.Get3DDevice()->SetTextureStageState( 0, D3DTSS_COLORARG1, D3DTA_TEXTURE );
-  g_graphicsContext.Get3DDevice()->SetTextureStageState( 0, D3DTSS_COLORARG2, D3DTA_DIFFUSE );
-  g_graphicsContext.Get3DDevice()->SetTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_MODULATE );
-  g_graphicsContext.Get3DDevice()->SetTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE );
-  g_graphicsContext.Get3DDevice()->SetTextureStageState( 0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE );
-  g_graphicsContext.Get3DDevice()->SetTextureStageState( 1, D3DTSS_COLOROP, D3DTOP_DISABLE );
-  g_graphicsContext.Get3DDevice()->SetTextureStageState( 1, D3DTSS_ALPHAOP, D3DTOP_DISABLE );
-  g_graphicsContext.Get3DDevice()->SetTextureStageState( 0, D3DTSS_ADDRESSU, D3DTADDRESS_CLAMP );
-  g_graphicsContext.Get3DDevice()->SetTextureStageState( 0, D3DTSS_ADDRESSV, D3DTADDRESS_CLAMP );
-  g_graphicsContext.Get3DDevice()->SetTextureStageState( 0, D3DTSS_MAGFILTER, D3DTEXF_LINEAR /*g_settings.m_minFilter*/ );
-  g_graphicsContext.Get3DDevice()->SetTextureStageState( 0, D3DTSS_MINFILTER, D3DTEXF_LINEAR /*g_settings.m_maxFilter*/ );
-  g_graphicsContext.Get3DDevice()->SetRenderState( D3DRS_ZENABLE, FALSE );
-  g_graphicsContext.Get3DDevice()->SetRenderState( D3DRS_FOGENABLE, FALSE );
-  g_graphicsContext.Get3DDevice()->SetRenderState( D3DRS_FOGTABLEMODE, D3DFOG_NONE );
-  g_graphicsContext.Get3DDevice()->SetRenderState( D3DRS_FILLMODE, fillmode );
-  g_graphicsContext.Get3DDevice()->SetRenderState( D3DRS_CULLMODE, D3DCULL_CCW );
-  g_graphicsContext.Get3DDevice()->SetRenderState( D3DRS_ALPHABLENDENABLE, TRUE );
-  g_graphicsContext.Get3DDevice()->SetRenderState( D3DRS_SRCBLEND, D3DBLEND_SRCALPHA );
-  g_graphicsContext.Get3DDevice()->SetRenderState( D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA );
+  CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->SetTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_MODULATE );
+  CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->SetTextureStageState( 0, D3DTSS_COLORARG1, D3DTA_TEXTURE );
+  CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->SetTextureStageState( 0, D3DTSS_COLORARG2, D3DTA_DIFFUSE );
+  CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->SetTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_MODULATE );
+  CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->SetTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE );
+  CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->SetTextureStageState( 0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE );
+  CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->SetTextureStageState( 1, D3DTSS_COLOROP, D3DTOP_DISABLE );
+  CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->SetTextureStageState( 1, D3DTSS_ALPHAOP, D3DTOP_DISABLE );
+  CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->SetTextureStageState( 0, D3DTSS_ADDRESSU, D3DTADDRESS_CLAMP );
+  CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->SetTextureStageState( 0, D3DTSS_ADDRESSV, D3DTADDRESS_CLAMP );
+  CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->SetTextureStageState( 0, D3DTSS_MAGFILTER, D3DTEXF_LINEAR /*g_settings.m_minFilter*/ );
+  CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->SetTextureStageState( 0, D3DTSS_MINFILTER, D3DTEXF_LINEAR /*g_settings.m_maxFilter*/ );
+  CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->SetRenderState( D3DRS_ZENABLE, FALSE );
+  CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->SetRenderState( D3DRS_FOGENABLE, FALSE );
+  CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->SetRenderState( D3DRS_FOGTABLEMODE, D3DFOG_NONE );
+  CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->SetRenderState( D3DRS_FILLMODE, fillmode );
+  CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->SetRenderState( D3DRS_CULLMODE, D3DCULL_CCW );
+  CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->SetRenderState( D3DRS_ALPHABLENDENABLE, TRUE );
+  CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->SetRenderState( D3DRS_SRCBLEND, D3DBLEND_SRCALPHA );
+  CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->SetRenderState( D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA );
 #ifdef HAS_XBOX_D3D
-  g_graphicsContext.Get3DDevice()->SetRenderState( D3DRS_YUVENABLE, FALSE);
+  CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->SetRenderState( D3DRS_YUVENABLE, FALSE);
 #else
-  g_graphicsContext.Get3DDevice()->SetRenderState(D3DRS_LIGHTING, FALSE);
+  CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->SetRenderState(D3DRS_LIGHTING, FALSE);
 #endif
-  g_graphicsContext.Get3DDevice()->SetVertexShader( FVF_VERTEX );
+  CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->SetVertexShader( FVF_VERTEX );
   // Render the image
   if (pTexture)
   {
 #ifdef HAS_XBOX_D3D
-    g_graphicsContext.Get3DDevice()->DrawPrimitiveUP( D3DPT_QUADLIST, 1, vertex, sizeof(VERTEX) );
+    CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->DrawPrimitiveUP( D3DPT_QUADLIST, 1, vertex, sizeof(VERTEX) );
 #else
-    g_graphicsContext.Get3DDevice()->DrawPrimitiveUP( D3DPT_TRIANGLEFAN, 2, vertex, sizeof(VERTEX) );
+    CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->DrawPrimitiveUP( D3DPT_TRIANGLEFAN, 2, vertex, sizeof(VERTEX) );
 #endif
-    g_graphicsContext.Get3DDevice()->SetTexture(0, NULL);
+    CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->SetTexture(0, NULL);
   } else
-    g_graphicsContext.Get3DDevice()->DrawPrimitiveUP( D3DPT_LINESTRIP, 4, vertex, sizeof(VERTEX) );
+    CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice()->DrawPrimitiveUP( D3DPT_LINESTRIP, 4, vertex, sizeof(VERTEX) );
 }

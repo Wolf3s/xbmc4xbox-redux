@@ -24,9 +24,12 @@
 #include "settings/AdvancedSettings.h"
 #include "settings/MediaSourceSettings.h"
 #include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "filesystem/Directory.h"
 #include "guilib/LocalizeStrings.h"
-#include "guilib/Key.h"
+#include "guilib/WindowIDs.h"
+#include "input/actions/Action.h"
+#include "input/actions/ActionIDs.h"
 #include "view/ViewStateSettings.h"
 
 using namespace XFILE;
@@ -52,7 +55,7 @@ CGUIViewStateWindowPictures::CGUIViewStateWindowPictures(const CFileItemList& it
     AddSortMethod(SortByDateTaken, 577, LABEL_MASKS("%L", "%t", "%L", "%J"));  // Filename, DateTaken | Foldername, Date
     AddSortMethod(SortByFile, 561, LABEL_MASKS("%L", "%I", "%L", ""));  // Filename, Size | FolderName, empty
 
-    const CViewState *viewState = CViewStateSettings::Get().Get("pictures");
+    const CViewState *viewState = CViewStateSettings::GetInstance().Get("pictures");
     SetSortMethod(viewState->m_sortDescription);
     SetViewAsControl(viewState->m_viewMode);
     SetSortOrder(viewState->m_sortDescription.sortOrder);
@@ -62,7 +65,7 @@ CGUIViewStateWindowPictures::CGUIViewStateWindowPictures(const CFileItemList& it
 
 void CGUIViewStateWindowPictures::SaveViewState()
 {
-  SaveViewToDb(m_items.GetPath(), WINDOW_PICTURES, CViewStateSettings::Get().Get("pictures"));
+  SaveViewToDb(m_items.GetPath(), WINDOW_PICTURES, CViewStateSettings::GetInstance().Get("pictures"));
 }
 
 std::string CGUIViewStateWindowPictures::GetLockType()
@@ -72,16 +75,16 @@ std::string CGUIViewStateWindowPictures::GetLockType()
 
 std::string CGUIViewStateWindowPictures::GetExtensions()
 {
-  std::string extensions = g_advancedSettings.m_pictureExtensions;
-  if (CSettings::GetInstance().GetBool("pictures.showvideos"))
-    extensions += "|" + g_advancedSettings.m_videoExtensions;
+  std::string extensions = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_pictureExtensions;
+  if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool("pictures.showvideos"))
+    extensions += "|" + CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_videoExtensions;
 
   return extensions;
 }
 
 VECSOURCES& CGUIViewStateWindowPictures::GetSources()
 {
-  VECSOURCES *pictureSources = CMediaSourceSettings::Get().GetSources("pictures");
+  VECSOURCES *pictureSources = CMediaSourceSettings::GetInstance().GetSources("pictures");
 
   // Guard against source type not existing
   if (pictureSources == nullptr)
@@ -89,12 +92,6 @@ VECSOURCES& CGUIViewStateWindowPictures::GetSources()
     static VECSOURCES empty;
     return empty;
   }
-
-  // Picture add-ons
-  AddAddonsSource("image", g_localizeStrings.Get(1039), "DefaultAddonPicture.png");
-
-  // Global sources
-  AddOrReplace(*pictureSources, CGUIViewState::GetSources());
 
   return *pictureSources;
 }

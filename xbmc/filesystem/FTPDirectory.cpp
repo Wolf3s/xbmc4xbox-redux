@@ -1,36 +1,27 @@
 /*
- *      Copyright (C) 2005-2013 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "FTPDirectory.h"
-#include "FTPParse.h"
-#include "URL.h"
-#include "utils/URIUtils.h"
-#include "utils/StringUtils.h"
+
 #include "CurlFile.h"
+#include "FTPParse.h"
 #include "FileItem.h"
+#include "URL.h"
 #include "utils/CharsetConverter.h"
+#include "utils/StringUtils.h"
+#include "utils/URIUtils.h"
+
+#include <climits>
 
 using namespace XFILE;
 
-CFTPDirectory::CFTPDirectory(void){}
-CFTPDirectory::~CFTPDirectory(void){}
+CFTPDirectory::CFTPDirectory(void) {}
+CFTPDirectory::~CFTPDirectory(void) {}
 
 bool CFTPDirectory::GetDirectory(const CURL& url2, CFileItemList &items)
 {
@@ -38,8 +29,8 @@ bool CFTPDirectory::GetDirectory(const CURL& url2, CFileItemList &items)
 
   CURL url(url2);
 
-  CStdString path = url.GetFileName();
-  if( !path.IsEmpty() && !StringUtils::EndsWith(path, "/") )
+  std::string path = url.GetFileName();
+  if( !path.empty() && !StringUtils::EndsWith(path, "/") )
   {
     path += "/";
     url.SetFileName(path);
@@ -48,11 +39,12 @@ bool CFTPDirectory::GetDirectory(const CURL& url2, CFileItemList &items)
   if (!reader.Open(url))
     return false;
 
+  bool serverNotUseUTF8 = url.GetProtocolOption("utf8") == "0";
 
   char buffer[MAX_PATH + 1024];
   while( reader.ReadString(buffer, sizeof(buffer)) )
   {
-    CStdString strBuffer = buffer;
+    std::string strBuffer = buffer;
 
     StringUtils::RemoveCRLF(strBuffer);
 
@@ -65,21 +57,32 @@ bool CFTPDirectory::GetDirectory(const CURL& url2, CFileItemList &items)
       if( lp.flagtrycwd == 0 && lp.flagtryretr == 0 )
         continue;
 
-      /* buffer name as it's not allways null terminated */
-      CStdString name;
+      /* buffer name */
+      std::string name;
       name.assign(lp.name, lp.namelen);
 
-      if( name.Equals("..") || name.Equals(".") )
+      if( name == ".." || name == "." )
         continue;
 
-      /* this should be conditional if we ever add    */
-      /* support for the utf8 extension in ftp client */
+      // server returned filename could in utf8 or non-utf8 encoding
+      // we need utf8, so convert it to utf8 anyway
       g_charsetConverter.unknownToUTF8(name);
+
+      // convert got empty result, ignore it
+      if (name.empty())
+        continue;
+
+      if (serverNotUseUTF8 || name != std::string(lp.name, lp.namelen))
+        // non-utf8 name path, tag it with protocol option.
+        // then we can talk to server with the same encoding in CurlFile according to this tag.
+        url.SetProtocolOption("utf8", "0");
+      else
+        url.RemoveProtocolOption("utf8");
 
       CFileItemPtr pItem(new CFileItem(name));
 
-      CStdString filePath = path + name;
-      pItem->m_bIsFolder = (bool)(lp.flagtrycwd != 0);
+      pItem->m_bIsFolder = lp.flagtrycwd != 0;
+      std::string filePath = path + name;
       if (pItem->m_bIsFolder)
         URIUtils::AddSlashAtEnd(filePath);
 
@@ -101,7 +104,7 @@ bool CFTPDirectory::Exists(const CURL& url)
 {
   // make sure ftp dir ends with slash,
   // curl need to known it's a dir to check ftp directory existence.
-  CStdString file = url.Get();
+  std::string file = url.Get();
   URIUtils::AddSlashAtEnd(file);
 
   CCurlFile ftp;

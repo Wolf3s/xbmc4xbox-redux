@@ -1,127 +1,85 @@
 /*
- *      Copyright (C) 2005-2013 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
+
 #include "ScreenSaver.h"
-#include "guilib/GraphicContext.h"
-#include "interfaces/generic/ScriptInvocationManager.h"
-#include "settings/Settings.h"
-#include "utils/AlarmClock.h"
 
-// What sound does a python screensaver make?
-#define SCRIPT_ALARM "sssssscreensaver"
+#include "filesystem/SpecialProtocol.h"
+#include "utils/log.h"
+#include "windowing/GraphicContext.h"
+#include "windowing/WinSystem.h"
 
-#define SCRIPT_TIMEOUT 15 // seconds
+using namespace ADDON;
+using namespace KODI::ADDONS;
 
-namespace ADDON
+namespace
 {
-
-CScreenSaver::CScreenSaver(const char *addonID)
-    : ADDON::CAddonDll<DllScreenSaver, ScreenSaver, SCR_PROPS>(AddonProps(addonID, ADDON_UNKNOWN))
+void get_properties(const KODI_HANDLE hdl, struct KODI_ADDON_SCREENSAVER_PROPS* props)
 {
+  if (hdl)
+    static_cast<CScreenSaver*>(hdl)->GetProperties(props);
+}
+} // namespace
+
+CScreenSaver::CScreenSaver(const AddonInfoPtr& addonInfo)
+  : IAddonInstanceHandler(ADDON_INSTANCE_SCREENSAVER, addonInfo)
+{
+  m_ifc.screensaver = new AddonInstance_Screensaver;
+  m_ifc.screensaver->toAddon = new KodiToAddonFuncTable_Screensaver();
+  m_ifc.screensaver->toKodi = new AddonToKodiFuncTable_Screensaver();
+  m_ifc.screensaver->toKodi->get_properties = get_properties;
+
+  /* Open the class "kodi::addon::CInstanceScreensaver" on add-on side */
+  if (CreateInstance() != ADDON_STATUS_OK)
+    CLog::Log(LOGFATAL, "Screensaver: failed to create instance for '%s' and not usable!", ID().c_str());
 }
 
-bool CScreenSaver::IsInUse() const
+CScreenSaver::~CScreenSaver()
 {
-  return CSettings::GetInstance().GetString("screensaver.mode") == ID();
+  /* Destroy the class "kodi::addon::CInstanceScreensaver" on add-on side */
+  DestroyInstance();
+
+  delete m_ifc.screensaver->toAddon;
+  delete m_ifc.screensaver->toKodi;
+  delete m_ifc.screensaver;
 }
 
-bool CScreenSaver::CreateScreenSaver()
+bool CScreenSaver::Start()
 {
-  if (CScriptInvocationManager::GetInstance().HasLanguageInvoker(LibPath()))
-  {
-    // Don't allow a previously-scheduled alarm to kill our new screensaver
-    g_alarmClock.Stop(SCRIPT_ALARM, true);
-
-    if (!CScriptInvocationManager::GetInstance().Stop(LibPath()))
-      CScriptInvocationManager::GetInstance().ExecuteAsync(LibPath(), AddonPtr(new CScreenSaver(*this)));
-    return true;
-  }
- // pass it the screen width,height
- // and the name of the screensaver
-  int iWidth = g_graphicsContext.GetWidth();
-  int iHeight = g_graphicsContext.GetHeight();
-
-  m_pInfo = new SCR_PROPS;
-#ifdef HAS_DX
-  m_pInfo->device     = g_Windowing.Get3D11Context();
-#else
-  m_pInfo->device     = NULL;
-#endif
-  m_pInfo->x          = 0;
-  m_pInfo->y          = 0;
-  m_pInfo->width      = iWidth;
-  m_pInfo->height     = iHeight;
-  m_pInfo->pixelRatio = g_graphicsContext.GetResInfo().fPixelRatio;
-  m_pInfo->name       = strdup(Name().c_str());
-  m_pInfo->presets    = strdup(CSpecialProtocol::TranslatePath(Path()).c_str());
-  m_pInfo->profile    = strdup(CSpecialProtocol::TranslatePath(Profile()).c_str());
-
-  if (CAddonDll<DllScreenSaver, ScreenSaver, SCR_PROPS>::Create() == ADDON_STATUS_OK)
-    return true;
-
+  if (m_ifc.screensaver->toAddon->start)
+    return m_ifc.screensaver->toAddon->start(m_ifc.hdl);
   return false;
 }
 
-void CScreenSaver::Start()
+void CScreenSaver::Stop()
 {
-  // notify screen saver that they should start
-  if (Initialized()) m_pStruct->Start();
+  if (m_ifc.screensaver->toAddon->stop)
+    m_ifc.screensaver->toAddon->stop(m_ifc.hdl);
 }
 
 void CScreenSaver::Render()
 {
-  // ask screensaver to render itself
-  if (Initialized()) m_pStruct->Render();
+  if (m_ifc.screensaver->toAddon->render)
+    m_ifc.screensaver->toAddon->render(m_ifc.hdl);
 }
 
-void CScreenSaver::GetInfo(SCR_INFO *info)
+void CScreenSaver::GetProperties(struct KODI_ADDON_SCREENSAVER_PROPS* props)
 {
-  // get info from screensaver
-  if (Initialized()) m_pStruct->GetInfo(info);
-}
-
-void CScreenSaver::Destroy()
-{
-#ifdef HAS_PYTHON
-  if (URIUtils::HasExtension(LibPath(), ".py"))
-  {
-    /* FIXME: This is a hack but a proper fix is non-trivial. Basically this code
-     * makes sure the addon gets terminated after we've moved out of the screensaver window.
-     * If we don't do this, we may simply lockup.
-     */
-    g_alarmClock.Start(SCRIPT_ALARM, SCRIPT_TIMEOUT, "StopScript(" + LibPath() + ")", true, false);
+  if (!props)
     return;
-  }
-#endif
-  // Release what was allocated in method CScreenSaver::CreateScreenSaver.
-  if (m_pInfo)
-  {
-    free((void *) m_pInfo->name);
-    free((void *) m_pInfo->presets);
-    free((void *) m_pInfo->profile);
 
-    delete m_pInfo;
-    m_pInfo = NULL;
-  }
+  CWinSystemBase *const winSystem = CServiceBroker::GetWinSystem();
+  if (!winSystem)
+    return;
 
-  CAddonDll<DllScreenSaver, ScreenSaver, SCR_PROPS>::Destroy();
+  props->x = 0;
+  props->y = 0;
+  props->device = winSystem->GetGfxContext().Get3DDevice();
+  props->width = winSystem->GetGfxContext().GetWidth();
+  props->height = winSystem->GetGfxContext().GetHeight();
+  props->pixelRatio = winSystem->GetGfxContext().GetResInfo().fPixelRatio;
 }
-
-} /*namespace ADDON*/
-

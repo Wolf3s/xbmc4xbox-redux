@@ -1,38 +1,29 @@
-#pragma once
 /*
- *      Copyright (C) 2012-2014 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2012-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
+
+#pragma once
+
+#include "dbwrappers/Database.h"
+#include "dbwrappers/DatabaseQuery.h"
+#include "settings/dialogs/GUIDialogSettingsManualBase.h"
+#include "settings/lib/SettingType.h"
+#include "utils/DatabaseUtils.h"
 
 #include <map>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "dbwrappers/Database.h"
-#include "dbwrappers/DatabaseQuery.h"
-#include "settings/dialogs/GUIDialogSettingsManualBase.h"
-#include "utils/DatabaseUtils.h"
-
 class CDbUrl;
 class CSetting;
 class CSmartPlaylist;
 class CSmartPlaylistRule;
+struct StringSettingOption;
 
 class CGUIDialogMediaFilter : public CGUIDialogSettingsManualBase
 {
@@ -45,18 +36,19 @@ public:
 
   static void ShowAndEditMediaFilter(const std::string &path, CSmartPlaylist &filter);
 
-  typedef struct {
+  struct Filter
+  {
     std::string mediaType;
     Field field;
     uint32_t label;
-    int settingType;
+    SettingType::Type settingType;
     std::string controlType;
     std::string controlFormat;
     CDatabaseQueryRule::SEARCH_OPERATOR ruleOperator;
-    CSetting *setting;
-    CSmartPlaylistRule *rule;
-    void *data;
-  } Filter;
+    boost::shared_ptr<CSetting> setting;
+    CSmartPlaylistRule* rule;
+    void* data;
+  };
 
 protected:
   // specializations of CGUIWindow
@@ -64,11 +56,11 @@ protected:
   virtual void OnInitWindow();
 
   // implementations of ISettingCallback
-  virtual void OnSettingChanged(const CSetting *setting);
+  virtual void OnSettingChanged(const boost::shared_ptr<const CSetting>& setting);
 
   // specialization of CGUIDialogSettingsBase
   virtual bool AllowResettingSettings() const { return false; }
-  virtual void Save() { }
+  virtual bool Save() { return true; }
   virtual unsigned int GetDelayMs() const { return 500; }
 
   // specialization of CGUIDialogSettingsManualBase
@@ -88,7 +80,10 @@ protected:
   CSmartPlaylistRule* AddRule(Field field, CDatabaseQueryRule::SEARCH_OPERATOR ruleOperator = CDatabaseQueryRule::OPERATOR_CONTAINS);
   void DeleteRule(Field field);
 
-  static void GetStringListOptions(const CSetting *setting, std::vector< std::pair<std::string, std::string> > &list, std::string &current, void *data);
+  static void GetStringListOptions(const boost::shared_ptr<const CSetting>& setting,
+                                   std::vector<StringSettingOption>& list,
+                                   std::string& current,
+                                   void* data);
 
   CDbUrl* m_dbUrl;
   std::string m_mediaType;

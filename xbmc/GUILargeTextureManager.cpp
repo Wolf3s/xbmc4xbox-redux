@@ -1,37 +1,26 @@
 /*
- *      Copyright (C) 2005-2013 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include "threads/SystemClock.h"
 #include "GUILargeTextureManager.h"
-#include "settings/Settings.h"
-#include "guilib/Texture.h"
-#include "threads/SingleLock.h"
-#include "utils/TimeUtils.h"
-#include "utils/JobManager.h"
-#include "guilib/GraphicContext.h"
-#include "utils/log.h"
+
+#include "ServiceBroker.h"
 #include "TextureCache.h"
+#include "commons/ilog.h"
+#include "guilib/GUIComponent.h"
+#include "guilib/Texture.h"
+#include "utils/JobManager.h"
+#include "utils/TimeUtils.h"
+#include "utils/log.h"
+#include "windowing/GraphicContext.h"
+#include "windowing/WinSystem.h"
 
 #include <cassert>
-
-CGUILargeTextureManager g_largeTextureManager;
+#include <exception>
 
 CImageLoader::CImageLoader(const std::string &path, const bool useCache):
   m_path(path)
@@ -40,22 +29,19 @@ CImageLoader::CImageLoader(const std::string &path, const bool useCache):
   m_use_cache = useCache;
 }
 
-CImageLoader::~CImageLoader()
-{
-  delete(m_texture);
-}
+CImageLoader::~CImageLoader() {};
 
 bool CImageLoader::DoWork()
 {
   bool needsChecking = false;
   std::string loadPath;
 
-  std::string texturePath = g_TextureManager.GetTexturePath(m_path);
+  std::string texturePath = CServiceBroker::GetGUI()->GetTextureManager().GetTexturePath(m_path);
   if (texturePath.empty())
     return false;
 
   if (m_use_cache)
-    loadPath = CTextureCache::Get().CheckCachedImage(texturePath, needsChecking);
+    loadPath = CServiceBroker::GetTextureCache()->CheckCachedImage(texturePath, needsChecking);
   else
     loadPath = texturePath;
 
@@ -63,7 +49,9 @@ bool CImageLoader::DoWork()
   {
     // direct route - load the image
     unsigned int start = XbmcThreads::SystemClockMillis();
-    m_texture = CBaseTexture::LoadFromFile(loadPath, g_graphicsContext.GetWidth(), g_graphicsContext.GetHeight(), CSettings::GetInstance().GetBool("pictures.useexifrotation"));
+    m_texture =
+        CTexture::LoadFromFile(loadPath, CServiceBroker::GetWinSystem()->GetGfxContext().GetWidth(),
+                               CServiceBroker::GetWinSystem()->GetGfxContext().GetHeight());
 
     if (XbmcThreads::SystemClockMillis() - start > 100)
       CLog::Log(LOGDEBUG, "%s - took %u ms to load %s", __FUNCTION__, XbmcThreads::SystemClockMillis() - start, loadPath.c_str());
@@ -71,7 +59,7 @@ bool CImageLoader::DoWork()
     if (m_texture)
     {
       if (needsChecking)
-        CTextureCache::Get().BackgroundCacheImage(texturePath);
+        CServiceBroker::GetTextureCache()->BackgroundCacheImage(texturePath);
 
       return true;
     }
@@ -84,7 +72,7 @@ bool CImageLoader::DoWork()
     return false; // We're done
 
   // not in our texture cache or it failed to load from it, so try and load directly and then cache the result
-  CTextureCache::Get().CacheImage(texturePath, &m_texture);
+  CServiceBroker::GetTextureCache()->CacheImage(texturePath, &m_texture);
   return (m_texture != NULL);
 }
 
@@ -131,20 +119,20 @@ bool CGUILargeTextureManager::CLargeTexture::DeleteIfRequired(bool deleteImmedia
   return false;
 }
 
-void CGUILargeTextureManager::CLargeTexture::SetTexture(CBaseTexture* texture)
+void CGUILargeTextureManager::CLargeTexture::SetTexture(boost::movelib::unique_ptr<CTexture> texture)
 {
   assert(!m_texture.size());
   if (texture)
-    m_texture.Set(texture, texture->GetWidth(), texture->GetHeight());
+  {
+    const unsigned int width = texture->GetWidth();
+    const unsigned int height = texture->GetHeight();
+    m_texture.Set(boost::shared_ptr<CTexture>(texture.release()), width, height);
+  }
 }
 
-CGUILargeTextureManager::CGUILargeTextureManager()
-{
-}
+CGUILargeTextureManager::CGUILargeTextureManager() {};
 
-CGUILargeTextureManager::~CGUILargeTextureManager()
-{
-}
+CGUILargeTextureManager::~CGUILargeTextureManager() {};
 
 void CGUILargeTextureManager::CleanupUnusedImages(bool immediately)
 {
@@ -204,7 +192,7 @@ void CGUILargeTextureManager::ReleaseImage(const std::string &path, bool immedia
     if (image->GetPath() == path && image->DecrRef(true))
     {
       // cancel this job
-      CJobManager::GetInstance().CancelJob(id);
+      CServiceBroker::GetJobManager()->CancelJob(id);
       m_queued.erase(it);
       return;
     }
@@ -230,7 +218,8 @@ void CGUILargeTextureManager::QueueImage(const std::string &path, bool useCache)
 
   // queue the item
   CLargeTexture *image = new CLargeTexture(path);
-  unsigned int jobID = CJobManager::GetInstance().AddJob(new CImageLoader(path, useCache), this, CJob::PRIORITY_NORMAL);
+  unsigned int jobID = CServiceBroker::GetJobManager()->AddJob(new CImageLoader(path, useCache),
+                                                               this, CJob::PRIORITY_NORMAL);
   m_queued.push_back(std::make_pair(jobID, image));
 }
 
@@ -242,9 +231,9 @@ void CGUILargeTextureManager::OnJobComplete(unsigned int jobID, bool success, CJ
   {
     if (it->first == jobID)
     { // found our job
-      CImageLoader *loader = (CImageLoader *)job;
+      CImageLoader *loader = static_cast<CImageLoader*>(job);
       CLargeTexture *image = it->second;
-      image->SetTexture(loader->m_texture);
+      image->SetTexture(boost::move(loader->m_texture));
       loader->m_texture = NULL; // we want to keep the texture, and jobs are auto-deleted.
       m_queued.erase(it);
       m_allocated.push_back(image);

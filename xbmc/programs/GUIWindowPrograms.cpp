@@ -11,6 +11,7 @@
 #include "dialogs/GUIDialogKaiToast.h"
 #include "dialogs/GUIDialogMediaSource.h"
 #include "dialogs/GUIDialogYesNo.h"
+#include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
 #include "guilib/LocalizeStrings.h"
 #include "FileItem.h"
@@ -19,6 +20,7 @@
 #include "programs/launchers/ProgramLauncher.h"
 #include "programs/launchers/XBELauncher.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/SettingsComponent.h"
 #include "Util.h"
 #include "utils/FileUtils.h"
 #include "utils/StringUtils.h"
@@ -69,7 +71,7 @@ bool CGUIWindowPrograms::OnClick(int iItem, const std::string &player)
 
   if (item->GetPath() == "insignia://")
   {
-    g_windowManager.ActivateWindow(WINDOW_INSIGNIA);
+    CServiceBroker::GetGUI()->GetWindowManager().ActivateWindow(WINDOW_INSIGNIA);
     return true;
   }
 
@@ -96,7 +98,7 @@ void CGUIWindowPrograms::GetContextButtons(int itemNumber, CContextButtons &butt
   {
     CGUIDialogContextMenu::GetContextButtons("programs", item, buttons);
   }
-  else if (URIUtils::HasExtension(item->GetPath(), g_advancedSettings.m_programExtensions))
+  else if (URIUtils::HasExtension(item->GetPath(), CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_programExtensions))
   {
     buttons.Add(CONTEXT_BUTTON_DELETE, 117);
     if (item->IsXBE())
@@ -130,7 +132,7 @@ bool CGUIWindowPrograms::OnContextButton(int itemNumber, CONTEXT_BUTTON button)
         if (URIUtils::IsProtocol(item->GetPath(), "gamesaves"))
         {
           std::vector<std::string> Path = StringUtils::Split(item->GetPath(), "://");
-          if (!CFileUtils::DeleteItem("E:\\UDATA\\" + Path.back() + "\\", true))
+          if (!CFileUtils::DeleteItem("E:\\UDATA\\" + Path.back() + "\\"))
             return false;
         }
         else
@@ -206,7 +208,7 @@ bool CGUIWindowPrograms::GetDirectory(const std::string &strDirectory, CFileItem
     for (int i=0;i<items.Size();++i)
     {
       items[i]->SetLabel2(items[i]->GetProperty("Addon.Version").asString());
-      items[i]->SetLabelPreformated(true);
+      items[i]->SetLabelPreformatted(true);
     }
   }
 
@@ -214,25 +216,25 @@ bool CGUIWindowPrograms::GetDirectory(const std::string &strDirectory, CFileItem
   {
     CFileItemPtr pItem(new CFileItem());
     pItem->SetPath("insignia://");
-    pItem->SetIconImage("insignia/logo.png");
+    pItem->SetArt("icon", "insignia/logo.png");
     pItem->SetLabel(g_localizeStrings.Get(38901));
-    pItem->SetLabelPreformated(true);
+    pItem->SetLabelPreformatted(true);
     pItem->SetProperty("overview", g_localizeStrings.Get(38902));
     pItem->SetSpecialSort(SortSpecialOnTop);
     items.Add(pItem);
 
     CFileItemPtr pItem2(new CFileItem("gamesaves://", true));
-    pItem2->SetIconImage("DefaultGameAddons.png");
+    pItem2->SetArt("icon", "DefaultGameAddons.png");
     pItem2->SetLabel(g_localizeStrings.Get(38779));
-    pItem2->SetLabelPreformated(true);
+    pItem2->SetLabelPreformatted(true);
     pItem2->SetProperty("overview", g_localizeStrings.Get(38779));
     pItem2->SetSpecialSort(SortSpecialOnTop);
     items.Add(pItem2);
 
     CFileItemPtr pItem3(new CFileItem("programdb://games/recentlyplayed/", true));
-    pItem3->SetIconImage("DefaultRecentlyAddedMovies.png");
+    pItem3->SetArt("icon", "DefaultRecentlyAddedMovies.png");
     pItem3->SetLabel(g_localizeStrings.Get(38973));
-    pItem3->SetLabelPreformated(true);
+    pItem3->SetLabelPreformatted(true);
     pItem3->SetSpecialSort(SortSpecialOnTop);
     items.Add(pItem3);
 

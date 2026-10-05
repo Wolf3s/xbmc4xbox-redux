@@ -21,7 +21,7 @@
  *
  */
 
-#include "GraphicContext.h"
+#include "windowing/GraphicContext.h"
 
 //#define MP_DIRECTRENDERING
 
@@ -36,6 +36,14 @@
 
 #define ALIGN(value, alignment) (((value)+((alignment)-1))&~((alignment)-1))
 #define CLAMP(a, min, max) ((a) > (max) ? (max) : ( (a) < (min) ? (min) : a ))
+
+enum RenderMethods
+{
+  RENDER_LQ_RGB_SHADER = 0,
+  RENDER_OVERLAYS,
+  RENDER_HQ_RGB_SHADER,
+  RENDER_HQ_RGB_SHADERV2
+};
 
 typedef struct YV12Image
 {
@@ -121,6 +129,9 @@ extern YUVCOEF yuv_coef_smtp240m;
 static const DWORD FVF_VERTEX = D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1;
 static const DWORD FVF_Y8A8VERTEX = D3DFVF_XYZRHW | D3DFVF_TEX2;
 
+class CSetting;
+struct IntegerSettingOption;
+
 class CXBoxRenderer
 {
 public:
@@ -148,9 +159,12 @@ public:
 
   void AutoCrop(bool bCrop);
   void RenderUpdate(bool clear, DWORD flags = 0, DWORD alpha = 255);
-  RESOLUTION GetResolution();  
+  RESOLUTION GetResolution();
 
-  static void SettingOptionsRenderMethodsFiller(const CSetting *setting, std::vector< std::pair<std::string, int> > &list, int &current, void *data);
+  static void SettingOptionsRenderMethodsFiller(const boost::shared_ptr<const CSetting>& setting,
+                                                std::vector<IntegerSettingOption>& list,
+                                                int& current,
+                                                void* data);
 
 protected:
   virtual void Render(DWORD flags);

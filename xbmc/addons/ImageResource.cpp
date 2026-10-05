@@ -1,42 +1,30 @@
 /*
-*      Copyright (C) 2005-2013 Team XBMC
-*      http://xbmc.org
-*
-*  This Program is free software; you can redistribute it and/or modify
-*  it under the terms of the GNU General Public License as published by
-*  the Free Software Foundation; either version 2, or (at your option)
-*  any later version.
-*
-*  This Program is distributed in the hope that it will be useful,
-*  but WITHOUT ANY WARRANTY; without even the implied warranty of
-*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-*  GNU General Public License for more details.
-*
-*  You should have received a copy of the GNU General Public License
-*  along with XBMC; see the file COPYING.  If not, see
-*  <http://www.gnu.org/licenses/>.
-*
-*/
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
 #include "ImageResource.h"
+
 #include "URL.h"
-#include "ServiceBroker.h"
-#include "addons/AddonManager.h"
-#include "filesystem/File.h"
+#include "addons/addoninfo/AddonType.h"
+#if 0
+#include "filesystem/XbtManager.h"
+#endif
+#include "utils/FileUtils.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
+
+// TODO: adjust this for XPR textures
 
 namespace ADDON
 {
 
-boost::movelib::unique_ptr<CImageResource> CImageResource::FromExtension(AddonProps props, const cp_extension_t* ext)
+CImageResource::CImageResource(const AddonInfoPtr& addonInfo)
+  : CResource(addonInfo, AddonType::RESOURCE_IMAGES)
 {
-  std::string type = CServiceBroker::GetAddonMgr().GetExtValue(ext->configuration, "@type");
-  return boost::movelib::unique_ptr<CImageResource>(new CImageResource(boost::move(props), boost::move(type)));
-}
-
-CImageResource::CImageResource(AddonProps props, std::string type)
-    : CResource(boost::move(props)), m_type(boost::move(type))
-{
+  m_type = Type(AddonType::RESOURCE_IMAGES)->GetValue("@type").asString();
 }
 
 void CImageResource::OnPreUnInstall()
@@ -45,9 +33,10 @@ void CImageResource::OnPreUnInstall()
   if (!HasXbt(xbtUrl))
     return;
 
-  // TODO: add support for image resources inside XPR files
+#if 0
   // if there's an XBT we need to remove it from the XBT manager
-  //XFILE::CXbtManager::GetInstance().Release(xbtUrl);
+  XFILE::CXbtManager::GetInstance().Release(xbtUrl);
+#endif
 }
 
 bool CImageResource::IsAllowed(const std::string &file) const
@@ -77,7 +66,7 @@ bool CImageResource::HasXbt(CURL& xbtUrl) const
 {
   std::string resourcePath = GetResourcePath();
   std::string xbtPath = URIUtils::AddFileToFolder(resourcePath, "Textures.xbt");
-  if (!XFILE::CFile::Exists(xbtPath))
+  if (!CFileUtils::Exists(xbtPath))
     return false;
 
   // translate it into a xbt:// URL

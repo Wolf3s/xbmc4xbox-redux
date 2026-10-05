@@ -13,8 +13,9 @@
 #include "Tuple.h"
 #include "guilib/GUIControl.h"
 #include "guilib/GUIFont.h"
-#include "guilib/Key.h"
+#include "input/actions/ActionIDs.h"
 #include "swighelper.h"
+#include "utils/ColorUtils.h"
 
 #include <vector>
 
@@ -60,9 +61,7 @@ namespace XBMCAddon
     class Control : public AddonClass
     {
     protected:
-      Control() : iControlId(0), iParentId(0), dwPosX(0), dwPosY(0), dwWidth(0),
-                  dwHeight(0), iControlUp(0), iControlDown(0), iControlLeft(0),
-                  iControlRight(0), pGUIControl(nullptr) {}
+      Control() : iControlId(0), iParentId(0), dwPosX(0), dwPosY(0), dwWidth(0), dwHeight(0), iControlUp(0), iControlDown(0), iControlLeft(0), iControlRight(0), m_visible(true), pGUIControl(NULL) {}
 
     public:
       virtual ~Control();
@@ -77,7 +76,6 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control
       /// @brief \python_func{ getId() }
-      ///-----------------------------------------------------------------------
       /// Returns the control's current id as an integer.
       ///
       /// @return                       int - Current id
@@ -105,7 +103,6 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control
       /// @brief \python_func{ getPosition() }
-      ///-----------------------------------------------------------------------
       /// Returns the control's current position as a x,y integer tuple.
       ///
       /// @return                       Current position as a x,y integer tuple
@@ -128,7 +125,6 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control
       /// @brief \python_func{ getX() }
-      ///-----------------------------------------------------------------------
       /// Returns the control's current X position.
       ///
       /// @return                       int - Current X position
@@ -151,7 +147,6 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control
       /// @brief \python_func{ getY() }
-      ///-----------------------------------------------------------------------
       /// Returns the control's current Y position.
       ///
       /// @return                       int - Current Y position
@@ -174,7 +169,6 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control
       /// @brief \python_func{ getHeight() }
-      ///-----------------------------------------------------------------------
       /// Returns the control's current height as an integer.
       ///
       /// @return                       int - Current height
@@ -198,7 +192,6 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control
       /// @brief \python_func{ getWidth() }
-      ///-----------------------------------------------------------------------
       /// Returns the control's current width as an integer.
       ///
       /// @return                       int - Current width
@@ -222,8 +215,7 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control
       /// @brief \python_func{ setEnabled(enabled) }
-      ///-----------------------------------------------------------------------
-      /// Set's the control's enabled/disabled state.
+      /// Sets the control's enabled/disabled state.
       ///
       /// @param enabled            bool - True=enabled / False=disabled.
       ///
@@ -246,13 +238,16 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control
       /// @brief \python_func{ setVisible(visible) }
-      ///-----------------------------------------------------------------------
-      /// Set's the control's visible/hidden state.
+      /// Sets the control's visible/hidden state.
+      /// \anchor python_xbmcgui_control_setVisible
       ///
       /// @param visible            bool - True=visible / False=hidden.
       ///
       ///
       ///-----------------------------------------------------------------------
+      /// @python_v19 You can now define the visible state of a control before it being
+      /// added to a window. This value will be taken into account when the control is later
+      /// added.
       ///
       /// **Example:**
       /// ~~~~~~~~~~~~~{.py}
@@ -270,8 +265,11 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control
       /// @brief \python_func{ isVisible() }
-      ///-----------------------------------------------------------------------
-      /// Get the control's visible/hidden state.
+      /// Get the control's visible/hidden state with respect to the container/window
+      ///
+      /// @note If a given control is set visible (c.f. \ref python_xbmcgui_control_setVisible "setVisible()"
+      /// but was not yet added to a window, this method will return `False` (the control is not visible yet since
+      /// it was not added to the window).
       ///
       ///-----------------------------------------------------------------------
       /// @python_v18 New function added.
@@ -292,8 +290,7 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control
       /// @brief \python_func{ setVisibleCondition(visible[,allowHiddenFocus]) }
-      ///-----------------------------------------------------------------------
-      /// Set's the control's visible condition.
+      /// Sets the control's visible condition.
       ///
       /// Allows Kodi to control the visible status of the control.
       ///
@@ -323,8 +320,7 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control
       /// @brief \python_func{ setEnableCondition(enable) }
-      ///-----------------------------------------------------------------------
-      /// Set's the control's enabled condition.
+      /// Sets the control's enabled condition.
       ///
       /// Allows Kodi to control the enabled status of the control.
       ///
@@ -352,8 +348,7 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control
       /// @brief \python_func{ setAnimations([(event, attr,)*]) }
-      ///-----------------------------------------------------------------------
-      /// Set's the control's animations.
+      /// Sets the control's animations.
       ///
       /// <b>[(event,attr,)*]</b>: list - A list of tuples consisting of event
       /// and attributes pairs.
@@ -384,8 +379,7 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control
       /// @brief \python_func{ setPosition(x, y) }
-      ///-----------------------------------------------------------------------
-      /// Set's the controls position.
+      /// Sets the controls position.
       ///
       /// @param x                  integer - x coordinate of control.
       /// @param y                  integer - y coordinate of control.
@@ -411,8 +405,7 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control
       /// @brief \python_func{ setWidth(width) }
-      ///-----------------------------------------------------------------------
-      /// Set's the controls width.
+      /// Sets the controls width.
       ///
       /// @param width                integer - width of control.
       ///
@@ -435,8 +428,7 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control
       /// @brief \python_func{ setHeight(height) }
-      ///-----------------------------------------------------------------------
-      /// Set's the controls height.
+      /// Sets the controls height.
       ///
       /// @param height               integer - height of control.
       ///
@@ -459,8 +451,7 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control
       /// @brief \python_func{ setNavigation(up, down, left, right) }
-      ///-----------------------------------------------------------------------
-      /// Set's the controls navigation.
+      /// Sets the controls navigation.
       ///
       /// @param up                 control object - control to navigate to on up.
       /// @param down               control object - control to navigate to on down.
@@ -494,8 +485,7 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control
       /// @brief \python_func{ controlUp(control) }
-      ///-----------------------------------------------------------------------
-      /// Set's the controls up navigation.
+      /// Sets the controls up navigation.
       ///
       /// @param control            control object - control to navigate to on up.
       /// @throw TypeError              if one of the supplied arguments is not a
@@ -525,8 +515,7 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control
       /// @brief \python_func{ controlDown(control) }
-      ///-----------------------------------------------------------------------
-      /// Set's the controls down navigation.
+      /// Sets the controls down navigation.
       ///
       /// @param control            control object - control to navigate to on down.
       /// @throw TypeError              if one of the supplied arguments is not a
@@ -556,8 +545,7 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control
       /// @brief \python_func{ controlLeft(control) }
-      ///-----------------------------------------------------------------------
-      /// Set's the controls left navigation.
+      /// Sets the controls left navigation.
       ///
       /// @param control            control object - control to navigate to on left.
       /// @throw TypeError              if one of the supplied arguments is not a
@@ -587,8 +575,7 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control
       /// @brief \python_func{ controlRight(control) }
-      ///-----------------------------------------------------------------------
-      /// Set's the controls right navigation.
+      /// Sets the controls right navigation.
       ///
       /// @param control            control object - control to navigate to on right.
       /// @throw TypeError              if one of the supplied arguments is not a
@@ -625,6 +612,8 @@ namespace XBMCAddon
       int iControlDown;
       int iControlLeft;
       int iControlRight;
+      std::string m_label;
+      bool m_visible;
       CGUIControl* pGUIControl;
 #endif
 
@@ -665,8 +654,7 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control_spin
       /// @brief \python_func{ setTextures(up, down, upFocus, downFocus) }
-      ///-----------------------------------------------------------------------
-      /// Set's textures for this control.
+      /// Sets textures for this control.
       ///
       /// Texture are image files that are used for example in the skin
       ///
@@ -705,7 +693,7 @@ namespace XBMCAddon
 #endif
 
 #ifndef SWIG
-      color_t color;
+      UTILS::COLOR::Color color;
       std::string strTextureUp;
       std::string strTextureDown;
       std::string strTextureUpFocus;
@@ -750,7 +738,7 @@ namespace XBMCAddon
     ///                                 label's label. (e.g. '0xFFFF3300')
     /// @param alignment            [opt] integer - alignment of label
     /// - \ref kodi_gui_font_alignment "Flags for alignment" used as bits to have several together:
-    /// | Defination name   |   Bitflag  | Description                         |
+    /// | Definition name   |   Bitflag  | Description                         |
     /// |-------------------|:----------:|:------------------------------------|
     /// | XBFONT_LEFT       | 0x00000000 | Align X left
     /// | XBFONT_RIGHT      | 0x00000001 | Align X right
@@ -758,6 +746,7 @@ namespace XBMCAddon
     /// | XBFONT_CENTER_Y   | 0x00000004 | Align Y center
     /// | XBFONT_TRUNCATED  | 0x00000008 | Truncated text
     /// | XBFONT_JUSTIFIED  | 0x00000010 | Justify text
+    /// | XBFONT_TRUNCATED_LEFT | 0x00000020 | Truncated text from left
     /// @param hasPath              [opt] bool - True=stores a
     ///                                 path / False=no path
     /// @param angle                [opt] integer - angle of control.
@@ -789,7 +778,6 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control_label
       /// @brief \python_func{ getLabel() }
-      ///-----------------------------------------------------------------------
       /// Returns the text value for this label.
       ///
       /// @return                       This label
@@ -812,8 +800,7 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control_label
       /// @brief \python_func{ setLabel(label[, font, textColor, disabledColor, shadowColor, focusedColor, label2]) }
-      ///-----------------------------------------------------------------------
-      /// Set's text for this label.
+      /// Sets text for this label.
       ///
       /// @param label              string or unicode - text string.
       /// @param font               [opt] string - font used for label text.
@@ -850,20 +837,17 @@ namespace XBMCAddon
 #endif
 
 #ifndef SWIG
-      ControlLabel() :
-        bHasPath(false),
-        iAngle  (0)
-      {}
+      ControlLabel() : bHasPath(false), iAngle(0) {}
 
       std::string strFont;
       std::string strText;
-      color_t textColor;
-      color_t disabledColor;
+      UTILS::COLOR::Color textColor;
+      UTILS::COLOR::Color disabledColor;
       uint32_t align;
       bool bHasPath;
       int iAngle;
 
-      SWIGHIDDENVIRTUAL CGUIControl* Create();
+      virtual CGUIControl* Create();
 
 #endif
     };
@@ -896,7 +880,7 @@ namespace XBMCAddon
     ///                                 label's label. (e.g. '0xFFFF3300')
     /// @param alignment            [opt] integer - alignment of label
     /// - \ref kodi_gui_font_alignment "Flags for alignment" used as bits to have several together:
-    /// | Defination name   |   Bitflag  | Description                         |
+    /// | Definition name   |   Bitflag  | Description                         |
     /// |-------------------|:----------:|:------------------------------------|
     /// | XBFONT_LEFT       | 0x00000000 | Align X left
     /// | XBFONT_RIGHT      | 0x00000001 | Align X right
@@ -904,9 +888,9 @@ namespace XBMCAddon
     /// | XBFONT_CENTER_Y   | 0x00000004 | Align Y center
     /// | XBFONT_TRUNCATED  | 0x00000008 | Truncated text
     /// | XBFONT_JUSTIFIED  | 0x00000010 | Justify text
+    /// | XBFONT_TRUNCATED_LEFT | 0x00000020 | Truncated text from left
     /// @param focusTexture         [opt] string - filename for focus texture.
     /// @param noFocusTexture       [opt] string - filename for no focus texture.
-    /// @param isPassword           [opt] bool - True=mask text value with `****`(deprecated, use setType()).
     ///
     /// @note You can use the above as keywords for arguments and skip certain
     /// optional arguments.\n
@@ -918,6 +902,7 @@ namespace XBMCAddon
     ///
     ///-------------------------------------------------------------------------
     /// @python_v18 Deprecated **isPassword**
+    /// @python_v19 Removed **isPassword**
     ///
     /// **Example:**
     /// ~~~~~~~~~~~~~{.py}
@@ -933,15 +918,14 @@ namespace XBMCAddon
                   const char* font = NULL, const char* textColor = NULL,
                   const char* disabledColor = NULL,
                   long _alignment = XBFONT_LEFT, const char* focusTexture = NULL,
-                  const char* noFocusTexture = NULL, bool isPassword = false);
+                  const char* noFocusTexture = NULL);
 
 
       // setLabel() Method
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control_edit
       /// @brief \python_func{ setLabel(label[, font, textColor, disabledColor, shadowColor, focusedColor, label2]) }
-      ///-----------------------------------------------------------------------
-      /// Set's text heading for this edit control.
+      /// Sets text heading for this edit control.
       ///
       /// @param label              string or unicode - text string.
       /// @param font               [opt] string - font used for label text.
@@ -981,7 +965,6 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control_edit
       /// @brief \python_func{ getLabel() }
-      ///-----------------------------------------------------------------------
       /// Returns the text heading for this edit control.
       ///
       /// @return                       Heading text
@@ -1005,8 +988,7 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control_edit
       /// @brief \python_func{ setText(value) }
-      ///-----------------------------------------------------------------------
-      /// Set's text value for this edit control.
+      /// Sets text value for this edit control.
       ///
       /// @param value              string or unicode - text string.
       ///
@@ -1029,7 +1011,6 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control_edit
       /// @brief \python_func{ getText() }
-      ///-----------------------------------------------------------------------
       /// Returns the text value for this edit control.
       ///
       /// @return                       Text value of control
@@ -1051,46 +1032,44 @@ namespace XBMCAddon
 #endif
 
 #ifndef SWIG
-      ControlEdit() :
-        bIsPassword (false)
-      {}
+      ControlEdit() {}
 
       std::string strFont;
       std::string strText;
       std::string strTextureFocus;
       std::string strTextureNoFocus;
-      color_t textColor;
-      color_t disabledColor;
+      UTILS::COLOR::Color textColor;
+      UTILS::COLOR::Color disabledColor;
       uint32_t align;
-      bool bIsPassword;
 
-      SWIGHIDDENVIRTUAL CGUIControl* Create();
+      virtual CGUIControl* Create();
 #endif
 
       // setType() Method
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control_edit
       /// @brief \python_func{ setType(type, heading) }
-      ///-----------------------------------------------------------------------
       /// Sets the type of this edit control.
       ///
       /// @param type              integer - type of the edit control.
-      /// | Param                            | Definition                                  |
-      /// |----------------------------------|:--------------------------------------------|
-      /// | xbmcgui.INPUT_TYPE_TEXT          | (standard keyboard)
-      /// | xbmcgui.INPUT_TYPE_NUMBER        | (format: #)
-      /// | xbmcgui.INPUT_TYPE_DATE          | (format: DD/MM/YYYY)
-      /// | xbmcgui.INPUT_TYPE_TIME          | (format: HH:MM)
-      /// | xbmcgui.INPUT_TYPE_IPADDRESS     | (format: #.#.#.#)
-      /// | xbmcgui.INPUT_TYPE_PASSWORD      | (input is masked)
-      /// | xbmcgui.INPUT_TYPE_PASSWORD_MD5  | (input is masked, return md5 hash of input)
-      /// | xbmcgui.INPUT_TYPE_SECONDS       | (format: SS or MM:SS or HH:MM:SS or MM min)
+      /// | Param                                         | Definition                                  |
+      /// |-----------------------------------------------|:--------------------------------------------|
+      /// | xbmcgui.INPUT_TYPE_TEXT                       | (standard keyboard)
+      /// | xbmcgui.INPUT_TYPE_NUMBER                     | (format: #)
+      /// | xbmcgui.INPUT_TYPE_DATE                       | (format: DD/MM/YYYY)
+      /// | xbmcgui.INPUT_TYPE_TIME                       | (format: HH:MM)
+      /// | xbmcgui.INPUT_TYPE_IPADDRESS                  | (format: #.#.#.#)
+      /// | xbmcgui.INPUT_TYPE_PASSWORD                   | (input is masked)
+      /// | xbmcgui.INPUT_TYPE_PASSWORD_MD5               | (input is masked, return md5 hash of input)
+      /// | xbmcgui.INPUT_TYPE_SECONDS                    | (format: SS or MM:SS or HH:MM:SS or MM min)
+      /// | xbmcgui.INPUT_TYPE_PASSWORD_NUMBER_VERIFY_NEW | (numeric input is masked)
       /// @param heading           string or unicode - heading that will be used for to numeric or
       ///                                              keyboard dialog when the edit control is clicked.
       ///
       ///
       ///-----------------------------------------------------------------------
       /// @python_v18 New function added.
+      /// @python_v19 New option added to mask numeric input.
       ///
       /// **Example:**
       /// ~~~~~~~~~~~~~{.py}
@@ -1141,7 +1120,7 @@ namespace XBMCAddon
     /// @param space                    [opt] integer - space between items.
     /// @param alignmentY               [opt] integer - Y-axis alignment of items label
     /// - \ref kodi_gui_font_alignment "Flags for alignment" used as bits to have several together:
-    /// | Defination name   |   Bitflag  | Description                         |
+    /// | Definition name   |   Bitflag  | Description                         |
     /// |-------------------|:----------:|:------------------------------------|
     /// | XBFONT_LEFT       | 0x00000000 | Align X left
     /// | XBFONT_RIGHT      | 0x00000001 | Align X right
@@ -1149,6 +1128,7 @@ namespace XBMCAddon
     /// | XBFONT_CENTER_Y   | 0x00000004 | Align Y center
     /// | XBFONT_TRUNCATED  | 0x00000008 | Truncated text
     /// | XBFONT_JUSTIFIED  | 0x00000010 | Justify text
+    /// | XBFONT_TRUNCATED_LEFT | 0x00000020 | Truncated text from left
     /// @param shadowColor              [opt] hexstring - color of items
     ///                                     label's shadow. (e.g. '0xFF000000')
     ///
@@ -1171,7 +1151,7 @@ namespace XBMCAddon
     ///
     class ControlList : public Control
     {
-      void internAddListItem(AddonClass::Ref<ListItem> listitem, bool sendMessage);
+      void internAddListItem(const AddonClass::Ref<ListItem>& listitem, bool sendMessage);
 
     public:
       ControlList(long x, long y, long width, long height, const char* font = NULL,
@@ -1187,7 +1167,6 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control_list
       /// @brief \python_func{ addItem(item) }
-      ///-----------------------------------------------------------------------
       /// Add a new item to this list control.
       ///
       /// @param item                     string, unicode or ListItem - item to add.
@@ -1210,7 +1189,6 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control_list
       /// @brief \python_func{ addItems(items) }
-      ///-----------------------------------------------------------------------
       /// Adds a list of listitems or strings to this list control.
       ///
       /// @param items                      List - list of strings, unicode objects or ListItems to add.
@@ -1237,7 +1215,6 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control_list
       /// @brief \python_func{ selectItem(item) }
-      ///-----------------------------------------------------------------------
       /// Select an item by index number.
       ///
       /// @param item                     integer - index number of the item to select.
@@ -1260,7 +1237,6 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control_list
       /// @brief \python_func{ removeItem(index) }
-      ///-----------------------------------------------------------------------
       /// Remove an item by index number.
       ///
       /// @param index                    integer - index number of the item to remove.
@@ -1284,7 +1260,6 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control_list
       /// @brief \python_func{ reset() }
-      ///-----------------------------------------------------------------------
       /// Clear all ListItems in this control list.
       ///
       /// @warning Calling `reset()` will destroy any `ListItem` objects in the
@@ -1331,8 +1306,7 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control_list
       /// @brief \python_func{ getSpinControl() }
-      ///-----------------------------------------------------------------------
-      /// @brief Returns the associated ControlSpin object.
+      /// Returns the associated ControlSpin object.
       ///
       /// @warning Not working completely yet\n
       ///        After adding this control list to a window it is not possible to change
@@ -1356,8 +1330,7 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control_list
       /// @brief \python_func{ getSelectedPosition() }
-      ///-----------------------------------------------------------------------
-      /// @brief Returns the position of the selected item as an integer.
+      /// Returns the position of the selected item as an integer.
       ///
       /// @note Returns -1 for empty lists.
       ///
@@ -1379,7 +1352,6 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control_list
       /// @brief \python_func{ getSelectedItem() }
-      ///-----------------------------------------------------------------------
       /// Returns the selected item as a ListItem object.
       ///
       /// @return                       The selected item
@@ -1408,7 +1380,6 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control_list
       /// @brief \python_func{ setImageDimensions(imageWidth, imageHeight) }
-      ///-----------------------------------------------------------------------
       /// Sets the width/height of items icon or thumbnail.
       ///
       /// @param imageWidth               [opt] integer - width of items icon or thumbnail.
@@ -1432,10 +1403,8 @@ namespace XBMCAddon
       // setItemHeight() method
 #ifdef DOXYGEN_SHOULD_USE_THIS
       ///
-      /// \ingroup python_xbmcgui_control_list
       /// @brief \python_func{ setItemHeight(itemHeight) }
-      ///-----------------------------------------------------------------------
-      ///  Sets the height of items.
+      /// Sets the height of items.
       ///
       /// @param itemHeight               integer - height of items.
       ///
@@ -1459,8 +1428,7 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_list
       /// @brief \python_func{ setSpace(space) }
-      ///-----------------------------------------------------------------------
-      /// Set's the space between items.
+      /// Sets the space between items.
       ///
       /// @param space                    [opt] integer - space between items.
       ///
@@ -1484,7 +1452,6 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_list
       /// @brief \python_func{ setPageControlVisible(visible) }
-      ///-----------------------------------------------------------------------
       /// Sets the spin control's visible/hidden state.
       ///
       /// @param visible                  boolean - True=visible / False=hidden.
@@ -1509,8 +1476,7 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_list
       /// @brief \python_func{ size() }
-      ///-----------------------------------------------------------------------
-      /// @brief Returns the total number of items in this list control as an integer.
+      /// Returns the total number of items in this list control as an integer.
       ///
       /// @return                       Total number of items
       ///
@@ -1534,7 +1500,6 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_list
       /// @brief \python_func{ getItemHeight() }
-      ///-----------------------------------------------------------------------
       /// Returns the control's current item height as an integer.
       ///
       /// @return                       Current item heigh
@@ -1559,7 +1524,6 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_list
       /// @brief \python_func{ getSpace() }
-      ///-----------------------------------------------------------------------
       /// Returns the control's space between items as an integer.
       ///
       /// @return                       Space between items
@@ -1584,7 +1548,6 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_list
       /// @brief \python_func{ getListItem(index) }
-      ///-----------------------------------------------------------------------
       /// Returns a given ListItem in this List.
       ///
       /// @param index              integer - index number of item to return.
@@ -1610,7 +1573,6 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_list
       /// @brief \python_func{ setStaticContent(items) }
-      ///-----------------------------------------------------------------------
       /// Fills a static list with a list of listitems.
       ///
       /// @param items                      List - list of listitems to add.
@@ -1635,26 +1597,19 @@ namespace XBMCAddon
 #ifndef SWIG
       void sendLabelBind(int tail);
 
-      SWIGHIDDENVIRTUAL bool canAcceptMessages(int actionId)
+      virtual bool canAcceptMessages(int actionId)
       { return ((actionId == ACTION_SELECT_ITEM) | (actionId == ACTION_MOUSE_LEFT_CLICK)); }
 
       // This is called from AddonWindow.cpp but shouldn't be available
       //  to the scripting languages.
-      ControlList() :
-        imageHeight     (0),
-        imageWidth      (0),
-        itemHeight      (0),
-        space           (0),
-        itemTextOffsetX (0),
-        itemTextOffsetY (0)
-      {}
+      ControlList() : imageHeight(0), imageWidth(0), itemHeight(0), space(0), itemTextOffsetX(0), itemTextOffsetY(0) {}
 
       std::vector<AddonClass::Ref<ListItem> > vecItems;
       std::string strFont;
       AddonClass::Ref<ControlSpin> pControlSpin;
 
-      color_t textColor;
-      color_t selectedColor;
+      UTILS::COLOR::Color textColor;
+      UTILS::COLOR::Color selectedColor;
       std::string strTextureButton;
       std::string strTextureButtonFocus;
 
@@ -1667,7 +1622,7 @@ namespace XBMCAddon
       int itemTextOffsetY;
       uint32_t alignmentY;
 
-      SWIGHIDDENVIRTUAL CGUIControl* Create();
+      virtual CGUIControl* Create();
 #endif
     };
     /// @}
@@ -1700,7 +1655,7 @@ namespace XBMCAddon
     /// @param textColor            [opt] hexstring - color of fadelabel's labels. (e.g. '0xFFFFFFFF')
     /// @param alignment            [opt] integer - alignment of label
     /// - \ref kodi_gui_font_alignment "Flags for alignment" used as bits to have several together:
-    /// | Defination name   |   Bitflag  | Description                         |
+    /// | Definition name   |   Bitflag  | Description                         |
     /// |-------------------|:----------:|:------------------------------------|
     /// | XBFONT_LEFT       | 0x00000000 | Align X left
     /// | XBFONT_RIGHT      | 0x00000001 | Align X right
@@ -1708,6 +1663,7 @@ namespace XBMCAddon
     /// | XBFONT_CENTER_Y   | 0x00000004 | Align Y center
     /// | XBFONT_TRUNCATED  | 0x00000008 | Truncated text
     /// | XBFONT_JUSTIFIED  | 0x00000010 | Justify text
+    /// | XBFONT_TRUNCATED_LEFT | 0x00000020 | Truncated text from left
     ///
     /// @note You can use the above as keywords for arguments and skip certain
     ///       optional arguments.\n
@@ -1738,7 +1694,6 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       /// \ingroup python_xbmcgui_control_fadelabel
       /// @brief \python_func{ addLabel(label) }
-      ///-----------------------------------------------------------------------
       /// Add a label to this control for scrolling.
       ///
       /// @param label                string or unicode - text string to add.
@@ -1764,7 +1719,6 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_fadelabel
       /// @brief \python_func{ setScrolling(scroll) }
-      ///-----------------------------------------------------------------------
       /// Set scrolling. If set to false, the labels won't scroll.
       /// Defaults to true.
       ///
@@ -1789,7 +1743,6 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_label
       /// @brief \python_func{ reset() }
-      ///-----------------------------------------------------------------------
       /// Clear this fade label.
       ///
       ///-----------------------------------------------------------------------
@@ -1808,11 +1761,11 @@ namespace XBMCAddon
 
 #ifndef SWIG
       std::string strFont;
-      color_t textColor;
+      UTILS::COLOR::Color textColor;
       std::vector<std::string> vecLabels;
       uint32_t align;
 
-      SWIGHIDDENVIRTUAL CGUIControl* Create();
+      virtual CGUIControl* Create();
 
       ControlFadeLabel() {}
 #endif
@@ -1855,6 +1808,21 @@ namespace XBMCAddon
     /// ...
     /// ~~~~~~~~~~~~~
     ///
+    /// As stated above, the GUI control is only created once added to a window. The example
+    /// below shows how a ControlTextBox can be created, added to the current window and
+    /// have some of its properties changed.
+    ///
+    /// **Extended example:**
+    /// ~~~~~~~~~~~~~{.py}
+    /// ...
+    /// textbox = xbmcgui.ControlTextBox(100, 250, 300, 300, textColor='0xFFFFFFFF')
+    /// window = xbmcgui.Window(xbmcgui.getCurrentWindowId())
+    /// window.addControl(textbox)
+    /// textbox.setText("My Text Box")
+    /// textbox.scroll()
+    /// ...
+    /// ~~~~~~~~~~~~~
+    ///
     class ControlTextBox : public Control
     {
     public:
@@ -1867,13 +1835,15 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_textbox
       /// @brief \python_func{ setText(text) }
+      /// Sets the text for this textbox.
+      /// \anchor python_xbmcgui_control_textbox_settext
+      ///
+      /// @param text                 string  - text string.
+      ///
       ///-----------------------------------------------------------------------
-      /// Set's the text for this textbox.
       ///
-      /// @param text                 string or unicode - text string.
-      ///
-      ///
-      ///--------------------------------------------------------------------------
+      /// @python_v19 setText can now be used before adding the control to the window (the defined
+      /// value is taken into consideration when the control is created)
       ///
       /// **Example:**
       /// ~~~~~~~~~~~~~{.py}
@@ -1893,13 +1863,13 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_textbox
       /// @brief \python_func{ getText() }
-      ///-----------------------------------------------------------------------
       /// Returns the text value for this textbox.
       ///
       /// @return                       To get text from box
       ///
-      ///
       ///-----------------------------------------------------------------------
+      ///
+      /// @python_v19 getText() can now be used before adding the control to the window
       ///
       /// **Example:**
       /// ~~~~~~~~~~~~~{.py}
@@ -1919,11 +1889,10 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_textbox
       /// @brief \python_func{ reset() }
-      ///-----------------------------------------------------------------------
       /// Clear's this textbox.
       ///
-      ///
       ///-----------------------------------------------------------------------
+      /// @python_v19 reset() will reset any text defined for this control even before you add the control to the window
       ///
       /// **Example:**
       /// ~~~~~~~~~~~~~{.py}
@@ -1943,10 +1912,11 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_textbox
       /// @brief \python_func{ scroll(id) }
-      ///-----------------------------------------------------------------------
       /// Scrolls to the given position.
       ///
       /// @param id                 integer - position to scroll to.
+      ///
+      /// @note scroll() only works after the control is added to a window.
       ///
       ///
       ///-----------------------------------------------------------------------
@@ -1969,15 +1939,16 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_textbox
       /// @brief \python_func{ autoScroll(delay, time, repeat) }
-      ///-----------------------------------------------------------------------
       /// Set autoscrolling times.
       ///
       /// @param delay                 integer - Scroll delay (in ms)
       /// @param time                  integer - Scroll time (in ms)
       /// @param repeat                integer - Repeat time
       ///
+      /// @note autoScroll only works after you add the control to a window.
       ///
       ///-----------------------------------------------------------------------
+      ///
       /// @python_v15 New function added.
       ///
       /// **Example:**
@@ -1994,9 +1965,9 @@ namespace XBMCAddon
 
 #ifndef SWIG
       std::string strFont;
-      color_t textColor;
+      UTILS::COLOR::Color textColor;
 
-      SWIGHIDDENVIRTUAL CGUIControl* Create();
+      virtual CGUIControl* Create();
 
       ControlTextBox() {}
 #endif
@@ -2057,7 +2028,6 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_image
       /// @brief \python_func{ setImage(filename[, useCache]) }
-      ///-----------------------------------------------------------------------
       /// Changes the image.
       ///
       /// @param filename             string - image filename.
@@ -2086,7 +2056,6 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_image
       /// @brief \python_func{ setColorDiffuse(colorDiffuse) }
-      ///-----------------------------------------------------------------------
       /// Changes the images color.
       ///
       /// @param colorDiffuse         hexString - (example, '0xC0FF0000'
@@ -2109,15 +2078,13 @@ namespace XBMCAddon
 #endif
 
 #ifndef SWIG
-      ControlImage() :
-        aspectRatio (0)
-      {}
+      ControlImage() : aspectRatio(0) {}
 
       std::string strFileName;
       int aspectRatio;
-      color_t colorDiffuse;
+      UTILS::COLOR::Color colorDiffuse;
 
-      SWIGHIDDENVIRTUAL CGUIControl* Create();
+      virtual CGUIControl* Create();
 #endif
     };
     /// @}
@@ -2202,7 +2169,6 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_progress
       /// @brief \python_func{ setPercent(percent) }
-      ///-----------------------------------------------------------------------
       /// Sets the percentage of the progressbar to show.
       ///
       /// @param percent             float - percentage of the bar to show.
@@ -2230,7 +2196,6 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_progress
       /// @brief \python_func{ getPercent() }
-      ///-----------------------------------------------------------------------
       /// Returns a float of the percent of the progress.
       ///
       /// @return                       Percent position
@@ -2258,12 +2223,10 @@ namespace XBMCAddon
       std::string strTextureBg;
       std::string strTextureOverlay;
       int aspectRatio;
-      color_t colorDiffuse;
+      UTILS::COLOR::Color colorDiffuse;
 
-      SWIGHIDDENVIRTUAL CGUIControl* Create();
-      ControlProgress() :
-        aspectRatio (0)
-      {}
+      virtual CGUIControl* Create();
+      ControlProgress() : aspectRatio(0) {}
 #endif
     };
     /// @}
@@ -2297,7 +2260,7 @@ namespace XBMCAddon
     /// @param textOffsetY          [opt] integer - y offset of label.
     /// @param alignment            [opt] integer - alignment of label
     /// - \ref kodi_gui_font_alignment "Flags for alignment" used as bits to have several together:
-    /// | Defination name   |   Bitflag  | Description                         |
+    /// | Definition name   |   Bitflag  | Description                         |
     /// |-------------------|:----------:|:------------------------------------|
     /// | XBFONT_LEFT       | 0x00000000 | Align X left
     /// | XBFONT_RIGHT      | 0x00000001 | Align X right
@@ -2305,6 +2268,7 @@ namespace XBMCAddon
     /// | XBFONT_CENTER_Y   | 0x00000004 | Align Y center
     /// | XBFONT_TRUNCATED  | 0x00000008 | Truncated text
     /// | XBFONT_JUSTIFIED  | 0x00000010 | Justify text
+    /// | XBFONT_TRUNCATED_LEFT | 0x00000020 | Truncated text from left
     /// @param font                 [opt] string - font used for label text.
     ///                                 (e.g. 'font13')
     /// @param textColor            [opt] hexstring - color of enabled
@@ -2354,8 +2318,7 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_button
       /// @brief \python_func{ setLabel([label, font, textColor, disabledColor, shadowColor, focusedColor, label2]) }
-      ///-----------------------------------------------------------------------
-      /// Set's this buttons text attributes.
+      /// Sets this buttons text attributes.
       ///
       /// @param label                [opt] string or unicode - text string.
       /// @param font                 [opt] string - font used for label text. (e.g. 'font13')
@@ -2396,8 +2359,7 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_button
       /// @brief \python_func{ setDisabledColor(disabledColor) }
-      ///-----------------------------------------------------------------------
-      /// @brief Set's this buttons disabled color.
+      /// Sets this buttons disabled color.
       ///
       /// @param disabledColor        hexstring - color of disabled button's label. (e.g. '0xFFFF3300')
       ///
@@ -2422,7 +2384,6 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_button
       /// @brief \python_func{ getLabel() }
-      ///-----------------------------------------------------------------------
       /// Returns the buttons label as a unicode string.
       ///
       /// @return                       Unicode string
@@ -2448,10 +2409,9 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_button
       /// @brief \python_func{ getLabel2() }
-      ///-----------------------------------------------------------------------
-      /// Returns the buttons label2 as a unicode string.
+      /// Returns the buttons label2 as a string.
       ///
-      /// @return                       Unicode string of label 2
+      /// @return                       string of label 2
       ///
       ///
       ///-----------------------------------------------------------------------
@@ -2470,14 +2430,14 @@ namespace XBMCAddon
 #endif
 
 #ifndef SWIG
-      SWIGHIDDENVIRTUAL bool canAcceptMessages(int actionId) { return true; }
+      virtual bool canAcceptMessages(int actionId) { return true; }
 
       int textOffsetX;
       int textOffsetY;
-      color_t align;
+      UTILS::COLOR::Color align;
       std::string strFont;
-      color_t textColor;
-      color_t disabledColor;
+      UTILS::COLOR::Color textColor;
+      UTILS::COLOR::Color disabledColor;
       int iAngle;
       int shadowColor;
       int focusedColor;
@@ -2486,15 +2446,9 @@ namespace XBMCAddon
       std::string strTextureFocus;
       std::string strTextureNoFocus;
 
-      SWIGHIDDENVIRTUAL CGUIControl* Create();
+      virtual CGUIControl* Create();
 
-      ControlButton() :
-        textOffsetX (0),
-        textOffsetY (0),
-        iAngle      (0),
-        shadowColor (0),
-        focusedColor(0)
-      {}
+      ControlButton() : textOffsetX(0), textOffsetY(0), iAngle(0), shadowColor(0), focusedColor(0) {}
 #endif
     };
     /// @}
@@ -2542,7 +2496,7 @@ namespace XBMCAddon
       ControlGroup(long x, long y, long width, long height);
 
 #ifndef SWIG
-      SWIGHIDDENVIRTUAL CGUIControl* Create();
+      virtual CGUIControl* Create();
 
       inline ControlGroup() {}
 #endif
@@ -2554,7 +2508,7 @@ namespace XBMCAddon
     /// \defgroup python_xbmcgui_control_radiobutton Subclass - ControlRadioButton
     /// \ingroup python_xbmcgui_control
     /// @{
-    /// @brief **For control a radio button (as used for on/off settings).**
+    /// @brief **A radio button control (as used for on/off settings).**
     ///
     /// \python_class{ ControlRadioButton(x, y, width, height, label[, focusOnTexture, noFocusOnTexture,
     ///                   focusOffTexture, noFocusOffTexture, focusTexture, noFocusTexture,
@@ -2562,8 +2516,7 @@ namespace XBMCAddon
     ///
     /// The radio button control is used for creating push button on/off
     /// settings in Kodi. You can choose the position, size, and look of the
-    /// button. When the user clicks on the radio button, the state will change,
-    /// toggling the extra textures (textureradioon and textureradiooff). Used
+    /// button, as well as the focused and unfocused radio textures. Used
     /// for settings controls.
     ///
     /// @note This class include also all calls from \ref python_xbmcgui_control "Control"
@@ -2581,17 +2534,15 @@ namespace XBMCAddon
     ///                             focused texture.
     /// @param noFocusOffTexture    [opt] string - filename for radio OFF
     ///                             not focused texture.
-    /// @param focusTexture         [opt] string - filename for radio ON
-    ///                             texture (deprecated, use focusOnTexture
-    ///                             and noFocusOnTexture).
-    /// @param noFocusTexture       [opt] string - filename for radio OFF
-    ///                             texture (deprecated, use focusOffTexture
-    ///                             and noFocusOffTexture).
+    /// @param focusTexture         [opt] string - filename for focused button
+    ///                             texture.
+    /// @param noFocusTexture       [opt] string - filename for not focused button
+    ///                             texture.
     /// @param textOffsetX          [opt] integer - horizontal text offset
     /// @param textOffsetY          [opt] integer - vertical text offset
     /// @param alignment            [opt] integer - alignment of label
     /// - \ref kodi_gui_font_alignment "Flags for alignment" used as bits to have several together:
-    /// | Defination name   |   Bitflag  | Description                         |
+    /// | Definition name   |   Bitflag  | Description                         |
     /// |-------------------|:----------:|:------------------------------------|
     /// | XBFONT_LEFT       | 0x00000000 | Align X left
     /// | XBFONT_RIGHT      | 0x00000001 | Align X right
@@ -2599,6 +2550,7 @@ namespace XBMCAddon
     /// | XBFONT_CENTER_Y   | 0x00000004 | Align Y center
     /// | XBFONT_TRUNCATED  | 0x00000008 | Truncated text
     /// | XBFONT_JUSTIFIED  | 0x00000010 | Justify text
+    /// | XBFONT_TRUNCATED_LEFT | 0x00000020 | Truncated text from left
     /// @param font                 [opt] string - font used for label text.
     ///                             (e.g. 'font13')
     /// @param textColor            [opt] hexstring - color of label when control
@@ -2617,7 +2569,6 @@ namespace XBMCAddon
     ///
     ///--------------------------------------------------------------------------
     /// @python_v13 New function added.
-    /// @python_v16 Deprecated **focusTexture** and **noFocusTexture**. Use **focusOnTexture** and **noFocusOnTexture**.
     ///
     /// **Example:**
     /// ~~~~~~~~~~~~~{.py}
@@ -2646,7 +2597,6 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_radiobutton
       /// @brief \python_func{ setSelected(selected) }
-      ///-----------------------------------------------------------------------
       /// **Sets the radio buttons's selected status.**
       ///
       /// @param selected           bool - True=selected (on) / False=not
@@ -2676,7 +2626,6 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_radiobutton
       /// @brief \python_func{ isSelected() }
-      ///-----------------------------------------------------------------------
       /// Returns the radio buttons's selected status.
       ///
       /// @return                       True if selected on
@@ -2701,8 +2650,7 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_radiobutton
       /// @brief \python_func{ setLabel(label[, font, textColor, disabledColor, shadowColor, focusedColor]) }
-      ///-----------------------------------------------------------------------
-      /// Set's the radio buttons text attributes.
+      /// Sets the radio buttons text attributes.
       ///
       /// @param label              string or unicode - text string.
       /// @param font               [opt] string - font used for label
@@ -2750,7 +2698,6 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_radiobutton
       /// @brief \python_func{ setRadioDimension(x, y, width, height) }
-      ///-----------------------------------------------------------------------
       /// Sets the radio buttons's radio texture's position and size.
       ///
       /// @param x                  integer - x coordinate of radio texture.
@@ -2779,7 +2726,7 @@ namespace XBMCAddon
 #endif
 
 #ifndef SWIG
-      SWIGHIDDENVIRTUAL bool canAcceptMessages(int actionId) { return true; }
+      virtual bool canAcceptMessages(int actionId) { return true; }
 
       std::string strFont;
       std::string strText;
@@ -2791,22 +2738,18 @@ namespace XBMCAddon
       std::string strTextureRadioOffNoFocus;
       std::string strTextureRadioOnDisabled;
       std::string strTextureRadioOffDisabled;
-      color_t textColor;
-      color_t disabledColor;
+      UTILS::COLOR::Color textColor;
+      UTILS::COLOR::Color disabledColor;
       int textOffsetX;
       int textOffsetY;
      uint32_t align;
       int iAngle;
-      color_t shadowColor;
-      color_t focusedColor;
+      UTILS::COLOR::Color shadowColor;
+      UTILS::COLOR::Color focusedColor;
 
-      SWIGHIDDENVIRTUAL CGUIControl* Create();
+      virtual CGUIControl* Create();
 
-      ControlRadioButton() :
-        textOffsetX (0),
-        textOffsetY (0),
-        iAngle      (0)
-      {}
+      ControlRadioButton() : textOffsetX(0), textOffsetY(0), iAngle(0) {}
 #endif
     };
     /// @}
@@ -2816,7 +2759,7 @@ namespace XBMCAddon
     /// @{
     /// @brief **Used for a volume slider.**
     ///
-    /// \python_class{ ControlSlider(x, y, width, height[, textureback, texture, texturefocus, orientation]) }
+    /// \python_class{ ControlSlider(x, y, width, height[, textureback, texture, texturefocus, orientation, texturebackdisabled, texturedisabled]) }
     ///
     /// The slider control is used for things where a sliding bar best represents
     /// the operation at hand (such as a volume control or seek control). You can
@@ -2832,6 +2775,8 @@ namespace XBMCAddon
     /// @param texture              [opt] string - image filename
     /// @param texturefocus         [opt] string - image filename
     /// @param orientation          [opt] integer - orientation of slider (xbmcgui.HORIZONTAL / xbmcgui.VERTICAL (default))
+    /// @param texturebackdisabled  [opt] string - image filename
+    /// @param texturedisabled      [opt] string - image filename
     ///
     ///
     /// @note You can use the above as keywords for arguments and skip certain
@@ -2854,16 +2799,21 @@ namespace XBMCAddon
     class ControlSlider : public Control
     {
     public:
-      ControlSlider(long x, long y, long width, long height,
+      ControlSlider(long x,
+                    long y,
+                    long width,
+                    long height,
                     const char* textureback = NULL,
                     const char* texture = NULL,
-                    const char* texturefocus = NULL, int orientation = 1);
+                    const char* texturefocus = NULL,
+                    int orientation = 1,
+                    const char* texturebackdisabled = NULL,
+                    const char* texturedisabled = NULL);
 
 #ifdef DOXYGEN_SHOULD_USE_THIS
       ///
       /// \ingroup python_xbmcgui_control_slider
       /// @brief \python_func{ getPercent() }
-      ///-----------------------------------------------------------------------
       /// Returns a float of the percent of the slider.
       ///
       /// @return                       float - Percent of slider
@@ -2887,7 +2837,6 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_slider
       /// @brief \python_func{ setPercent(pct) }
-      ///-----------------------------------------------------------------------
       /// Sets the percent of the slider.
       ///
       /// @param pct                float - Percent value of slider
@@ -2911,7 +2860,6 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_slider
       /// @brief \python_func{ getInt() }
-      ///-----------------------------------------------------------------------
       /// Returns the value of the slider.
       ///
       /// @return                   int - value of slider
@@ -2936,7 +2884,6 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_slider
       /// @brief \python_func{ setInt(value, min, delta, max) }
-      ///-----------------------------------------------------------------------
       /// Sets the range, value and step size of the slider.
       ///
       /// @param value              int - value of slider
@@ -2964,7 +2911,6 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_slider
       /// @brief \python_func{ getFloat() }
-      ///-----------------------------------------------------------------------
       /// Returns the value of the slider.
       ///
       /// @return                   float - value of slider
@@ -2989,7 +2935,6 @@ namespace XBMCAddon
       ///
       /// \ingroup python_xbmcgui_control_slider
       /// @brief \python_func{ setFloat(value, min, delta, max) }
-      ///-----------------------------------------------------------------------
       /// Sets the range, value and step size of the slider.
       ///
       /// @param value              float - value of slider
@@ -3015,11 +2960,13 @@ namespace XBMCAddon
 
 #ifndef SWIG
       std::string strTextureBack;
+      std::string strTextureBackDisabled;
       std::string strTexture;
       std::string strTextureFoc;
+      std::string strTextureDisabled;
       int iOrientation;
 
-      SWIGHIDDENVIRTUAL CGUIControl* Create();
+      virtual CGUIControl* Create();
 
       inline ControlSlider() {}
 #endif

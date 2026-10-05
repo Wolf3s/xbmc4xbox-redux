@@ -1,29 +1,19 @@
 /*
- *      Copyright (C) 2005-2013 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "GUIDialogBusy.h"
-#include "guilib/GUIProgressControl.h"
-#include "guilib/GUIWindowManager.h"
-#include "threads/Thread.h"
 
-#define PROGRESS_CONTROL 10
+#include "ServiceBroker.h"
+#include "guilib/GUIComponent.h"
+#include "guilib/GUIWindowManager.h"
+#include "threads/IRunnable.h"
+#include "threads/Thread.h"
+#include "utils/log.h"
 
 class CBusyWaiter : public CThread
 {
@@ -32,6 +22,8 @@ class CBusyWaiter : public CThread
 public:
   explicit CBusyWaiter(IRunnable *runnable) :
   CThread(runnable, "waiting"), m_done(new CEvent()),  m_runnable(runnable) { }
+
+  virtual ~CBusyWaiter() { StopThread(); }
 
   bool Wait(unsigned int displaytime, bool allowCancel)
   {
@@ -42,8 +34,11 @@ public:
     if (!CGUIDialogBusy::WaitOnEvent(*e_done, displaytime, allowCancel))
     {
       m_runnable->Cancel();
+
       unsigned int elapsed = XbmcThreads::SystemClockMillis() - start;
-      unsigned int remaining = (elapsed >= displaytime) ? 0 : displaytime - elapsed;
+
+      unsigned int remaining =
+          (elapsed >= displaytime) ? 0 : displaytime - elapsed;
       CGUIDialogBusy::WaitOnEvent(*e_done, remaining, false);
       return false;
     }
@@ -78,66 +73,63 @@ bool CGUIDialogBusy::WaitOnEvent(CEvent &event, unsigned int displaytime /* = 10
   bool cancelled = false;
   if (!event.WaitMSec(displaytime))
   {
-    // throw up the progress
-    CGUIDialogBusy* dialog = (CGUIDialogBusy*)g_windowManager.GetWindow(WINDOW_DIALOG_BUSY);
+    CGUIDialogBusy* dialog = static_cast<CGUIDialogBusy*>(
+        CServiceBroker::GetGUI()->GetWindowManager().GetWindow(WINDOW_DIALOG_BUSY));
     if (dialog)
     {
-      dialog->Open();
-
-      while(!event.WaitMSec(1))
+      const uint32_t level = ++dialog->m_waiters;
+      if (level == 1)
       {
-        dialog->ProcessRenderLoop(isFromDvdPlayer);
-        if (allowCancel && dialog->IsCanceled())
+        dialog->Open();
+      }
+
+      while (!event.WaitMSec(1))
+      {
+        if (level == dialog->m_waiters)
+          dialog->ProcessRenderLoop(isFromDvdPlayer);
+        if (allowCancel && dialog->m_cancelled)
         {
           cancelled = true;
           break;
         }
       }
 
-      dialog->Close();
+      if (--dialog->m_waiters == 0)
+      {
+        dialog->Close(true); // Force close.
+        dialog->ProcessRenderLoop(false); // Force repaint.
+      }
     }
   }
   return !cancelled;
 }
 
 CGUIDialogBusy::CGUIDialogBusy(void)
-  : CGUIDialog(WINDOW_DIALOG_BUSY, "DialogBusy.xml", PARENTLESS_MODAL),
-    m_bLastVisible(false)
+  : CGUIDialog(WINDOW_DIALOG_BUSY, "DialogBusy.xml", MODAL)
 {
   m_loadType = LOAD_ON_GUI_INIT;
-  m_bCanceled = false;
-  m_progress = -1;
+  m_cancelled = false;
+  m_bLastVisible = false;
+  m_cancelled = false;
+  m_waiters = 0;
 }
 
-CGUIDialogBusy::~CGUIDialogBusy(void)
-{
-}
+CGUIDialogBusy::~CGUIDialogBusy(void) {}
 
-void CGUIDialogBusy::Open_Internal(const std::string &param /* = "" */)
+void CGUIDialogBusy::Open_Internal(bool bProcessRenderLoop, const std::string& param /* = "" */)
 {
-  m_bCanceled = false;
   m_bLastVisible = true;
-  m_progress = -1;
+  m_cancelled = false;
 
   CGUIDialog::Open_Internal(false, param);
 }
 
-
 void CGUIDialogBusy::DoProcess(unsigned int currentTime, CDirtyRegionList &dirtyregions)
 {
-  bool visible = g_windowManager.GetTopMostModalDialogID() == WINDOW_DIALOG_BUSY;
+  bool visible = CServiceBroker::GetGUI()->GetWindowManager().IsModalDialogTopmost(WINDOW_DIALOG_BUSY);
   if(!visible && m_bLastVisible)
-    dirtyregions.push_back(m_renderRegion);
+    dirtyregions.push_back(CDirtyRegion(m_renderRegion));
   m_bLastVisible = visible;
-
-  // update the progress control if available
-  const CGUIControl *control = GetControl(PROGRESS_CONTROL);
-  if (control && control->GetControlType() == CGUIControl::GUICONTROL_PROGRESS)
-  {
-    CGUIProgressControl *progress = (CGUIProgressControl *)control;
-    progress->SetPercentage(m_progress);
-    progress->SetVisible(m_progress > -1);
-  }
 
   CGUIDialog::DoProcess(currentTime, dirtyregions);
 }
@@ -151,11 +143,6 @@ void CGUIDialogBusy::Render()
 
 bool CGUIDialogBusy::OnBack(int actionID)
 {
-  m_bCanceled = true;
+  m_cancelled = true;
   return true;
-}
-
-void CGUIDialogBusy::SetProgress(float percent)
-{
-  m_progress = percent;
 }

@@ -21,6 +21,8 @@
 
 #include "music/tags/ImusicInfoTagLoader.h"
 
+#include <string>
+
 namespace MUSIC_INFO
 {
 
@@ -30,12 +32,12 @@ public:
   CMusicInfoTagLoaderWMA(void);
   virtual ~CMusicInfoTagLoaderWMA();
 
-  virtual bool Load(const CStdString& strFileName, CMusicInfoTag& tag, EmbeddedArt *art = NULL);
+  virtual bool Load(const std::string& strFileName, CMusicInfoTag& tag, EmbeddedArt *art = NULL);
 
 protected:
-  void SetTagValueString(const CStdString& strFrameName, const CStdString& strValue, CMusicInfoTag& tag);
-  void SetTagValueDWORD(const CStdString& strFrameName, DWORD dwValue, CMusicInfoTag& tag);
-  void SetTagValueBinary(const CStdString& strFrameName, const LPBYTE pValue, CMusicInfoTag& tag, EmbeddedArt *art);
-  void SetTagValueBool(const CStdString& strFrameName, BOOL bValue, CMusicInfoTag& tag);
+  void SetTagValueString(const std::string& strFrameName, const std::string& strValue, CMusicInfoTag& tag);
+  void SetTagValueDWORD(const std::string& strFrameName, DWORD dwValue, CMusicInfoTag& tag);
+  void SetTagValueBinary(const std::string& strFrameName, const LPBYTE pValue, CMusicInfoTag& tag, EmbeddedArt *art);
+  void SetTagValueBool(const std::string& strFrameName, BOOL bValue, CMusicInfoTag& tag);
 };
 }

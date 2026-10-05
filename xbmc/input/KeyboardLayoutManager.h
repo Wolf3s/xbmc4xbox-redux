@@ -27,15 +27,22 @@
 #include "input/KeyboardLayout.h"
 
 class CSetting;
+struct StringSettingOption;
 
+namespace KODI
+{
+namespace KEYBOARD
+{
+/*!
+ * \ingroup keyboard
+ */
 typedef std::map<std::string, CKeyboardLayout> KeyboardLayouts;
 
 class CKeyboardLayoutManager
 {
 public:
+  CKeyboardLayoutManager() {}
   virtual ~CKeyboardLayoutManager();
-
-  static CKeyboardLayoutManager& GetInstance();
 
   bool Load(const std::string& path = "");
   void Unload();
@@ -43,12 +50,16 @@ public:
   const KeyboardLayouts& GetLayouts() const { return m_layouts; }
   bool GetLayout(const std::string& name, CKeyboardLayout& layout) const;
 
-  static void SettingOptionsKeyboardLayoutsFiller(const CSetting *setting, std::vector< std::pair<std::string, std::string> > &list, std::string &current, void* data);
+  static void SettingOptionsKeyboardLayoutsFiller(const boost::shared_ptr<const CSetting>& setting,
+                                                  std::vector<StringSettingOption>& list,
+                                                  std::string& current,
+                                                  void* data);
 
 private:
-  CKeyboardLayoutManager() { }
   CKeyboardLayoutManager(const CKeyboardLayoutManager&);
   CKeyboardLayoutManager const& operator=(CKeyboardLayoutManager const&);
 
   KeyboardLayouts m_layouts;
 };
+} // namespace KEYBOARD
+} // namespace KODI

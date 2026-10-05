@@ -21,11 +21,11 @@ All rights reserved.
 
 Copyright / Usage Details:
 
-You are allowed to include the source code in any product (commercial, shareware, freeware or otherwise) 
-when your product is released in binary form. You are allowed to modify the source code in any way you want 
-except you cannot modify the copyright details at the top of each module. If you want to distribute source 
-code with your application, then you are only allowed to distribute versions released by the author. This is 
-to maintain a single distribution point for the source code. 
+You are allowed to include the source code in any product (commercial, shareware, freeware or otherwise)
+when your product is released in binary form. You are allowed to modify the source code in any way you want
+except you cannot modify the copyright details at the top of each module. If you want to distribute source
+code with your application, then you are only allowed to distribute versions released by the author. This is
+to maintain a single distribution point for the source code.
 
 */
 
@@ -34,11 +34,12 @@ to maintain a single distribution point for the source code.
 #ifndef _INC_MATH
 #include <math.h>
 #endif
-#include "xbox/Network.h"
+#include "network/Network.h"
 #include "Sntp.h"
 #include "network/DNSNameCache.h"
-#include "Application.h"
+#include "application/Application.h"
 #include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "AutoPtrHandle.h"
 #include "log.h"
 
@@ -519,14 +520,14 @@ BOOL CNtpSocket::Connect(LPCTSTR pszHostAddress, int nPort)
   sockAddr.sin_family = AF_INET;
   sockAddr.sin_port = htons((u_short)nPort);
 
-  CStdString strHostName = lpszAscii;
-  CStdString strIpAdres;
+  std::string strHostName = lpszAscii;
+  std::string strIpAdres;
   if (!CDNSNameCache::Lookup(strHostName, strIpAdres))
   {
     return false;
   }
 
-  sockAddr.sin_addr.s_addr = inet_addr(strIpAdres);
+  sockAddr.sin_addr.s_addr = inet_addr(strIpAdres.c_str());
 
   //Call the protected version which takes an address
   //in the form of a standard C style struct.
@@ -684,11 +685,6 @@ BOOL CSNTPClient::GetServerTime(LPCTSTR pszHostName, NtpServerResponse& response
   }
 }
 
-extern "C"
-{
-  extern bool WINAPI NtSetSystemTime(LPFILETIME SystemTime , LPFILETIME PreviousTime );
-};
-
 BOOL CSNTPClient::SetClientTime(const CNtpTime& NewTime)
 {
   BOOL bSuccess = FALSE;
@@ -709,12 +705,12 @@ void CSNTPClient::Update()
   // update once every 5 minutes
   m_dwTimeout = XbmcThreads::SystemClockMillis() + 5*60*1000;
 
-  if(!g_application.getNetwork().IsAvailable())
+  if(!CServiceBroker::GetNetwork().IsAvailable())
   {
     CLog::Log(LOGDEBUG, __FUNCTION__" - No network available");
     return;
   }
-  
+
   if(!CThread::WaitForThreadExit(0))
   {
     CLog::Log(LOGWARNING, __FUNCTION__" - Thread already running");
@@ -741,7 +737,7 @@ void CSNTPClient::Process()
   while (nTries < 3 && !CThread::m_bStop)
   {
     NtpServerResponse response;
-    if (GetServerTime( CSettings::GetInstance().GetString("services.timeserveraddress").c_str(), response))
+    if (GetServerTime( CServiceBroker::GetSettingsComponent()->GetSettings()->GetString(CSettings::SETTING_SERVICES_TIMESERVER_ADDRESS).c_str(), response))
     {
       SYSTEMTIME st1 = response.m_OriginateTime;
       SYSTEMTIME st2 = response.m_ReceiveTime;

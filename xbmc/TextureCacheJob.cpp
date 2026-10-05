@@ -1,40 +1,36 @@
 /*
- *      Copyright (C) 2012-2013 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2012-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "TextureCacheJob.h"
-#include "TextureCache.h"
-#include "guilib/Texture.h"
-#include "settings/AdvancedSettings.h"
-#include "settings/Settings.h"
-#include "utils/log.h"
-#include "filesystem/File.h"
-#include "pictures/Picture.h"
-#include "utils/URIUtils.h"
-#include "utils/StringUtils.h"
-#include "URL.h"
+
 #include "FileItem.h"
-#include "music/MusicThumbLoader.h"
-#include "music/tags/MusicInfoTag.h"
-#if defined(HAS_OMXPLAYER)
-#include "cores/omxplayer/OMXImage.h"
-#endif
+#include "ServiceBroker.h"
+#include "TextureCache.h"
+#include "TextureDatabase.h"
+#include "URL.h"
+#include "commons/ilog.h"
+#include "filesystem/File.h"
+#include "guilib/Texture.h"
+#include "imagefiles/SpecialImageLoaderFactory.h"
+#include "pictures/Picture.h"
+#include "settings/Settings.h"
+#include "settings/AdvancedSettings.h"
+#include "settings/SettingsComponent.h"
+#include "utils/StringUtils.h"
+#include "utils/URIUtils.h"
+#include "utils/log.h"
+
+#include <cstdlib>
+#include <cstring>
+#include <exception>
+#include <utility>
+
+#include "PlatformDefs.h"
 
 CTextureCacheJob::CTextureCacheJob(const std::string &url, const std::string &oldHash):
   m_url(url),
@@ -43,9 +39,7 @@ CTextureCacheJob::CTextureCacheJob(const std::string &url, const std::string &ol
 {
 }
 
-CTextureCacheJob::~CTextureCacheJob()
-{
-}
+CTextureCacheJob::~CTextureCacheJob() {}
 
 bool CTextureCacheJob::operator==(const CJob* job) const
 {
@@ -62,46 +56,74 @@ bool CTextureCacheJob::DoWork()
 {
   if (ShouldCancel(0, 0))
     return false;
-  if (ShouldCancel(1, 0)) // HACK: second check is because we cancel the job in the first callback, but we don't detect it
-    return false;         //       until the second
 
   // check whether we need cache the job anyway
   bool needsRecaching = false;
-  std::string path(CTextureCache::Get().CheckCachedImage(m_url, needsRecaching));
+  std::string path(CServiceBroker::GetTextureCache()->CheckCachedImage(m_url, needsRecaching));
   if (!path.empty() && !needsRecaching)
     return false;
-  return CacheTexture();
+  if (CServiceBroker::GetTextureCache()->StartCacheImage(m_url))
+    return CacheTexture();
+
+  return false;
 }
 
-bool CTextureCacheJob::CacheTexture(CBaseTexture **out_texture)
+namespace
+{
+// Most PVR images use "additional_info" to signify 'ownership' of basic images for easy
+// cache cleaning, rather than special generated images
+bool IsPVROwnedImage(const std::string& additional_info)
+{
+  return additional_info == "pvrchannel_radio" || additional_info == "pvrchannel_tv" ||
+         additional_info == "pvrprovider" || additional_info == "pvrrecording" ||
+         StringUtils::StartsWith(additional_info, "epgtag_");
+}
+
+// DecodeImageURL can also set "additional_info" to 'flipped' for mirror images selected in
+// the GUI, so is not a special generated image
+bool IsControl(const std::string& additional_info)
+{
+  return additional_info == "flipped";
+}
+
+// special generated images and images served via HTTP should not be regularly checked for changes
+bool ShouldCheckForChanges(const std::string& additional_info, const std::string& url)
+{
+  const bool isSpecialImage =
+      !additional_info.empty() && !IsControl(additional_info) && !IsPVROwnedImage(additional_info);
+  if (isSpecialImage)
+    return false;
+
+  const bool isHTTP =
+      StringUtils::StartsWith(url, "http://") || StringUtils::StartsWith(url, "https://");
+  return !isHTTP;
+}
+} // namespace
+
+bool CTextureCacheJob::CacheTexture(boost::movelib::unique_ptr<CTexture>* out_texture)
 {
   // unwrap the URL as required
   std::string additional_info;
   unsigned int width, height;
   std::string image = DecodeImageURL(m_url, width, height, additional_info);
 
-  m_details.updateable = additional_info != "music" && UpdateableURL(image);
+  m_details.updateable = ShouldCheckForChanges(additional_info, image);
 
-  // generate the hash
-  m_details.hash = GetImageHash(image);
-  if (m_details.hash.empty())
-    return false;
-  else if (m_details.hash == m_oldHash)
-    return true;
-
-#if defined(HAS_OMXPLAYER)
-  if (COMXImage::CreateThumb(image, width, height, additional_info, CTextureCache::GetCachedPath(m_cachePath + ".jpg")))
+  if (m_details.updateable)
   {
-    m_details.width = width;
-    m_details.height = height;
-    m_details.file = m_cachePath + ".jpg";
-    if (out_texture)
-      *out_texture = LoadImage(CTextureCache::GetCachedPath(m_details.file), width, height, "" /* already flipped */);
-    CLog::Log(LOGDEBUG, "Fast %s image '%s' to '%s': %p", m_oldHash.empty() ? "Caching" : "Recaching", CURL::GetRedacted(image).c_str(), m_details.file.c_str(), out_texture);
-    return true;
+    // generate the hash
+    m_details.hash = GetImageHash(image);
+    if (m_details.hash.empty())
+      return false;
+
+    if (m_details.hash == m_oldHash)
+    {
+      m_details.hashRevalidated = true;
+      return true;
+    }
   }
-#endif
-  CBaseTexture *texture = LoadImage(image, width, height, additional_info);
+
+  boost::movelib::unique_ptr<CTexture> texture = LoadImage(image, width, height, additional_info, true);
   if (texture)
   {
     if (texture->HasAlpha())
@@ -109,28 +131,51 @@ bool CTextureCacheJob::CacheTexture(CBaseTexture **out_texture)
     else
       m_details.file = m_cachePath + ".jpg";
 
-    CLog::Log(LOGDEBUG, "%s image '%s' to '%s':", m_oldHash.empty() ? "Caching" : "Recaching", CURL::GetRedacted(image).c_str(), m_details.file.c_str());
+    CLog::Log(LOGDEBUG, "%s image '%s' to '%s':", m_oldHash.empty() ? "Caching" : "Recaching",
+              CURL::GetRedacted(image).c_str(), m_details.file.c_str());
 
-    if (CPicture::CacheTexture(texture, width, height, CTextureCache::GetCachedPath(m_details.file)))
+    if (CPicture::CacheTexture(texture.get(), width, height,
+                               CTextureCache::GetCachedPath(m_details.file)))
     {
       m_details.width = width;
       m_details.height = height;
       if (out_texture) // caller wants the texture
 #ifdef _XBOX
       { // load cached image
-        delete texture;
-        *out_texture = CBaseTexture::LoadFromFile(CTextureCache::GetCachedPath(m_details.file), width, height, CSettings::GetInstance().GetBool("pictures.useexifrotation"));
+        texture.reset();
+        *out_texture = CTexture::LoadFromFile(CTextureCache::GetCachedPath(m_details.file), width, height, CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool("pictures.useexifrotation"));
       }
 #else
-        *out_texture = texture;
+        *out_texture = boost::move(texture);
 #endif
-      else
-        delete texture;
       return true;
     }
   }
-  delete texture;
   return false;
+}
+
+bool CTextureCacheJob::ResizeTexture(const std::string &url, uint8_t* &result, size_t &result_size)
+{
+  result = NULL;
+  result_size = 0;
+
+  if (url.empty())
+    return false;
+
+  // unwrap the URL as required
+  std::string additional_info;
+  unsigned int width, height;
+  std::string image = DecodeImageURL(url, width, height, additional_info);
+  if (image.empty())
+    return false;
+
+  boost::movelib::unique_ptr<CTexture> texture = LoadImage(image, width, height, additional_info, true);
+  if (texture == NULL)
+    return false;
+
+  bool success = CPicture::ResizeTexture(image, texture.get(), width, height, result, result_size);
+
+  return success;
 }
 
 std::string CTextureCacheJob::DecodeImageURL(const std::string &url, unsigned int &width, unsigned int &height, std::string &additional_info)
@@ -146,8 +191,11 @@ std::string CTextureCacheJob::DecodeImageURL(const std::string &url, unsigned in
 
     if (!CTextureCache::CanCacheImageURL(thumbURL))
       return "";
-    if (thumbURL.GetUserName() == "music")
-      additional_info = "music";
+    if (thumbURL.GetUserName() == "music" || thumbURL.GetUserName() == "video" ||
+        thumbURL.GetUserName() == "picturefolder")
+      additional_info = thumbURL.GetUserName();
+    if (StringUtils::StartsWith(thumbURL.GetUserName(), "video_"))
+      additional_info = thumbURL.GetUserName();
 
     image = thumbURL.GetHostName();
 
@@ -155,7 +203,7 @@ std::string CTextureCacheJob::DecodeImageURL(const std::string &url, unsigned in
       additional_info = "flipped";
 
     if (thumbURL.GetOption("size") == "thumb")
-      width = height = g_advancedSettings.m_imageRes;
+      width = height = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_imageRes;
     else
     {
       if (thumbURL.HasOption("width") && StringUtils::IsInteger(thumbURL.GetOption("width")))
@@ -164,16 +212,28 @@ std::string CTextureCacheJob::DecodeImageURL(const std::string &url, unsigned in
         height = strtol(thumbURL.GetOption("height").c_str(), NULL, 0);
     }
   }
+
+  if (StringUtils::StartsWith(url, "chapter://"))
+  {
+    // workaround for chapter thumbnail paths, which don't yet conform to the image:// path.
+    additional_info = "videochapter";
+  }
+
   return image;
 }
 
-CBaseTexture *CTextureCacheJob::LoadImage(const std::string &image, unsigned int width, unsigned int height, const std::string &additional_info)
+boost::movelib::unique_ptr<CTexture> CTextureCacheJob::LoadImage(const std::string& image,
+                                                      unsigned int width,
+                                                      unsigned int height,
+                                                      const std::string& additional_info,
+                                                      bool requirePixels)
 {
-  if (additional_info == "music")
-  { // special case for embedded music images
-    MUSIC_INFO::EmbeddedArt art;
-    if (CMusicThumbLoader::GetEmbeddedThumb(image, art))
-      return CBaseTexture::LoadFromFileInMemory(&art.data[0], art.size, art.mime, width, height);
+  if (!additional_info.empty())
+  {
+    IMAGE_FILES::CSpecialImageLoaderFactory specialImageLoader;
+    boost::movelib::unique_ptr<CTexture> texture = specialImageLoader.Load(additional_info, image, width, height);
+    if (texture)
+      return boost::move(texture);
   }
 
   // Validate file URL to see if it is an image
@@ -183,7 +243,8 @@ CBaseTexture *CTextureCacheJob::LoadImage(const std::string &image, unsigned int
       && !StringUtils::StartsWithNoCase(file.GetMimeType(), "image/") && !StringUtils::EqualsNoCase(file.GetMimeType(), "application/octet-stream")) // ignore non-pictures
     return NULL;
 
-  CBaseTexture *texture = CBaseTexture::LoadFromFile(image, width, height, CSettings::GetInstance().GetBool("pictures.useexifrotation"));
+  boost::movelib::unique_ptr<CTexture> texture =
+      CTexture::LoadFromFile(image, width, height, CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool("pictures.useexifrotation"));
   if (!texture)
     return NULL;
 
@@ -193,20 +254,17 @@ CBaseTexture *CTextureCacheJob::LoadImage(const std::string &image, unsigned int
   if (additional_info == "flipped")
     texture->SetOrientation(texture->GetOrientation() ^ 1);
 
-  return texture;
-}
-
-bool CTextureCacheJob::UpdateableURL(const std::string &url) const
-{
-  // we don't constantly check online images
-  if (StringUtils::StartsWith(url, "http://") ||
-      StringUtils::StartsWith(url, "https://"))
-    return false;
-  return true;
+  return boost::move(texture);
 }
 
 std::string CTextureCacheJob::GetImageHash(const std::string &url)
 {
+  // silently ignore - we cannot stat these
+  // in the case of upnp thumbs are/should be provided when filling the directory list, there's no reason to stat all object ids
+  if (URIUtils::IsProtocol(url, "addons") || URIUtils::IsProtocol(url, "plugin") ||
+      URIUtils::IsProtocol(url, "upnp"))
+    return "";
+
   struct __stat64 st;
   if (XFILE::CFile::Stat(url, &st) == 0)
   {
@@ -220,6 +278,7 @@ std::string CTextureCacheJob::GetImageHash(const std::string &url)
     // so set an obviously bad hash
     return "BADHASH";
   }
+
   CLog::Log(LOGDEBUG, "%s - unable to stat url %s", __FUNCTION__, CURL::GetRedacted(url).c_str());
   return "";
 }

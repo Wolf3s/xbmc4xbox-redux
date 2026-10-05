@@ -1,51 +1,46 @@
-#pragma once
 /*
- *      Copyright (C) 2005-2013 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
+#pragma once
+
+#include "system.h" // <xtl.h>
+#include "DllPaths.h"
 #include "cores/DllLoader/LibraryLoader.h"
-#include "utils/StdString.h"
+
+#include <string>
 
 ///////////////////////////////////////////////////////////
 //
 //  DECLARE_DLL_WRAPPER
 //
 //  Declares the constructor of the wrapper class.
-//  This must be followed by one or more 
+//  This must be followed by one or more
 //  DEFINE_METHODX/DEFINE_METHOD_LINKAGEX and
 //  one BEGIN_METHOD_RESOLVE/END_METHOD_RESOLVE block.
 //
 //  classname: name of the wrapper class to construct
 //  dllname: file including path of the dll to wrap
-//
+
 #define DECLARE_DLL_WRAPPER(classname, dllname) \
+XDECLARE_DLL_WRAPPER(classname,dllname)
+
+#define XDECLARE_DLL_WRAPPER(classname, dllname) \
 public: \
-  classname () : DllDynamic( #dllname ) {}
+  classname () : DllDynamic( dllname ) {}
 
 ///////////////////////////////////////////////////////////
 //
 //  DECLARE_DLL_WRAPPER_TEMPLATE_BEGIN
 //
 //  Declares the constructor of the wrapper class.
-//  The method SetFile(strDllName) can be used to set the 
+//  The method SetFile(strDllName) can be used to set the
 //  dll of this wrapper.
-//  This must be followed by one or more 
+//  This must be followed by one or more
 //  DEFINE_METHODX/DEFINE_METHOD_LINKAGEX and
 //  one BEGIN_METHOD_RESOLVE/END_METHOD_RESOLVE block.
 //
@@ -60,7 +55,7 @@ public: \
 //
 //  LOAD_SYMBOLS
 //
-//  Tells the dllloader to load Debug symblos when possible
+//  Tells the dllloader to load Debug symbols when possible
 #define LOAD_SYMBOLS() \
   protected: \
     virtual bool LoadSymbols() { return true; }
@@ -104,7 +99,7 @@ public: \
 //
 //  DEFINE_METHOD_LINKAGE
 //
-//  Defines a function for an export from a dll, if the 
+//  Defines a function for an export from a dll, if the
 //  calling convention is not __cdecl.
 //  Use DEFINE_METHOD_LINKAGE for each function to be resolved.
 //
@@ -118,8 +113,8 @@ public: \
     typedef result (linkage * name##_METHOD) args; \
   public: \
     union { \
-      name##_METHOD name; \
-      void*         name##_ptr; \
+      name##_METHOD m_##name; \
+      void*         m_##name##_ptr; \
     };
 
 #define DEFINE_METHOD_LINKAGE_BASE(result, linkage, name, args, args2) \
@@ -175,7 +170,7 @@ public: \
 //
 //  DEFINE_METHOD_FP
 //
-//  Defines a function for an export from a dll as a fuction pointer.
+//  Defines a function for an export from a dll as a function pointer.
 //  Use DEFINE_METHOD_FP for each function to be resolved. Functions
 //  defined like this are not listed by IntelliSence.
 //
@@ -217,29 +212,29 @@ public: \
 //
 //  DEFINE_FUNC_ALIGNED 0-X
 //
-//  Defines a function for an export from a dll, wich
-//  require a aligned stack on function call
+//  Defines a function for an export from a dll, which
+//  requires an aligned stack on function call
 //  Use DEFINE_FUNC_ALIGNED for each function to be resolved.
 //
 //  result:  Result of the function
 //  linkage: Calling convention of the function
 //  name:    Name of the function
 //  args:    Argument types of the function
-//  
+//
 //  Actual function call will expand to something like this
 //  this will align the stack (esp) at the point of function
-//  entry as required by gcc compiled dlls, it is abit abfuscated
+//  entry as required by gcc compiled dlls, it is a bit obfuscated
 //  to allow for different sized variables
 //
-//  __int64 test(__int64 p1, char p2, char p3) 
-//  { 
-//    int o,s = ((sizeof(p1)+3)&~3)+((sizeof(p2)+3)&~3)+((sizeof(p3)+3)&~3); 
+//  int64_t test(int64_t p1, char p2, char p3)
+//  {
+//    int o,s = ((sizeof(p1)+3)&~3)+((sizeof(p2)+3)&~3)+((sizeof(p3)+3)&~3);
 //    __asm mov [o],esp;
 //    __asm sub esp, [s];
 //    __asm and esp, ~15;
-//    __asm add esp, [s] 
-//    m_test(p1, p2, p3);  //return value will still be correct aslong as we don't mess with it
-//    __asm mov esp,[o]; 
+//    __asm add esp, [s]
+//    m_test(p1, p2, p3);  //return value will still be correct as long as we don't mess with it
+//    __asm mov esp,[o];
 //  };
 
 #define ALS(a) ((sizeof(a)+3)&~3)
@@ -327,7 +322,7 @@ public: \
 //  Defines a method that resolves the exported functions
 //  defined with DEFINE_METHOD or DEFINE_METHOD_LINKAGE.
 //  There must be a RESOLVE_METHOD or RESOLVE_METHOD_RENAME
-//  for each DEFINE_METHOD or DEFINE_METHOD_LINKAGE within this 
+//  for each DEFINE_METHOD or DEFINE_METHOD_LINKAGE within this
 //  block. This block must be followed by an END_METHOD_RESOLVE.
 //
 #define BEGIN_METHOD_RESOLVE() \
@@ -353,7 +348,7 @@ public: \
     return false;
 
 #define RESOLVE_METHOD_FP(method) \
-  if (!m_dll->ResolveExport( #method , & method##_ptr )) \
+  if (!m_dll->ResolveExport( #method , & m_##method##_ptr )) \
     return false;
 
 
@@ -369,11 +364,12 @@ public: \
 //
 
 #define RESOLVE_METHOD_OPTIONAL(method) \
-   m_dll->ResolveExport( #method , & m_##method##_ptr );
+   m_##method##_ptr = NULL; \
+   m_dll->ResolveExport( #method , & m_##method##_ptr, false );
 
 #define RESOLVE_METHOD_OPTIONAL_FP(method) \
-   method##_ptr = NULL; \
-   m_dll->ResolveExport( #method , & method##_ptr );
+   m_##method##_ptr = NULL; \
+   m_dll->ResolveExport( #method , & m_##method##_ptr, false );
 
 
 
@@ -392,11 +388,11 @@ public: \
     return false;
 
 #define RESOLVE_METHOD_RENAME_OPTIONAL(dllmethod, method) \
-  m_##method##_ptr = nullptr; \
-  m_dll->ResolveExport( #dllmethod , & m_##method##_ptr );
+  m_##method##_ptr = NULL; \
+  m_dll->ResolveExport( #dllmethod , & m_##method##_ptr, false );
 
 #define RESOLVE_METHOD_RENAME_FP(dllmethod, method) \
-  if (!m_dll->ResolveExport( #dllmethod , & method##_ptr )) \
+  if (!m_dll->ResolveExport( #dllmethod , & m_##method##_ptr )) \
     return false;
 
 
@@ -416,7 +412,7 @@ public: \
 //  };
 //
 //  2.  Define a class, derived from DllDynamic and the previously defined
-//      interface class. Define the constructor of the class using the 
+//      interface class. Define the constructor of the class using the
 //      DECLARE_DLL_WRAPPER macro. Use the DEFINE_METHODX/DEFINE_METHOD_LINKAGEX
 //      macros to define the functions from the interface above, where X is number of
 //      parameters the function has. The function parameters
@@ -425,14 +421,14 @@ public: \
 //      Use the RESOLVE_METHOD/RESOLVE_METHOD_RENAME to do the actually resolve the functions
 //      from the dll when it's loaded. The RESOLVE_METHOD/RESOLVE_METHOD_RENAME have to
 //      be between the BEGIN_METHOD_RESOLVE/END_METHOD_RESOLVE block.
-//      
+//
 //  class DllExample : public DllDynamic, DllExampleInterface
 //  {
-//    DECLARE_DLL_WRAPPER(DllExample, special://xbmc/system/Example.dll)
+//    DECLARE_DLL_WRAPPER(DllExample, special://xbmcbin/system/Example.dll)
 //    LOAD_SYMBOLS()  // add this if you want to load debug symbols for the dll
 //    DEFINE_METHOD2(void, foo, (int p1, char* p2))
 //    DEFINE_METHOD_LINKAGE2(void, __stdcall, bar, (char* p1, int p2))
-//    DEFINE_METHOD_FP(void, foobar, (int type, char* szTest))  //  No need to define this function in the 
+//    DEFINE_METHOD_FP(void, foobar, (int type, char* szTest))  //  No need to define this function in the
 //                                                              //  interface class, as it's a function pointer.
 //                                                              //  But its not recognised by IntelliSence
 //    BEGIN_METHOD_RESOLVE()
@@ -447,7 +443,7 @@ public: \
 //  class DllExample : public DllDynamic, DllExampleInterface
 //  {
 //  public:
-//    DllExample() : DllDynamic( "special://xbmc/system/Example.dll" ) {}
+//    DllExample() : DllDynamic( "special://xbmcbin/system/Example.dll" ) {}
 //  protected:
 //    virtual bool LoadSymbols() { return true; }
 //  protected:
@@ -466,9 +462,9 @@ public: \
 //    {
 //      return m_bar(p1, p2);
 //    }
-//  protected: 
-//    typedef void (* foobar_METHOD) (int type, char* szTest); 
-//  public: 
+//  protected:
+//    typedef void (* foobar_METHOD) (int type, char* szTest);
+//  public:
 //    foobar_METHOD foobar;
 //  protected:
 //    virtual bool ResolveExports()
@@ -502,14 +498,14 @@ class DllDynamic
 {
 public:
   DllDynamic();
-  DllDynamic(const CStdString& strDllName);
+  explicit DllDynamic(const std::string& strDllName);
   virtual ~DllDynamic();
   virtual bool Load();
   virtual void Unload();
-  bool IsLoaded() { return m_dll!=NULL; }
+  virtual bool IsLoaded() const { return m_dll!=NULL; }
   bool CanLoad();
   bool EnableDelayedUnload(bool bOnOff);
-  bool SetFile(const CStdString& strDllName);
+  bool SetFile(const std::string& strDllName);
   const std::string &GetFile() const { return m_strDllName; }
 
 protected:
@@ -517,5 +513,5 @@ protected:
   virtual bool LoadSymbols() { return false; }
   bool  m_DelayUnload;
   LibraryLoader* m_dll;
-  CStdString m_strDllName;
+  std::string m_strDllName;
 };

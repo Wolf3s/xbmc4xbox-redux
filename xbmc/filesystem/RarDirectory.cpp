@@ -18,14 +18,12 @@
  *
  */
 
-
 #include "RarDirectory.h"
 #include "RarManager.h"
 #include "utils/log.h"
 #include "utils/URIUtils.h"
 #include "URL.h"
 #include "FileItem.h"
-#include "utils/StringUtils.h"
 
 namespace XFILE
 {
@@ -45,12 +43,12 @@ namespace XFILE
     if (!urlOrig.IsProtocol("rar"))
       url = URIUtils::CreateArchivePath("rar", urlOrig);
 
-    CStdString strArchive = url.GetHostName();
+    std::string strArchive = url.GetHostName();
     std::string strOptions = url.GetOptions();
-    CStdString strPathInArchive = url.GetFileName();
+    std::string strPathInArchive = url.GetFileName();
     url.SetOptions("");
 
-    CStdString strSlashPath = url.Get();
+    std::string strSlashPath = url.Get();
 
     // the RAR code depends on things having a "\" at the end of the path
     URIUtils::AddSlashAtEnd(strSlashPath);
@@ -62,9 +60,9 @@ namespace XFILE
       {
         if (items[iEntry]->IsParentFolder())
           continue;
-        items[iEntry]->SetPath(URIUtils::AddFileToFolder(strSlashPath,items[iEntry]->GetPath()+strOptions));
+        items[iEntry]->SetPath(URIUtils::AddFileToFolder(strSlashPath, items[iEntry]->GetPath() + strOptions));
         items[iEntry]->m_iDriveType = 0;
-        //CLog::Log(LOGDEBUG, "RarDirectory::GetDirectory() retrieved file: %s", items[iEntry]->m_strPath.c_str());
+        //CLog::Log(LOGDEBUG, "RarXFILE::GetDirectory() retrieved file: %s", items[iEntry]->m_strPath.c_str());
       }
       return( true);
     }
@@ -83,19 +81,19 @@ namespace XFILE
 
     return false;
   }
-  
+
   bool CRarDirectory::ContainsFiles(const CURL& url)
   {
     CFileItemList items;
-    const CStdString pathToUrl(url.Get());
+    const std::string pathToUrl(url.Get());
     if (g_RarManager.GetFilesInRar(items, pathToUrl))
     {
       if (items.Size() > 1)
         return true;
-      
+
       return false;
     }
-    
+
     return false;
   }
 }

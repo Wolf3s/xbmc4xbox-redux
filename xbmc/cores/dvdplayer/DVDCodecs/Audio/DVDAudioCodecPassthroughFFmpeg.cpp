@@ -23,9 +23,10 @@
 #include "DVDStreamInfo.h"
 #include "settings/MediaSettings.h"
 #include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "utils/log.h"
 
-#include "defs_from_settings.h"
+#include <malloc.h>
 
 //These values are forced to allow spdif out
 #define OUT_SAMPLESIZE 16
@@ -57,7 +58,7 @@ CDVDAudioCodecPassthroughFFmpeg::CDVDAudioCodecPassthroughFFmpeg(void)
   m_SampleRate   = 0;
 
   m_Codec        = NULL;
-  
+
   /* make enough room for at-least two audio frames */
   m_DecodeSize   = 0;
   m_DecodeBuffer = NULL;
@@ -69,7 +70,7 @@ CDVDAudioCodecPassthroughFFmpeg::~CDVDAudioCodecPassthroughFFmpeg(void)
 }
 
 /*===================== MUXER FUNCTIONS ========================*/
-bool CDVDAudioCodecPassthroughFFmpeg::SetupMuxer(CDVDStreamInfo &hints, CStdString muxerName, Muxer &muxer)
+bool CDVDAudioCodecPassthroughFFmpeg::SetupMuxer(CDVDStreamInfo &hints, std::string muxerName, Muxer &muxer)
 {
   CLog::Log(LOGINFO, "CDVDAudioCodecPassthroughFFmpeg::SetupMuxer - Trying to setup %s muxer", muxerName.c_str());
 
@@ -290,17 +291,17 @@ bool CDVDAudioCodecPassthroughFFmpeg::SupportsFormat(CDVDStreamInfo &hints)
 bool CDVDAudioCodecPassthroughFFmpeg::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options)
 {
   // TODO - move this stuff somewhere else
-  if (CSettings::GetInstance().GetInt("audiooutput.mode") == AUDIO_DIGITAL)
+  if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_AUDIOOUTPUT_PASSTHROUGH))
   {
-    m_bSupportsAC3Out = CSettings::GetInstance().GetBool("audiooutput.ac3passthrough");
-    m_bSupportsDTSOut = CSettings::GetInstance().GetBool("audiooutput.dtspassthrough");
-    m_bSupportsAACOut = CSettings::GetInstance().GetBool("audiooutput.aacpassthrough");
+    m_bSupportsAC3Out = CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_AUDIOOUTPUT_AC3PASSTHROUGH);
+    m_bSupportsDTSOut = CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_AUDIOOUTPUT_DTSPASSTHROUGH);
+    m_bSupportsAACOut = CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_AUDIOOUTPUT_AACPASSTHROUGH);
   }
   else
     return false;
 
   // TODO - this is only valid for video files, and should be moved somewhere else
-  if( hints.channels == 2 && CMediaSettings::Get().GetCurrentVideoSettings().m_OutputToAllSpeakers )
+  if( hints.channels == 2 && CMediaSettings::GetInstance().GetCurrentVideoSettings().m_OutputToAllSpeakers )
   {
     CLog::Log(LOGINFO, "CDVDAudioCodecPassthroughFFmpeg::Open - disabled passthrough due to video OTAS");
     return false;
@@ -389,13 +390,13 @@ int CDVDAudioCodecPassthroughFFmpeg::Decode(BYTE* pData, int iSize)
       /* if we have a sync function for this codec */
       if (m_pSyncFrame)
       {
-	int skip = (this->*m_pSyncFrame)(pData, iSize, &m_Needed);
-	if (skip > 0)
-	{
-	  /* we lost sync, so invalidate our buffer */
-	  m_NeededUsed = 0;
-	  return used + skip;
-	}
+    int skip = (this->*m_pSyncFrame)(pData, iSize, &m_Needed);
+    if (skip > 0)
+    {
+      /* we lost sync, so invalidate our buffer */
+      m_NeededUsed = 0;
+      return used + skip;
+    }
       }
       else
         m_Needed = iSize;
@@ -492,7 +493,7 @@ unsigned int CDVDAudioCodecPassthroughFFmpeg::SyncAC3(BYTE* pData, unsigned int 
     /* search for an ac3 sync word */
     if(pData[0] != 0x0b || pData[1] != 0x77)
       continue;
- 
+
     uint8_t fscod      = pData[4] >> 6;
     uint8_t frmsizecod = pData[4] & 0x3F;
     uint8_t bsid       = pData[5] >> 3;

@@ -20,20 +20,23 @@
 
 #include "XboxBuiltins.h"
 
+#include "ServiceBroker.h"
 #include "programs/launchers/ProgramLauncher.h"
 #include "Util.h"
 #include "FileItem.h"
 #include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "utils/SystemInfo.h"
-#include "xbox/xbeheader.h"
+
+#include "platform/xbox/xbeheader.h"
 
 /*! \brief Boot custom dashboard.
  *  \param params (ignored)
  */
 static int RunDashboard(const std::vector<std::string>& params)
 {
-  if (CSettings::GetInstance().GetBool("myprograms.usedashpath"))
-    LAUNCHERS::CProgramLauncher::LaunchProgram(CSettings::GetInstance().GetString("myprograms.dashboard"));
+  if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool("myprograms.usedashpath"))
+    LAUNCHERS::CProgramLauncher::LaunchProgram(CServiceBroker::GetSettingsComponent()->GetSettings()->GetString("myprograms.dashboard"));
   else
     CUtil::BootToDash();
 
@@ -133,7 +136,7 @@ static int Backup(const std::vector<std::string>& params)
 ///   \table_row2_l{
 ///     <b>`BackupSystemInfo`</b>
 ///     ,
-///     Backup BIOS, EEPROM, HDD key and other systen informations 
+///     Backup BIOS, EEPROM, HDD key and other systen informations
 ///   }
 /// \table_end
 ///

@@ -10,7 +10,7 @@ public:
   ADPCMCodec();
   virtual ~ADPCMCodec();
 
-  virtual bool Init(const CStdString &strFile, unsigned int filecache);
+  virtual bool Init(const std::string &strFile, unsigned int filecache);
   virtual void DeInit();
   virtual __int64 Seek(__int64 iSeekTime);
   virtual int ReadPCM(BYTE *pBuffer, int size, int *actualsize);
@@ -22,6 +22,9 @@ private:
 
   DllADPCM m_dll;
   __int64 m_iDataPos;
+
+  std::string m_strFileName;
+  bool m_bInited;
 };
 
 #endif

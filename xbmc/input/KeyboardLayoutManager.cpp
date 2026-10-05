@@ -23,22 +23,22 @@
 #include <algorithm>
 
 #include "FileItem.h"
-#include "filesystem/Directory.h"
+#include "ServiceBroker.h"
 #include "URL.h"
-#include "utils/log.h"
+#include "filesystem/Directory.h"
+#include "settings/lib/Setting.h"
+#include "settings/lib/SettingDefinitions.h"
 #include "utils/XBMCTinyXML.h"
+#include "utils/log.h"
+
+using namespace KODI;
+using namespace KEYBOARD;
 
 #define KEYBOARD_LAYOUTS_PATH   "special://xbmc/system/keyboardlayouts"
 
 CKeyboardLayoutManager::~CKeyboardLayoutManager()
 {
   Unload();
-}
-
-CKeyboardLayoutManager& CKeyboardLayoutManager::GetInstance()
-{
-  static CKeyboardLayoutManager s_instance;
-  return s_instance;
 }
 
 bool CKeyboardLayoutManager::Load(const std::string& path /* = "" */)
@@ -127,13 +127,25 @@ bool CKeyboardLayoutManager::GetLayout(const std::string& name, CKeyboardLayout&
   return true;
 }
 
-void CKeyboardLayoutManager::SettingOptionsKeyboardLayoutsFiller(const CSetting *setting, std::vector< std::pair<std::string, std::string> > &list, std::string &current, void* data)
+namespace
 {
-  for (KeyboardLayouts::const_iterator it = CKeyboardLayoutManager::GetInstance().m_layouts.begin(); it != CKeyboardLayoutManager::GetInstance().m_layouts.end(); ++it)
+inline bool LayoutSort(const StringSettingOption& i, const StringSettingOption& j)
+{
+  return (i.value < j.value);
+}
+} // namespace
+
+void CKeyboardLayoutManager::SettingOptionsKeyboardLayoutsFiller(
+    const SettingConstPtr& setting,
+    std::vector<StringSettingOption>& list,
+    std::string& current,
+    void* data)
+{
+  for (KeyboardLayouts::const_iterator it = CServiceBroker::GetKeyboardLayoutManager()->m_layouts.begin(); it != CServiceBroker::GetKeyboardLayoutManager()->m_layouts.end(); ++it)
   {
     std::string name = it->second.GetName();
-    list.push_back(make_pair(name, name));
+    list.push_back(StringSettingOption(name, name));
   }
 
-  std::sort(list.begin(), list.end());
+  std::sort(list.begin(), list.end(), LayoutSort);
 }

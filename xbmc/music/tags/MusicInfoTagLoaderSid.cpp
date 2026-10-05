@@ -19,13 +19,15 @@
  */
 
 #include "MusicInfoTagLoaderSid.h"
+#include "ServiceBroker.h"
 #include "utils/RegExp.h"
 #include "utils/log.h"
 #include "Util.h"
 #include "utils/URIUtils.h"
 #include "music/tags/MusicInfoTag.h"
-#include "profiles/ProfilesManager.h"
+#include "profiles/ProfileManager.h"
 #include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "filesystem/SpecialProtocol.h"
 
 #include <cstring>
@@ -43,25 +45,25 @@ CMusicInfoTagLoaderSid::~CMusicInfoTagLoaderSid()
 {
 }
 
-bool CMusicInfoTagLoaderSid::Load(const CStdString& strFileName, CMusicInfoTag& tag, EmbeddedArt *art)
+bool CMusicInfoTagLoaderSid::Load(const std::string& strFileName, CMusicInfoTag& tag, EmbeddedArt *art)
 {
-  CStdString strFileToLoad = strFileName;
+  std::string strFileToLoad = strFileName;
   int iTrack = 0;
   if (URIUtils::HasExtension(strFileName, ".sidstream"))
   {
     //  Extract the track to play
-    CStdString strFile=URIUtils::GetFileName(strFileName);
-    int iStart=strFile.ReverseFind("-")+1;
+    std::string strFile=URIUtils::GetFileName(strFileName);
+    int iStart=strFile.rfind("-")+1;
     iTrack = atoi(strFile.substr(iStart, strFile.size()-iStart-10).c_str());
     //  The directory we are in, is the file
     //  that contains the bitstream to play,
     //  so extract it
-    CStdString strPath=strFileName;
+    std::string strPath=strFileName;
     strFileToLoad = URIUtils::GetDirectory(strPath);
     URIUtils::RemoveSlashAtEnd(strFileToLoad);   // we want the filename
   }
-  CStdString strFileNameLower(strFileToLoad);
-  strFileNameLower.MakeLower();
+  std::string strFileNameLower(strFileToLoad);
+  StringUtils::ToLower(strFileNameLower);
   int iHVSC = strFileNameLower.find("hvsc"); // need hvsc in path name since our lookupfile is based on hvsc paths
   if (iHVSC < 0)
   {
@@ -77,10 +79,10 @@ bool CMusicInfoTagLoaderSid::Load(const CStdString& strFileName, CMusicInfoTag& 
     return( false );
   }
 
-  CStdString strHVSCpath = strFileToLoad.substr(iHVSC,strFileToLoad.length()-1);
+  std::string strHVSCpath = strFileToLoad.substr(iHVSC,strFileToLoad.length()-1);
 
-  strHVSCpath.Replace('\\','/'); // unix paths
-  strHVSCpath.MakeLower();
+  StringUtils::Replace(strHVSCpath, '\\','/'); // unix paths
+  StringUtils::ToLower(strHVSCpath);
 
   char temp[8192];
   CRegExp reg;
@@ -91,7 +93,7 @@ bool CMusicInfoTagLoaderSid::Load(const CStdString& strFileName, CMusicInfoTag& 
     return( false );
   }
 
-  ifstream f(CSpecialProtocol::TranslatePath(URIUtils::AddFileToFolder(CProfilesManager::Get().GetDatabaseFolder(), "stil.txt")).c_str()); // changeme?
+  ifstream f(CSpecialProtocol::TranslatePath(URIUtils::AddFileToFolder(CServiceBroker::GetSettingsComponent()->GetProfileManager()->GetDatabaseFolder(), "stil.txt")).c_str()); // changeme?
   if( !f.good() ) {
     CLog::Log(LOGINFO,"MusicInfoTagLoaderSid::Load(..) unable to locate stil.txt");
     tag.SetLoaded(false);
@@ -105,8 +107,8 @@ bool CMusicInfoTagLoaderSid::Load(const CStdString& strFileName, CMusicInfoTag& 
   while( !f.eof() && !szEnd )
   {
     f.read(temp,8191);
-    CStdString strLower = temp;
-    strLower.MakeLower();
+    std::string strLower = temp;
+    StringUtils::ToLower(strLower);
 
     if (!szStart)
       szStart= (char *)strstr(strLower.c_str(),strHVSCpath.c_str());
@@ -173,7 +175,7 @@ bool CMusicInfoTagLoaderSid::Load(const CStdString& strFileName, CMusicInfoTag& 
     }
   }
 
-  ifstream f2(CSpecialProtocol::TranslatePath(URIUtils::AddFileToFolder(CProfilesManager::Get().GetDatabaseFolder(),"sidlist.csv")).c_str()); // changeme?
+  ifstream f2(CSpecialProtocol::TranslatePath(URIUtils::AddFileToFolder(CServiceBroker::GetSettingsComponent()->GetProfileManager()->GetDatabaseFolder(),"sidlist.csv")).c_str()); // changeme?
   if( !f2.good() ) {
     CLog::Log(LOGINFO,"MusicInfoTagLoaderSid::Load(..) unable to locate sidlist.csv");
     tag.SetLoaded(false);
@@ -182,16 +184,16 @@ bool CMusicInfoTagLoaderSid::Load(const CStdString& strFileName, CMusicInfoTag& 
 
   while( !f2.eof() ) {
     f2.getline(temp,8191);
-    CStdString strTemp(temp);
-    strTemp.MakeLower();
+    std::string strTemp(temp);
+    StringUtils::ToLower(strTemp);
     unsigned int iFind = strTemp.find(strHVSCpath);
     if (iFind == string::npos)
       continue;
 
     char temp2[1024];
     char temp3[1024];
-    strncpy(temp3,temp+iFind,strlen(strHVSCpath));
-    temp3[strlen(strHVSCpath)] = '\0';
+    strncpy(temp3,temp+iFind,strlen(strHVSCpath.c_str()));
+    temp3[strlen(strHVSCpath.c_str())] = '\0';
     sprintf(temp2,"\"%s\",\"[^\"]*\",\"[^\"]*\",\"([^\"]*)\",\"([^\"]*)\",\"([0-9]*)[^\"]*\",\"[0-9]*\",\"[0-9]*\",\"",temp3);
     for (int i=0;i<iTrack-1;++i)
       strcat(temp2,"[0-9]*:[0-9]* ");
@@ -216,9 +218,7 @@ bool CMusicInfoTagLoaderSid::Load(const CStdString& strFileName, CMusicInfoTag& 
         tag.SetTitle(strTitle);
       if (tag.GetArtist().empty())
         tag.SetArtist(strArtist);
-      SYSTEMTIME dateTime;
-      dateTime.wYear = atoi(strYear.c_str());
-      tag.SetReleaseDate(dateTime);
+      tag.SetYear(atoi(strYear.c_str()));
       f2.close();
       return( true );
     }

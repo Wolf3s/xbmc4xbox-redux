@@ -1,28 +1,20 @@
-#pragma once
 /*
- *      Copyright (C) 2014 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2014-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
+#pragma once
+
+#include "system.h" // <xtl.h>
+#include "video/jobs/VideoLibraryProgressJob.h"
+
+#include <boost/shared_ptr.hpp>
 #include <string>
 
-#include "FileItem.h"
-#include "video/jobs/VideoLibraryProgressJob.h"
+class CFileItem;
 
 /*!
  \brief Video library job implementation for refreshing a single item.
@@ -39,7 +31,11 @@ public:
    \param[in] ignoreNfo Whether or not to ignore local NFO files
    \param[in] searchTitle Title to use for the search (instead of determining it from the item's filename/path)
   */
-  CVideoLibraryRefreshingJob(CFileItemPtr item, bool forceRefresh, bool refreshAll, bool ignoreNfo = false, const std::string& searchTitle = "");
+  CVideoLibraryRefreshingJob(boost::shared_ptr<CFileItem> item,
+                             bool forceRefresh,
+                             bool refreshAll,
+                             bool ignoreNfo = false,
+                             const std::string& searchTitle = "");
 
   virtual ~CVideoLibraryRefreshingJob();
 
@@ -52,7 +48,7 @@ protected:
   virtual bool Work(CVideoDatabase &db);
 
 private:
-  CFileItemPtr m_item;
+  boost::shared_ptr<CFileItem> m_item;
   bool m_forceRefresh;
   bool m_refreshAll;
   bool m_ignoreNfo;

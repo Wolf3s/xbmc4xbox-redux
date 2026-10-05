@@ -17,11 +17,13 @@
  *  <http://www.gnu.org/licenses/>.
  *
  */
- 
+
 #include "DVDInputStreamFile.h"
+#include "ServiceBroker.h"
 #include "filesystem/File.h"
 #include "filesystem/IFile.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/SettingsComponent.h"
 #include "utils/URIUtils.h"
 #include "utils/log.h"
 
@@ -68,10 +70,10 @@ bool CDVDInputStreamFile::Open()
    */
   if (!URIUtils::IsOnDVD(m_item.GetPath())/* && !URIUtils::IsBluray(m_item.GetPath())*/) // Never cache these
   {
-    if ((g_advancedSettings.m_cacheBufferMode == CACHE_BUFFER_MODE_INTERNET && URIUtils::IsInternetStream(m_item.GetPath(), true))
-     || (g_advancedSettings.m_cacheBufferMode == CACHE_BUFFER_MODE_TRUE_INTERNET && URIUtils::IsInternetStream(m_item.GetPath(), false))
-     || (g_advancedSettings.m_cacheBufferMode == CACHE_BUFFER_MODE_REMOTE && URIUtils::IsRemote(m_item.GetPath()))
-     || (g_advancedSettings.m_cacheBufferMode == CACHE_BUFFER_MODE_ALL))
+    if ((CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_cacheBufferMode == CACHE_BUFFER_MODE_INTERNET && URIUtils::IsInternetStream(m_item.GetPath(), true))
+     || (CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_cacheBufferMode == CACHE_BUFFER_MODE_TRUE_INTERNET && URIUtils::IsInternetStream(m_item.GetPath(), false))
+     || (CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_cacheBufferMode == CACHE_BUFFER_MODE_NETWORK && URIUtils::IsRemote(m_item.GetPath()))
+     || (CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_cacheBufferMode == CACHE_BUFFER_MODE_ALL))
     {
       flags |= READ_CACHED;
     }
@@ -92,10 +94,10 @@ bool CDVDInputStreamFile::Open()
     m_pFile = NULL;
     return false;
   }
-   
-  if (m_pFile->GetImplemenation() && (content.empty() || content == "application/octet-stream"))
-    m_content = m_pFile->GetImplemenation()->GetContent();
-  
+
+  if (m_pFile->GetImplementation() && (content.empty() || content == "application/octet-stream"))
+    m_content = m_pFile->GetImplementation()->GetProperty(XFILE::FILE_PROPERTY_CONTENT_TYPE);
+
   m_eof = true;
   return true;
 }
@@ -156,7 +158,7 @@ bool CDVDInputStreamFile::GetCacheStatus(XFILE::SCacheStatus *status)
     return false;
 }
 
-BitstreamStats CDVDInputStreamFile::GetBitstreamStats() const 
+BitstreamStats CDVDInputStreamFile::GetBitstreamStats() const
 {
   if (!m_pFile)
     return m_stats; // dummy return. defined in CDVDInputStream
@@ -175,10 +177,10 @@ int CDVDInputStreamFile::GetBlockSize()
     return 0;
 }
 
-void CDVDInputStreamFile::SetReadRate(unsigned rate)
+void CDVDInputStreamFile::SetReadRate(uint32_t rate)
 {
   // Increase requested rate by 10%:
-  unsigned maxrate = (unsigned) (1.1 * rate);
+  uint32_t maxrate = static_cast<uint32_t>(1.1 * rate);
 
   if(m_pFile->IoControl(IOCTRL_CACHE_SETRATE, &maxrate) >= 0)
     CLog::Log(LOGDEBUG, "CDVDInputStreamFile::SetReadRate - set cache throttle rate to %u bytes per second", maxrate);

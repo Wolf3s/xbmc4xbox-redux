@@ -1,27 +1,18 @@
-#pragma once
 /*
- *      Copyright (C) 2015 Team Kodi
- *      http://kodi.tv
+ *  Copyright (C) 2015-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include "addons/IAddon.h"
+#pragma once
+
+#include "addons/addoninfo/AddonType.h" // AddonType
 #include "settings/lib/ISettingCallback.h"
-#include <boost/function.hpp>
+
+#include <map>
+#include <memory>
 #include <string>
 
 namespace ADDON
@@ -31,37 +22,59 @@ const int AUTO_UPDATES_ON = 0;
 const int AUTO_UPDATES_NOTIFY = 1;
 const int AUTO_UPDATES_NEVER = 2;
 
+namespace AddonRepoUpdateMode
+{
+enum Type
+{
+  OFFICIAL_ONLY = 0,
+  ANY_REPOSITORY = 1
+};
+}
+
+class CAddonInfo;
+typedef boost::shared_ptr<CAddonInfo> AddonInfoPtr;
+
+class IAddon;
+typedef boost::shared_ptr<IAddon> AddonPtr;
+
 class CAddonSystemSettings : public ISettingCallback
 {
 public:
   static CAddonSystemSettings& GetInstance();
-  void OnSettingAction(const CSetting* setting);
-  void OnSettingChanged(const CSetting* setting);
+  virtual void OnSettingAction(const boost::shared_ptr<const CSetting>& setting);
+  virtual void OnSettingChanged(const boost::shared_ptr<const CSetting>& setting);
 
-  bool GetActive(const TYPE& type, AddonPtr& addon);
-  bool SetActive(const TYPE& type, const std::string& addonID);
+  bool GetActive(AddonType::Type type, AddonPtr& addon);
+  bool SetActive(AddonType::Type type, const std::string& addonID);
   bool IsActive(const IAddon& addon);
+
+  /*!
+   * Gets Kodi addon auto update mode
+   *
+   * @return the autoupdate mode value
+  */
+  int GetAddonAutoUpdateMode() const;
+
+
+  /*!
+   * Gets Kodi preferred addon repository update mode
+   *
+   * @return the preferred mode value
+   */
+  AddonRepoUpdateMode::Type GetAddonRepoUpdateMode() const;
 
   /*!
    * Attempt to unset addon as active. Returns true if addon is no longer active,
    * false if it could not be unset (e.g. if the addon is the default)
    */
-  bool UnsetActive(const AddonPtr& addon);
-
-  /*!
-   * Check compatibility of installed addons and attempt to migrate.
-   *
-   * @param onMigrate Called when a long running migration task takes place.
-   * @return list of addons that was modified.
-   */
-  std::vector<std::string> MigrateAddons(boost::function<void(void)> onMigrate);
+  bool UnsetActive(const AddonInfoPtr& addon);
 
 private:
   CAddonSystemSettings();
   CAddonSystemSettings(const CAddonSystemSettings&);
   CAddonSystemSettings& operator=(const CAddonSystemSettings&);
-  virtual ~CAddonSystemSettings() {};
+  virtual ~CAddonSystemSettings() {}
 
-  const std::map<ADDON::TYPE, std::string> m_activeSettings;
+  std::map<AddonType::Type, std::string> m_activeSettings;
 };
 };

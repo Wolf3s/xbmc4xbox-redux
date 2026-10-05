@@ -1,13 +1,17 @@
 
 #include "smartxxlcd.h"
-#include "conio.h"
-#include "utils/SystemInfo.h"
-#include "memutil.h"
-#include "Application.h" // for g_application.IsInScreenSaver()
-#include "utils/LED.h"
+
+#include "ServiceBroker.h"
+#include "application/ApplicationComponents.h"
+#include "application/ApplicationPowerHandling.h"
 #include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "settings/AdvancedSettings.h"
+#include "utils/SystemInfo.h"
 #include "utils/log.h"
+
+#include "platform/xbox/utils/LED.h"
+#include "platform/xbox/utils/memutil.h"
 
 #include <conio.h>
 
@@ -74,7 +78,7 @@ CSmartXXLCD::CSmartXXLCD()
   m_iColumns = 20;        // display rows each line
   m_iBackLight=32;
 
-  if (CSettings::GetInstance().GetInt("lcd.type") == LCD_TYPE_LCD_KS0073)
+  if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("lcd.type") == LCD_TYPE_LCD_KS0073)
   {
     // Special case: it's the KS0073
     m_iRow1adr = 0x00;
@@ -101,11 +105,6 @@ CSmartXXLCD::~CSmartXXLCD()
 void CSmartXXLCD::Initialize()
 {
   StopThread();
-  if (CSettings::GetInstance().GetInt("lcd.type") == LCD_TYPE_NONE)
-  {
-    CLog::Log(LOGINFO, "lcd not used");
-    return;
-  }
   ILCD::Initialize();
   Create();
 
@@ -123,17 +122,15 @@ void CSmartXXLCD::SetContrast(int iContrast)
 //*************************************************************************************************************
 void CSmartXXLCD::Stop()
 {
-  if (CSettings::GetInstance().GetInt("lcd.type") == LCD_TYPE_NONE) return;
   StopThread();
 }
 
 //*************************************************************************************************************
-void CSmartXXLCD::SetLine(int iLine, const CStdString& strLine)
+void CSmartXXLCD::SetLine(int iLine, const std::string& strLine)
 {
-  if (CSettings::GetInstance().GetInt("lcd.type") == LCD_TYPE_NONE) return;
   if (iLine < 0 || iLine >= (int)m_iRows) return;
 
-  CStdString strLineLong=strLine;
+  std::string strLineLong=strLine;
   //strLineLong.Trim();
   StringToLCDCharSet(strLineLong);
 
@@ -264,7 +261,9 @@ void CSmartXXLCD::DisplayBuildCustomChars()
   // TODO: it's probably better to move the default charset in ILCD also:
   // that will take out the screensaver mode check here and keeps everything central,
   // but ILCD then has to deal with animation
-  if ( g_application.IsInScreenSaver() ) //IsInScreenSaver()
+  const CApplicationComponents &components = CServiceBroker::GetAppComponents();
+  const boost::shared_ptr<const CApplicationPowerHandling> appPower = components.GetComponent<CApplicationPowerHandling>();
+  if ( appPower->IsInScreenSaver() ) //IsInScreenSaver()
   {
       for(I=0;I<64;I++) DisplayOut( GetLCDCharsetCharacter( I ), DAT ); // all numberblocks chars
   }
@@ -395,7 +394,7 @@ void CSmartXXLCD::DisplayProgressBar(unsigned char percent, unsigned char charcn
 //************************************************************************************************************************
 void CSmartXXLCD::DisplaySetBacklight(unsigned char level)
 {
-  if (CSettings::GetInstance().GetInt("lcd.type")==LCD_TYPE_VFD)
+  if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("lcd.type")==LCD_TYPE_VFD)
   {
     //VFD:(value 0 to 3 = 100%, 75%, 50%, 25%)
     if (level<0) level=0;
@@ -404,9 +403,9 @@ void CSmartXXLCD::DisplaySetBacklight(unsigned char level)
     level/=25;
     DisplayOut(DISP_FUNCTION_SET | DISP_N_FLAG | level,CMD);
   }
-  else //if (CSettings::GetInstance().GetInt("lcd.type")==LCD_TYPE_LCD_HD44780)
+  else //if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("lcd.type")==LCD_TYPE_LCD_HD44780)
   {
-    if (g_sysinfo.SmartXXModCHIP().Equals("SmartXX V3"))
+    if (g_sysinfo.SmartXXModCHIP() == "SmartXX V3")
     {
       float fBackLight=((float)level)/100.0f;
       fBackLight*=127.0f;
@@ -414,18 +413,18 @@ void CSmartXXLCD::DisplaySetBacklight(unsigned char level)
       if (iNewLevel==63) iNewLevel=64;
       _outp(DISP_O_LIGHT, iNewLevel&127);
     }
-    else if (g_sysinfo.SmartXXModCHIP().Equals("SmartXX OPX"))
+    else if (g_sysinfo.SmartXXModCHIP() == "SmartXX OPX")
     {
       float fBackLight=((float)level)/100.0f;
       fBackLight*=127.0f;
       int iNewLevel=(int)fBackLight;
       if (iNewLevel==63) iNewLevel=64;
-      
+
       // SmartXX OPX port for RGB-Red is the same port for display brightness control
       // The brightness control has a higher priority, stopping possible running rgb controls
       if ( g_iledSmartxxrgb.IsRunning() )
         g_iledSmartxxrgb.Stop();
-     
+
       // Set new value
       _outp(DISP_O_LIGHT, iNewLevel&127);
     }
@@ -445,10 +444,10 @@ void CSmartXXLCD::DisplaySetBacklight(unsigned char level)
 void CSmartXXLCD::DisplaySetContrast(unsigned char level)
 {
   // can't set contrast with a VFD
-  if (CSettings::GetInstance().GetInt("lcd.type")==LCD_TYPE_VFD)
+  if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("lcd.type")==LCD_TYPE_VFD)
     return;
 
-  if (g_sysinfo.SmartXXModCHIP().Equals("SmartXX V3"))
+  if (g_sysinfo.SmartXXModCHIP() == "SmartXX V3")
   {
     float fContrast=((float)level/100)*127.0f;
     int iNewLevel=(int)fContrast;
@@ -464,7 +463,7 @@ mask top bit (7)
 */
     _outp(DISP_O_CONTRAST, iNewLevel&127|128);
   }
-  else if ( g_sysinfo.SmartXXModCHIP().Equals("SmartXX OPX"))
+  else if ( g_sysinfo.SmartXXModCHIP() == "SmartXX OPX")
   {
 
 // this is untested by me and has no defcets open for it.
@@ -536,14 +535,14 @@ void CSmartXXLCD::Process()
   int iOldContrast=-1;
 
 
-  m_iColumns = g_advancedSettings.m_lcdColumns;
-  m_iRows    = g_advancedSettings.m_lcdRows;
-  m_iRow1adr = g_advancedSettings.m_lcdAddress1;
-  m_iRow2adr = g_advancedSettings.m_lcdAddress2;
-  m_iRow3adr = g_advancedSettings.m_lcdAddress3;
-  m_iRow4adr = g_advancedSettings.m_lcdAddress4;
-  m_iBackLight= CSettings::GetInstance().GetInt("lcd.backlight");
-  m_iContrast = CSettings::GetInstance().GetInt("lcd.contrast");
+  m_iColumns = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_lcdColumns;
+  m_iRows    = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_lcdRows;
+  m_iRow1adr = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_lcdAddress1;
+  m_iRow2adr = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_lcdAddress2;
+  m_iRow3adr = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_lcdAddress3;
+  m_iRow4adr = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_lcdAddress4;
+  m_iBackLight= CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(CSettings::SETTING_LCD_BACKLIGHT);
+  m_iContrast = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("lcd.contrast");
   if (m_iRows >= MAX_ROWS) m_iRows=MAX_ROWS-1;
 
   DisplayInit();
@@ -567,10 +566,10 @@ void CSmartXXLCD::Process()
     {
       if (m_bUpdate[iLine])
       {
-        CStdString strTmp=m_strLine[iLine];
+        std::string strTmp=m_strLine[iLine];
         if (strTmp.size() > m_iColumns)
         {
-          strTmp=m_strLine[iLine].Left(m_iColumns);
+          strTmp=m_strLine[iLine].substr(0, m_iColumns);
         }
         m_iPos[iLine]=0;
         DisplaySetPos(0,iLine);
@@ -584,15 +583,15 @@ void CSmartXXLCD::Process()
         if (iSize > (int)m_iColumns)
         {
           //scroll line
-          CStdString strRow=m_strLine[iLine]+"   -   ";
+          std::string strRow=m_strLine[iLine]+"   -   ";
           int iSize=strRow.size();
           m_iPos[iLine]++;
           if (m_iPos[iLine]>=iSize) m_iPos[iLine]=0;
           int iPos=m_iPos[iLine];
-          CStdString strLine="";
+          std::string strLine="";
           for (int iCol=0; iCol < (int)m_iColumns;++iCol)
           {
-            strLine +=strRow.GetAt(iPos);
+            strLine +=strRow[iPos];
             iPos++;
             if (iPos >= iSize) iPos=0;
           }

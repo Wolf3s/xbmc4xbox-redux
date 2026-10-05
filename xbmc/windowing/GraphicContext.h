@@ -1,0 +1,266 @@
+/*!
+\file GraphicContext.h
+\brief
+*/
+
+#ifndef GUILIB_GRAPHICCONTEXT_H
+#define GUILIB_GRAPHICCONTEXT_H
+
+#pragma once
+
+/*
+ *      Copyright (C) 2005-2013 Team XBMC
+ *      http://xbmc.org
+ *
+ *  This Program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation; either version 2, or (at your option)
+ *  any later version.
+ *
+ *  This Program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with XBMC; see the file COPYING.  If not, see
+ *  <http://www.gnu.org/licenses/>.
+ *
+ */
+
+#include "Resolution.h"
+#include "utils/ColorUtils.h"
+#include <string>
+#include <vector>
+#include <stack>
+#include <map>
+#include "threads/CriticalSection.h"  // base class
+#include "utils/TransformMatrix.h"        // for the members m_guiTransform etc.
+#include "utils/Geometry.h"               // for CRect/CPoint
+#include "gui3d.h"
+
+// required by clients
+#include "ServiceBroker.h"
+#include "WinSystem.h"
+
+enum VIEW_TYPE { VIEW_TYPE_NONE = 0,
+                 VIEW_TYPE_LIST,
+                 VIEW_TYPE_ICON,
+                 VIEW_TYPE_BIG_LIST,
+                 VIEW_TYPE_BIG_ICON,
+                 VIEW_TYPE_WIDE,
+                 VIEW_TYPE_BIG_WIDE,
+                 VIEW_TYPE_WRAP,
+                 VIEW_TYPE_BIG_WRAP,
+                 VIEW_TYPE_INFO,
+                 VIEW_TYPE_BIG_INFO,
+                 VIEW_TYPE_AUTO,
+                 VIEW_TYPE_MAX };
+
+/*!
+ \ingroup graphics
+ \brief
+ */
+class CGraphicContext : public CCriticalSection
+{
+public:
+  CGraphicContext(void);
+  virtual ~CGraphicContext(void);
+
+  LPDIRECT3DDEVICE8 Get3DDevice() { return m_pd3dDevice; }
+  void SetD3DDevice(LPDIRECT3DDEVICE8 p3dDevice);
+  //  void         GetD3DParameters(D3DPRESENT_PARAMETERS &params);
+  void SetD3DParameters(D3DPRESENT_PARAMETERS *p3dParams);
+  int GetBackbufferCount() const { return (m_pd3dParams)?m_pd3dParams->BackBufferCount:0; }
+  int GetWidth() const { return m_iScreenWidth; }
+  int GetHeight() const { return m_iScreenHeight; }
+  int GetFPS() const;
+  DWORD GetNewID();
+  const std::string& GetMediaDir() const { return m_strMediaDir; }
+  void SetMediaDir(const std::string& strMediaDir);
+  bool IsWidescreen() const { return m_bWidescreen; }
+  bool SetViewPort(float fx, float fy , float fwidth, float fheight, bool intersectPrevious = false);
+  void RestoreViewPort();
+
+  void SetScissors(const CRect &rect);
+  void ResetScissors();
+  const CRect &GetScissors() const { return m_scissors; }
+
+  const CRect& GetViewWindow() const;
+  void SetViewWindow(float left, float top, float right, float bottom);
+  void ClipToViewWindow();
+  void SetFullScreenVideo(bool bOnOff);
+  bool IsFullScreenVideo() const;
+  bool IsCalibrating() const;
+  void SetCalibrating(bool bOnOff);
+  void GetAllowedResolutions(std::vector<RESOLUTION> &res, bool bAllowPAL60 = false);
+  bool IsValidResolution(RESOLUTION res);
+  void SetVideoResolution(RESOLUTION res, BOOL NeedZ = FALSE, bool forceClear = false);
+  RESOLUTION GetVideoResolution() const;
+  void SetScreenFilters(bool useFullScreenFilters);
+  void ResetOverscan(RESOLUTION res, OVERSCAN &overscan);
+  void ResetScreenParameters(RESOLUTION res);
+  void Lock() { lock(); }
+  void Unlock() { unlock(); }
+  float GetPixelRatio(RESOLUTION iRes) const;
+  void CaptureStateBlock();
+  void ApplyStateBlock();
+  void Clear(UTILS::COLOR::Color color = 0);
+
+  // output scaling
+  const RESOLUTION_INFO GetResInfo() const;
+  const RESOLUTION_INFO GetResInfo(RESOLUTION res) const;
+  void SetResInfo(RESOLUTION res, const RESOLUTION_INFO& info);
+
+  void Flip(bool rendered, bool videoLayer);
+
+  /* \brief Get UI scaling information from a given resolution to the screen resolution.
+   Takes account of overscan and UI zooming.
+   \param res the resolution to scale from.
+   \param scaleX [out] the scaling amount in the X direction.
+   \param scaleY [out] the scaling amount in the Y direction.
+   \param matrix [out] if non-NULL, a suitable transformation from res to screen resolution is set.
+   */
+  void GetGUIScaling(const RESOLUTION_INFO &res, float &scaleX, float &scaleY, TransformMatrix *matrix = NULL);
+
+  void SetRenderingResolution(const RESOLUTION_INFO &res, bool needsScaling);  ///< Sets scaling up for rendering
+  void SetScalingResolution(const RESOLUTION_INFO &res, bool needsScaling);    ///< Sets scaling up for skin loading etc.
+  float GetScalingPixelRatio() const;
+
+  void InvertFinalCoords(float &x, float &y) const;
+  inline float ScaleFinalXCoord(float x, float y) const { return m_finalTransform.matrix.TransformXCoord(x, y, 0); }
+  inline float ScaleFinalYCoord(float x, float y) const { return m_finalTransform.matrix.TransformYCoord(x, y, 0); }
+  inline float ScaleFinalZCoord(float x, float y) const { return m_finalTransform.matrix.TransformZCoord(x, y, 0); }
+  inline void ScaleFinalCoords(float &x, float &y, float &z) const { m_finalTransform.matrix.TransformPosition(x, y, z); }
+  bool RectIsAngled(float x1, float y1, float x2, float y2) const;
+
+  inline float GetGUIScaleX() const { return m_finalTransform.scaleX; }
+  inline float GetGUIScaleY() const { return m_finalTransform.scaleY; }
+  inline DWORD MergeAlpha(UTILS::COLOR::Color color) const
+  {
+    UTILS::COLOR::Color alpha = m_finalTransform.matrix.TransformAlpha((color >> 24) & 0xff);
+    if (alpha > 255) alpha = 255;
+    return ((alpha << 24) & 0xff000000) | (color & 0xffffff);
+  }
+  UTILS::COLOR::Color MergeColor(UTILS::COLOR::Color color) const;
+
+  void SetOrigin(float x, float y);
+  void RestoreOrigin();
+  void SetCameraPosition(const CPoint &camera);
+  void RestoreCameraPosition();
+  /*! \brief Set a region in which to clip all rendering
+   Anything that is rendered after setting a clip region will be clipped so that no part renders
+   outside of the clip region.  Successive calls to SetClipRegion intersect the clip region, which
+   means the clip region may eventually become an empty set.  In this case SetClipRegion returns false
+   to indicate that no rendering need be performed.
+
+   This call must be matched with a RestoreClipRegion call unless SetClipRegion returns false.
+
+   Usage should be of the form:
+
+     if (SetClipRegion(x, y, w, h))
+     {
+       ...
+       perform rendering
+       ...
+       RestoreClipRegion();
+     }
+
+   \param x the left-most coordinate of the clip region
+   \param y the top-most coordinate of the clip region
+   \param w the width of the clip region
+   \param h the height of the clip region
+   \returns true if the region is set and the result is non-empty. Returns false if the resulting region is empty.
+   \sa RestoreClipRegion
+   */
+  bool SetClipRegion(float x, float y, float w, float h);
+
+   /*! \brief Restore a clip region to the previous clip region (if any) prior to the last SetClipRegion call
+    This function should be within an if (SetClipRegion(x,y,w,h)) block.
+    \sa SetClipRegion
+    */
+  void RestoreClipRegion();
+  void ClipRect(CRect &vertex, CRect &texture, CRect *diffuse = NULL);
+  inline void AddGUITransform()
+  {
+    m_transforms.push(m_finalTransform);
+    m_finalTransform = m_guiTransform;
+  }
+  inline TransformMatrix AddTransform(const TransformMatrix &matrix)
+  {
+    m_transforms.push(m_finalTransform);
+    m_finalTransform.matrix *= matrix;
+    return m_finalTransform.matrix;
+  }
+  inline void SetTransform(const TransformMatrix &matrix)
+  {
+   m_transforms.push(m_finalTransform);
+   m_finalTransform.matrix = matrix;
+  }
+  inline void SetTransform(const TransformMatrix &matrix, float scaleX, float scaleY)
+  {
+    m_transforms.push(m_finalTransform);
+    m_finalTransform.matrix = matrix;
+    m_finalTransform.scaleX = scaleX;
+    m_finalTransform.scaleY = scaleY;
+  }
+  inline void RemoveTransform()
+  {
+    if (!m_transforms.empty())
+    {
+      m_finalTransform = m_transforms.top();
+      m_transforms.pop();
+    }
+  }
+
+  CRect GenerateAABB(const CRect &rect) const;
+
+  int GetMaxTextureSize() const { return m_maxTextureSize; };
+protected:
+  void SetFullScreenViewWindow(RESOLUTION &res);
+
+  LPDIRECT3DDEVICE8 m_pd3dDevice;
+  D3DPRESENT_PARAMETERS* m_pd3dParams;
+  std::stack<D3DVIEWPORT8*> m_viewStack;
+  DWORD m_stateBlock;
+  int m_iScreenHeight;
+  int m_iScreenWidth;
+  int m_iBackBufferCount;
+  bool m_bWidescreen;
+  std::string m_strMediaDir;
+  CRect m_videoRect;
+  bool m_bFullScreenVideo;
+  bool m_bCalibrating;
+  RESOLUTION m_Resolution;
+
+private:
+  class UITransform
+  {
+  public:
+    UITransform() : matrix(), scaleX(1.0f), scaleY(1.0f) {};
+    UITransform(const TransformMatrix &m, const float sX = 1.0f, const float sY = 1.0f) : matrix(m), scaleX(sX), scaleY(sY) { };
+    void Reset() { matrix.Reset(); scaleX = scaleY = 1.0f; };
+
+    TransformMatrix matrix;
+    float scaleX;
+    float scaleY;
+  };
+  void UpdateCameraPosition(const CPoint &camera);
+  // this method is indirectly called by the public SetVideoResolution
+  // it only works when called from mainthread (thats what SetVideoResolution ensures)
+  void SetVideoResolutionInternal(RESOLUTION res, BOOL NeedZ, bool forceClear);
+  RESOLUTION_INFO m_windowResolution;
+  std::stack<CPoint> m_cameras;
+  std::stack<CPoint> m_origins;
+  std::stack<CRect>  m_clipRegions;
+
+  UITransform m_guiTransform;
+  UITransform m_finalTransform;
+  std::stack<UITransform> m_transforms;
+
+  CRect m_scissors;
+
+  int m_maxTextureSize;
+};
+
+#endif

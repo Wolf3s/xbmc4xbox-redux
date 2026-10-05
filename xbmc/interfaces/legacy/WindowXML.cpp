@@ -8,15 +8,23 @@
 
 #include "WindowXML.h"
 
+#include "ServiceBroker.h"
 #include "WindowException.h"
 #include "WindowInterceptor.h"
 #include "addons/Addon.h"
 #include "addons/Skin.h"
-#include "filesystem/File.h"
+#include "addons/addoninfo/AddonInfo.h"
+#include "addons/addoninfo/AddonType.h"
+#include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
 #include "guilib/TextureManager.h"
+#include "input/actions/Action.h"
+#include "input/actions/ActionIDs.h"
+#include "utils/FileUtils.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
+
+#include <boost/make_shared.hpp>
 
 // These #defs are for WindowXML
 #define CONTROL_BTNVIEWASICONS  2
@@ -52,7 +60,7 @@ namespace XBMCAddon
 
       virtual void AllocResources(bool forceLoad = false)
       { XBMC_TRACE; if(up()) CGUIMediaWindow::AllocResources(forceLoad); else checkedv(AllocResources(forceLoad)); }
-      virtual  void FreeResources(bool forceUnLoad = false)
+       virtual void FreeResources(bool forceUnLoad = false)
       { XBMC_TRACE; if(up()) CGUIMediaWindow::FreeResources(forceUnLoad); else checkedv(FreeResources(forceUnLoad)); }
       virtual bool OnClick(int iItem, const std::string &player = "") { XBMC_TRACE; return up() ? CGUIMediaWindow::OnClick(iItem, player) : checkedb(OnClick(iItem)); }
 
@@ -94,10 +102,11 @@ namespace XBMCAddon
       std::string strSkinPath = g_SkinInfo->GetSkinPath(xmlFilename, &res);
       m_isMedia = isMedia;
 
-      if (!XFILE::CFile::Exists(strSkinPath))
+      if (!CFileUtils::Exists(strSkinPath))
       {
         std::string str("none");
-        ADDON::AddonProps props(str, ADDON::ADDON_SKIN);
+        ADDON::AddonInfoPtr addonInfo =
+            boost::make_shared<ADDON::CAddonInfo>(str, ADDON::AddonType::SKIN);
         ADDON::CSkinInfo::TranslateResolution(defaultRes, res);
 
         // Check for the matching folder for the skin in the fallback skins folder
@@ -107,23 +116,23 @@ namespace XBMCAddon
         strSkinPath = g_SkinInfo->GetSkinPath(xmlFilename, &res, basePath);
 
         // Check for the matching folder for the skin in the fallback skins folder (if it exists)
-        if (XFILE::CFile::Exists(basePath))
+        if (CFileUtils::Exists(basePath))
         {
-          props.path = basePath;
-          ADDON::CSkinInfo skinInfo(props, res);
-          skinInfo.Start();
-          strSkinPath = skinInfo.GetSkinPath(xmlFilename, &res);
+          addonInfo->SetPath(basePath);
+          boost::shared_ptr<ADDON::CSkinInfo> skinInfo = boost::make_shared<ADDON::CSkinInfo>(addonInfo, res);
+          skinInfo->Start();
+          strSkinPath = skinInfo->GetSkinPath(xmlFilename, &res);
         }
 
-        if (!XFILE::CFile::Exists(strSkinPath))
+        if (!CFileUtils::Exists(strSkinPath))
         {
           // Finally fallback to the DefaultSkin as it didn't exist in either the XBMC Skin folder or the fallback skin folder
-          props.path = URIUtils::AddFileToFolder(fallbackPath, defaultSkin);
-          ADDON::CSkinInfo skinInfo(props, res);
+          addonInfo->SetPath(URIUtils::AddFileToFolder(fallbackPath, defaultSkin));
+          boost::shared_ptr<ADDON::CSkinInfo> skinInfo = boost::make_shared<ADDON::CSkinInfo>(addonInfo, res);
 
-          skinInfo.Start();
-          strSkinPath = skinInfo.GetSkinPath(xmlFilename, &res);
-          if (!XFILE::CFile::Exists(strSkinPath))
+          skinInfo->Start();
+          strSkinPath = skinInfo->GetSkinPath(xmlFilename, &res);
+          if (!CFileUtils::Exists(strSkinPath))
             throw WindowException("XML File for Window is missing");
         }
       }
@@ -139,7 +148,7 @@ namespace XBMCAddon
     int WindowXML::lockingGetNextAvailableWindowId()
     {
       XBMC_TRACE;
-      CSingleLock lock(g_graphicsContext);
+      CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
       return getNextAvailableWindowId();
     }
 
@@ -183,10 +192,9 @@ namespace XBMCAddon
     {
     XBMC_TRACE;
     XBMCAddonUtils::GuiLock lock(languageHook, false);
-    for (std::vector<Alternative<String, const XBMCAddon::xbmcgui::ListItem* > >::const_iterator it = items.begin(); it != items.end(); ++it)
+    for (std::vector<Alternative<String, const XBMCAddon::xbmcgui::ListItem* > >::const_iterator item = items.begin(); item != items.end(); ++item)
       {
-        XBMCAddon::Alternative<XBMCAddon::String, const XBMCAddon::xbmcgui::ListItem *> item = *it;
-        AddonClass::Ref<ListItem> ritem = item.which() == XBMCAddon::first ? ListItem::fromString(item.former()) : AddonClass::Ref<ListItem>(item.later());
+        AddonClass::Ref<ListItem> ritem = item->which() == XBMCAddon::first ? ListItem::fromString(item->former()) : AddonClass::Ref<ListItem>(item->later());
         CFileItemPtr& fileItem = ritem->item;
         A(m_vecItems)->Add(fileItem);
       }
@@ -294,7 +302,7 @@ namespace XBMCAddon
     {
 #ifdef ENABLE_XBMC_TRACE_API
       XBMC_TRACE;
-      CLog::Log(LOGDEBUG,"%sMessage id:%d",_tg.getSpaces(),(int)message.GetMessage());
+      CLog::Log(LOGDEBUG, "%sMessage id:%i", _tg.getSpaces(), (int)message.GetMessage());
 #endif
 
       //! @todo We shouldn't be dropping down to CGUIWindow in any of this ideally.
@@ -412,9 +420,9 @@ namespace XBMCAddon
       m_mediaDir = fallbackMediaPath;
 
       //CLog::Log(LOGDEBUG, "CGUIPythonWindowXML::AllocResources called: %s", fallbackMediaPath.c_str());
-      g_TextureManager.AddTexturePath(m_mediaDir);
+      CServiceBroker::GetGUI()->GetTextureManager().AddTexturePath(m_mediaDir);
       ref(window)->AllocResources(forceLoad);
-      g_TextureManager.RemoveTexturePath(m_mediaDir);
+      CServiceBroker::GetGUI()->GetTextureManager().RemoveTexturePath(m_mediaDir);
     }
 
     void WindowXML::FreeResources(bool forceUnLoad /*= false */)
@@ -427,9 +435,9 @@ namespace XBMCAddon
     void WindowXML::Process(unsigned int currentTime, CDirtyRegionList &regions)
     {
       XBMC_TRACE;
-      g_TextureManager.AddTexturePath(m_mediaDir);
+      CServiceBroker::GetGUI()->GetTextureManager().AddTexturePath(m_mediaDir);
       ref(window)->Process(currentTime, regions);
-      g_TextureManager.RemoveTexturePath(m_mediaDir);
+      CServiceBroker::GetGUI()->GetTextureManager().RemoveTexturePath(m_mediaDir);
     }
 
     bool WindowXML::OnClick(int iItem)
@@ -497,7 +505,7 @@ namespace XBMCAddon
     void WindowXMLDialog::OnDeinitWindow(int nextWindowID)
     {
       XBMC_TRACE;
-      g_windowManager.RemoveDialog(interceptor->GetID());
+      CServiceBroker::GetGUI()->GetWindowManager().RemoveDialog(interceptor->GetID());
       WindowXML::OnDeinitWindow(nextWindowID);
     }
 

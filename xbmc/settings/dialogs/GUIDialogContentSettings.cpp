@@ -1,47 +1,36 @@
 /*
- *      Copyright (C) 2005-2014 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
+#include "GUIDialogContentSettings.h"
+
+#include "ServiceBroker.h"
+#include "addons/AddonManager.h"
+#include "addons/AddonSystemSettings.h"
+#include "addons/gui/GUIDialogAddonSettings.h"
+#include "addons/gui/GUIWindowAddonBrowser.h"
+#include "dialogs/GUIDialogKaiToast.h"
+#include "dialogs/GUIDialogSelect.h"
+#include "filesystem/AddonsDirectory.h"
+#include "guilib/GUIComponent.h"
+#include "guilib/GUIWindowManager.h"
+#include "guilib/LocalizeStrings.h"
+#include "settings/lib/Setting.h"
+#include "settings/lib/SettingsManager.h"
+#include "settings/windows/GUIControlSettings.h"
+#include "utils/log.h"
+#include "video/VideoInfoScanner.h"
+
+#include <limits.h>
 #include <map>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
-
-#include <limits.h>
-
-#include "GUIDialogContentSettings.h"
-#include "ServiceBroker.h"
-#include "addons/AddonSystemSettings.h"
-#include "addons/GUIDialogAddonSettings.h"
-#include "addons/GUIWindowAddonBrowser.h"
-#include "filesystem/AddonsDirectory.h"
-#include "dialogs/GUIDialogKaiToast.h"
-#include "dialogs/GUIDialogSelect.h"
-#include "guilib/GUIWindowManager.h"
-#include "interfaces/builtins/Builtins.h"
-#include "settings/lib/Setting.h"
-#include "settings/lib/SettingsManager.h"
-#include "settings/windows/GUIControlSettings.h"
-#include "utils/log.h"
-#include "utils/StringUtils.h"
-#include "video/VideoInfoScanner.h"
 
 #define SETTING_CONTENT_TYPE          "contenttype"
 #define SETTING_SCRAPER_LIST          "scraperlist"
@@ -56,15 +45,15 @@ using namespace ADDON;
 
 
 CGUIDialogContentSettings::CGUIDialogContentSettings()
-  : CGUIDialogSettingsManualBase(WINDOW_DIALOG_CONTENT_SETTINGS, "DialogSettings.xml"),
-    m_content(CONTENT_NONE),
-    m_originalContent(CONTENT_NONE),
-    m_showScanSettings(false),
-    m_scanRecursive(false),
-    m_useDirectoryNames(false),
-    m_containsSingleItem(false),
-    m_exclude(false),
-    m_noUpdating(false)
+  : CGUIDialogSettingsManualBase(WINDOW_DIALOG_CONTENT_SETTINGS, "DialogSettings.xml")
+  , m_content(CONTENT_NONE)
+  , m_originalContent(CONTENT_NONE)
+  , m_showScanSettings(false)
+  , m_scanRecursive(false)
+  , m_useDirectoryNames(false)
+  , m_containsSingleItem(false)
+  , m_exclude(false)
+  , m_noUpdating(false)
 { }
 
 void CGUIDialogContentSettings::SetContent(CONTENT_TYPE content)
@@ -95,7 +84,7 @@ bool CGUIDialogContentSettings::Show(ADDON::ScraperPtr& scraper, CONTENT_TYPE co
 
 bool CGUIDialogContentSettings::Show(ADDON::ScraperPtr& scraper, VIDEO::SScanSettings& settings, CONTENT_TYPE content /* = CONTENT_NONE */)
 {
-  CGUIDialogContentSettings *dialog = (CGUIDialogContentSettings *)g_windowManager.GetWindow(WINDOW_DIALOG_CONTENT_SETTINGS);
+  CGUIDialogContentSettings *dialog = CServiceBroker::GetGUI()->GetWindowManager().GetWindow<CGUIDialogContentSettings>(WINDOW_DIALOG_CONTENT_SETTINGS);
   if (dialog == NULL)
     return false;
 
@@ -165,7 +154,7 @@ void CGUIDialogContentSettings::OnInitWindow()
   CGUIDialogSettingsManualBase::OnInitWindow();
 }
 
-void CGUIDialogContentSettings::OnSettingChanged(const CSetting *setting)
+void CGUIDialogContentSettings::OnSettingChanged(const boost::shared_ptr<const CSetting>& setting)
 {
   if (setting == NULL)
     return;
@@ -174,21 +163,21 @@ void CGUIDialogContentSettings::OnSettingChanged(const CSetting *setting)
 
   const std::string &settingId = setting->GetId();
   if (settingId == SETTING_CONTAINS_SINGLE_ITEM)
-    m_containsSingleItem = static_cast<const CSettingBool*>(setting)->GetValue();
+    m_containsSingleItem = boost::static_pointer_cast<const CSettingBool>(setting)->GetValue();
   else if (settingId == SETTING_NO_UPDATING)
-    m_noUpdating = static_cast<const CSettingBool*>(setting)->GetValue();
+    m_noUpdating = boost::static_pointer_cast<const CSettingBool>(setting)->GetValue();
   else if (settingId == SETTING_USE_DIRECTORY_NAMES)
-    m_useDirectoryNames = static_cast<const CSettingBool*>(setting)->GetValue();
+    m_useDirectoryNames = boost::static_pointer_cast<const CSettingBool>(setting)->GetValue();
   else if (settingId == SETTING_SCAN_RECURSIVE)
   {
-    m_scanRecursive = static_cast<const CSettingBool*>(setting)->GetValue();
-    m_settingsManager->SetBool(SETTING_CONTAINS_SINGLE_ITEM, false);
+    m_scanRecursive = boost::static_pointer_cast<const CSettingBool>(setting)->GetValue();
+    GetSettingsManager()->SetBool(SETTING_CONTAINS_SINGLE_ITEM, false);
   }
   else if (settingId == SETTING_EXCLUDE)
-    m_exclude = static_cast<const CSettingBool*>(setting)->GetValue();
+    m_exclude = boost::static_pointer_cast<const CSettingBool>(setting)->GetValue();
 }
 
-void CGUIDialogContentSettings::OnSettingAction(const CSetting *setting)
+void CGUIDialogContentSettings::OnSettingAction(const boost::shared_ptr<const CSetting>& setting)
 {
   if (setting == NULL)
     return;
@@ -213,19 +202,18 @@ void CGUIDialogContentSettings::OnSettingAction(const CSetting *setting)
     }
     std::sort(labels.begin(), labels.end());
 
-    CGUIDialogSelect *dialog = (CGUIDialogSelect *)g_windowManager.GetWindow(WINDOW_DIALOG_SELECT);
+    CGUIDialogSelect *dialog = CServiceBroker::GetGUI()->GetWindowManager().GetWindow<CGUIDialogSelect>(WINDOW_DIALOG_SELECT);
     if (dialog)
     {
       dialog->SetHeading( 20344 ); //Label "This directory contains"
 
       int iIndex = 0;
       int iSelected = 0;
-      for(std::vector<std::pair<std::string, int> >::const_iterator it = labels.begin(); it < labels.end(); ++it)
+      for (std::vector<std::pair<std::string, int> >::const_iterator label = labels.begin(); label != labels.end(); ++label)
       {
-        DynamicIntegerSettingOption label = (*it);
-        dialog->Add(label.first);
+        dialog->Add(label->first);
 
-        if (m_content == label.second)
+        if (m_content == label->second)
           iSelected = iIndex;
         iIndex++;
       }
@@ -238,21 +226,22 @@ void CGUIDialogContentSettings::OnSettingAction(const CSetting *setting)
       if (!dialog->IsConfirmed() || newSelected < 0 || newSelected == iSelected)
         return;
 
-      DynamicIntegerSettingOption selected = labels.at(newSelected);
+      std::pair<std::string, int> selected = labels.at(newSelected);
       m_content = static_cast<CONTENT_TYPE>(selected.second);
 
       AddonPtr scraperAddon;
-      CAddonSystemSettings::GetInstance().GetActive(ADDON::ScraperTypeFromContent(m_content),
-          scraperAddon);
+      if (!CAddonSystemSettings::GetInstance().GetActive(ADDON::ScraperTypeFromContent(m_content), scraperAddon) && m_content != CONTENT_NONE)
+        return;
+
       m_scraper = boost::dynamic_pointer_cast<CScraper>(scraperAddon);
 
       SetupView();
-      SetFocus(SETTING_CONTENT_TYPE);
+      SetFocusToSetting(SETTING_CONTENT_TYPE);
     }
   }
   else if (settingId == SETTING_SCRAPER_LIST)
   {
-    ADDON::TYPE type = ADDON::ScraperTypeFromContent(m_content);
+    ADDON::AddonType::Type type = ADDON::ScraperTypeFromContent(m_content);
     std::string currentScraperId;
     if (m_scraper != NULL)
       currentScraperId = m_scraper->ID();
@@ -262,20 +251,28 @@ void CGUIDialogContentSettings::OnSettingAction(const CSetting *setting)
         && selectedAddonId != currentScraperId)
     {
       AddonPtr scraperAddon;
-      CServiceBroker::GetAddonMgr().GetAddon(selectedAddonId, scraperAddon);
-      m_scraper = boost::dynamic_pointer_cast<CScraper>(scraperAddon);
-
-      SetupView();
-      SetFocus(SETTING_SCRAPER_LIST);
+      if (CServiceBroker::GetAddonMgr().GetAddon(selectedAddonId, scraperAddon,
+                                                 ADDON::OnlyEnabled::CHOICE_YES))
+      {
+        m_scraper = boost::dynamic_pointer_cast<CScraper>(scraperAddon);
+        SetupView();
+        SetFocusToSetting(SETTING_SCRAPER_LIST);
+      }
+      else
+      {
+        CLog::Log(LOGERROR, "%s - Could not get settings for addon: %s", __FUNCTION__,
+                  selectedAddonId.c_str());
+      }
     }
   }
   else if (settingId == SETTING_SCRAPER_SETTINGS)
-    CGUIDialogAddonSettings::ShowAndGetInput(m_scraper, false);
+    CGUIDialogAddonSettings::ShowForAddon(m_scraper, false);
 }
 
-void CGUIDialogContentSettings::Save()
+bool CGUIDialogContentSettings::Save()
 {
   //Should be saved by caller of ::Show
+  return true;
 }
 
 void CGUIDialogContentSettings::SetupView()
@@ -322,27 +319,27 @@ void CGUIDialogContentSettings::InitializeSettings()
   else if (m_scraper != NULL && !CServiceBroker::GetAddonMgr().IsAddonDisabled(m_scraper->ID()))
     m_showScanSettings = true;
 
-  CSettingCategory *category = AddCategory("contentsettings", -1);
+  boost::shared_ptr<CSettingCategory> category = AddCategory("contentsettings", -1);
   if (category == NULL)
   {
     CLog::Log(LOGERROR, "CGUIDialogContentSettings: unable to setup settings");
     return;
   }
 
-  CSettingGroup *group = AddGroup(category);
+  boost::shared_ptr<CSettingGroup> group = AddGroup(category);
   if (group == NULL)
   {
     CLog::Log(LOGERROR, "CGUIDialogContentSettings: unable to setup settings");
     return;
   }
 
-  AddButton(group, SETTING_CONTENT_TYPE, 20344, 0);
-  AddButton(group, SETTING_SCRAPER_LIST, 38025, 0);
-  CSettingAction *subsetting = AddButton(group, SETTING_SCRAPER_SETTINGS, 10004, 0);
+  AddButton(group, SETTING_CONTENT_TYPE, 20344, SettingLevel::Basic);
+  AddButton(group, SETTING_SCRAPER_LIST, 38025, SettingLevel::Basic);
+  boost::shared_ptr<CSettingAction> subsetting = AddButton(group, SETTING_SCRAPER_SETTINGS, 10004, SettingLevel::Basic);
   if (subsetting != NULL)
     subsetting->SetParent(SETTING_SCRAPER_LIST);
 
-  CSettingGroup *groupDetails = AddGroup(category, 20322);
+  boost::shared_ptr<CSettingGroup> groupDetails = AddGroup(category, 20322);
   if (groupDetails == NULL)
   {
     CLog::Log(LOGERROR, "CGUIDialogContentSettings: unable to setup scanning settings");
@@ -352,39 +349,52 @@ void CGUIDialogContentSettings::InitializeSettings()
   {
     case CONTENT_TVSHOWS:
     {
-      AddToggle(groupDetails, SETTING_CONTAINS_SINGLE_ITEM, 20379, 0, m_containsSingleItem, false, m_showScanSettings);
-      AddToggle(groupDetails, SETTING_NO_UPDATING, 20432, 0, m_noUpdating, false, m_showScanSettings);
+      AddToggle(groupDetails, SETTING_CONTAINS_SINGLE_ITEM, 20379, SettingLevel::Basic, m_containsSingleItem, false, m_showScanSettings);
+      AddToggle(groupDetails, SETTING_NO_UPDATING, 20432, SettingLevel::Basic, m_noUpdating, false, m_showScanSettings);
       break;
     }
 
     case CONTENT_MOVIES:
     case CONTENT_MUSICVIDEOS:
     {
-      AddToggle(groupDetails, SETTING_USE_DIRECTORY_NAMES, m_content == CONTENT_MOVIES ? 20329 : 20330, 0, m_useDirectoryNames, false, m_showScanSettings);
-      CSettingBool *settingScanRecursive = AddToggle(groupDetails, SETTING_SCAN_RECURSIVE, 20346, 0, m_scanRecursive, false, m_showScanSettings);
-      CSettingBool *settingContainsSingleItem = AddToggle(groupDetails, SETTING_CONTAINS_SINGLE_ITEM, 20383, 0, m_containsSingleItem, false, m_showScanSettings);
-      AddToggle(groupDetails, SETTING_NO_UPDATING, 20432, 0, m_noUpdating, false, m_showScanSettings);
+      AddToggle(groupDetails, SETTING_USE_DIRECTORY_NAMES, m_content == CONTENT_MOVIES ? 20329 : 20330, SettingLevel::Basic, m_useDirectoryNames, false, m_showScanSettings);
+      boost::shared_ptr<CSettingBool> settingScanRecursive = AddToggle(groupDetails, SETTING_SCAN_RECURSIVE, 20346, SettingLevel::Basic, m_scanRecursive, false, m_showScanSettings);
+      boost::shared_ptr<CSettingBool> settingContainsSingleItem = AddToggle(groupDetails, SETTING_CONTAINS_SINGLE_ITEM, 20383, SettingLevel::Basic, m_containsSingleItem, false, m_showScanSettings);
+      AddToggle(groupDetails, SETTING_NO_UPDATING, 20432, SettingLevel::Basic, m_noUpdating, false, m_showScanSettings);
 
       // define an enable dependency with (m_useDirectoryNames && !m_containsSingleItem) || !m_useDirectoryNames
-      CSettingDependency dependencyScanRecursive(SettingDependencyTypeEnable, m_settingsManager);
+      CSettingDependency dependencyScanRecursive(SettingDependencyType::Enable, GetSettingsManager());
       dependencyScanRecursive.Or()
-        ->Add(CSettingDependencyConditionCombinationPtr((new CSettingDependencyConditionCombination(BooleanLogicOperationAnd, m_settingsManager))                                     // m_useDirectoryNames && !m_containsSingleItem
-          ->Add(CSettingDependencyConditionPtr(new CSettingDependencyCondition(SETTING_USE_DIRECTORY_NAMES, "true", SettingDependencyOperatorEquals, false, m_settingsManager)))      // m_useDirectoryNames
-          ->Add(CSettingDependencyConditionPtr(new CSettingDependencyCondition(SETTING_CONTAINS_SINGLE_ITEM, "false", SettingDependencyOperatorEquals, false, m_settingsManager)))))  // !m_containsSingleItem
-        ->Add(CSettingDependencyConditionPtr(new CSettingDependencyCondition(SETTING_USE_DIRECTORY_NAMES, "false", SettingDependencyOperatorEquals, false, m_settingsManager)));      // !m_useDirectoryNames
+          ->Add(CSettingDependencyConditionCombinationPtr(
+              (new CSettingDependencyConditionCombination(
+                   BooleanLogicOperationAnd,
+                   GetSettingsManager())) // m_useDirectoryNames && !m_containsSingleItem
+                  ->Add(boost::make_shared<CSettingDependencyCondition>(
+                      SETTING_USE_DIRECTORY_NAMES, "true", SettingDependencyOperator::Equals, false,
+                      GetSettingsManager())) // m_useDirectoryNames
+                  ->Add(boost::make_shared<CSettingDependencyCondition>(
+                      SETTING_CONTAINS_SINGLE_ITEM, "false", SettingDependencyOperator::Equals,
+                      false, GetSettingsManager())))) // !m_containsSingleItem
+          ->Add(boost::make_shared<CSettingDependencyCondition>(
+              SETTING_USE_DIRECTORY_NAMES, "false", SettingDependencyOperator::Equals, false,
+              GetSettingsManager())); // !m_useDirectoryNames
 
       // define an enable dependency with m_useDirectoryNames && !m_scanRecursive
-      CSettingDependency depdendencyContainsSingleItem(SettingDependencyTypeEnable, m_settingsManager);
-      depdendencyContainsSingleItem.And()
-        ->Add(CSettingDependencyConditionPtr(new CSettingDependencyCondition(SETTING_USE_DIRECTORY_NAMES, "true", SettingDependencyOperatorEquals, false, m_settingsManager)))        // m_useDirectoryNames
-        ->Add(CSettingDependencyConditionPtr(new CSettingDependencyCondition(SETTING_SCAN_RECURSIVE, "false", SettingDependencyOperatorEquals, false, m_settingsManager)));           // !m_scanRecursive
+      CSettingDependency dependencyContainsSingleItem(SettingDependencyType::Enable, GetSettingsManager());
+      dependencyContainsSingleItem.And()
+          ->Add(boost::make_shared<CSettingDependencyCondition>(
+              SETTING_USE_DIRECTORY_NAMES, "true", SettingDependencyOperator::Equals, false,
+              GetSettingsManager())) // m_useDirectoryNames
+          ->Add(boost::make_shared<CSettingDependencyCondition>(
+              SETTING_SCAN_RECURSIVE, "false", SettingDependencyOperator::Equals, false,
+              GetSettingsManager())); // !m_scanRecursive
 
       SettingDependencies deps;
       deps.push_back(dependencyScanRecursive);
       settingScanRecursive->SetDependencies(deps);
 
       deps.clear();
-      deps.push_back(depdendencyContainsSingleItem);
+      deps.push_back(dependencyContainsSingleItem);
       settingContainsSingleItem->SetDependencies(deps);
       break;
     }
@@ -395,7 +405,7 @@ void CGUIDialogContentSettings::InitializeSettings()
 
     case CONTENT_NONE:
     default:
-      AddToggle(groupDetails, SETTING_EXCLUDE, 20380, 0, m_exclude, false, !m_showScanSettings);
+      AddToggle(groupDetails, SETTING_EXCLUDE, 20380, SettingLevel::Basic, m_exclude, false, !m_showScanSettings);
       break;
   }
 }
@@ -419,7 +429,7 @@ void CGUIDialogContentSettings::ToggleState(const std::string &settingid, bool e
   }
 }
 
-void CGUIDialogContentSettings::SetFocus(const std::string &settingid)
+void CGUIDialogContentSettings::SetFocusToSetting(const std::string& settingid)
 {
   BaseSettingControlPtr settingControl = GetSettingControl(settingid);
   if (settingControl != NULL && settingControl->GetControl() != NULL)

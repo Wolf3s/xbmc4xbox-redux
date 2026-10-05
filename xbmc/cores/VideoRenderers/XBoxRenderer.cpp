@@ -17,20 +17,27 @@
  *  <http://www.gnu.org/licenses/>.
  *
  */
- 
-#include "system.h"
-#include "utils/log.h"
+
 #include "XBoxRenderer.h"
-#include "Application.h"
+
+#include "GUIInfoManager.h"
+#include "ServiceBroker.h"
 #include "XBVideoConfig.h"
+#include "application/ApplicationComponents.h"
+#include "application/ApplicationPlayer.h"
+#include "application/ApplicationXbox.h"
+#include "guilib/GUIComponent.h"
+#include "guilib/GUIWindowManager.h"
 #include "guilib/LocalizeStrings.h"
+#include "messaging/ApplicationMessenger.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/DisplaySettings.h"
 #include "settings/MediaSettings.h"
 #include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "threads/SingleLock.h"
-
-#include "defs_from_settings.h"
+#include "utils/log.h"
+#include "video/windows/GUIWindowFullScreen.h"
 
 // http://www.martinreddy.net/gfx/faqs/colorconv.faq
 
@@ -52,13 +59,13 @@ YUVCOEF yuv_coef_bt709 = {
 YUVCOEF yuv_coef_ebu = {
     0.0f,  1.140f,
  -0.396f, -0.581f,
-  2.029f,    0.0f, 
+  2.029f,    0.0f,
 };
 
 YUVCOEF yuv_coef_smtp240m = {
      0.0f,  1.5756f,
  -0.2253f, -0.5000f, /* page above have the 0.5000f as positive */
-  1.8270f,     0.0f,  
+  1.8270f,     0.0f,
 };
 
 
@@ -98,7 +105,7 @@ CXBoxRenderer::~CXBoxRenderer()
 //********************************************************************************************************
 void CXBoxRenderer::DeleteOSDTextures(int index)
 {
-  CSingleLock lock(g_graphicsContext);
+  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   if (m_pOSDYTexture[index])
   {
     m_pOSDYTexture[index]->Release();
@@ -257,14 +264,14 @@ void CXBoxRenderer::DrawAlpha(int x0, int y0, int w, int h, unsigned char *src, 
   {
     // clip to buffer
     if (w > m_iOSDTextureWidth) w = m_iOSDTextureWidth;
-    if (h > CDisplaySettings::Get().GetResolutionInfo(res).Overscan.bottom - CDisplaySettings::Get().GetResolutionInfo(res).Overscan.top)
+    if (h > CDisplaySettings::GetInstance().GetResolutionInfo(res).Overscan.bottom - CDisplaySettings::GetInstance().GetResolutionInfo(res).Overscan.top)
     {
-      h = CDisplaySettings::Get().GetResolutionInfo(res).Overscan.bottom - CDisplaySettings::Get().GetResolutionInfo(res).Overscan.top;
+      h = CDisplaySettings::GetInstance().GetResolutionInfo(res).Overscan.bottom - CDisplaySettings::GetInstance().GetResolutionInfo(res).Overscan.top;
     }
   }
 
   // scale to fit screen
-  const CRect rv = g_graphicsContext.GetViewWindow();
+  const CRect rv = CServiceBroker::GetWinSystem()->GetGfxContext().GetViewWindow();
 
   // Vobsubs are defined to be 720 wide.
   // NOTE: This will not work nicely if we are allowing mplayer to render text based subs
@@ -275,12 +282,12 @@ void CXBoxRenderer::DrawAlpha(int x0, int y0, int w, int h, unsigned char *src, 
 
   if(true /*isvobsub*/) // xbox_video.cpp is fixed to 720x576 osd, so this should be fine
   { // vobsubs are given to us unscaled
-    // scale them up to the full output, assuming vobsubs have same 
+    // scale them up to the full output, assuming vobsubs have same
     // pixel aspect ratio as the movie, and are 720 pixels wide
 
     float pixelaspect = m_fSourceFrameRatio * m_iSourceHeight / m_iSourceWidth;
     xscale = rv.Width() / 720.0f;
-    yscale = xscale * CDisplaySettings::Get().GetResolutionInfo(res).fPixelRatio / pixelaspect;
+    yscale = xscale * CDisplaySettings::GetInstance().GetResolutionInfo(res).fPixelRatio / pixelaspect;
   }
   else
   { // text subs/osd assume square pixels, but will render to full size of view window
@@ -290,11 +297,11 @@ void CXBoxRenderer::DrawAlpha(int x0, int y0, int w, int h, unsigned char *src, 
     xscale = 1.0f;
     yscale = 1.0f;
   }
-  
+
   // horizontal centering, and align to bottom of subtitles line
   osdRect.left = rv.x1 + (rv.Width() - (float)w * xscale) / 2.0f;
   osdRect.right = osdRect.left + (float)w * xscale;
-  float relbottom = ((float)(CDisplaySettings::Get().GetResolutionInfo(res).iSubtitles - CDisplaySettings::Get().GetResolutionInfo(res).Overscan.top)) / (CDisplaySettings::Get().GetResolutionInfo(res).Overscan.bottom - CDisplaySettings::Get().GetResolutionInfo(res).Overscan.top);
+  float relbottom = ((float)(CDisplaySettings::GetInstance().GetResolutionInfo(res).iSubtitles - CDisplaySettings::GetInstance().GetResolutionInfo(res).Overscan.top)) / (CDisplaySettings::GetInstance().GetResolutionInfo(res).Overscan.bottom - CDisplaySettings::GetInstance().GetResolutionInfo(res).Overscan.top);
   osdRect.bottom = rv.y1 + rv.Height() * relbottom;
   osdRect.top = osdRect.bottom - (float)h * yscale;
 
@@ -305,7 +312,7 @@ void CXBoxRenderer::DrawAlpha(int x0, int y0, int w, int h, unsigned char *src, 
   //if new height is heigher than current osd-texture height, recreate the textures with new height.
   if (h > m_iOSDTextureHeight[iOSDBuffer])
   {
-    CSingleLock lock(g_graphicsContext);
+    CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
     DeleteOSDTextures(iOSDBuffer);
     m_iOSDTextureHeight[iOSDBuffer] = h;
@@ -374,7 +381,7 @@ void CXBoxRenderer::RenderOSD()
 
   ResetEvent(m_eventOSDDone[iRenderBuffer]);
 
-  CSingleLock lock(g_graphicsContext);
+  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
   //copy alle static vars to local vars because they might change during this function by mplayer callbacks
   float osdWidth = m_OSDWidth;
@@ -418,9 +425,9 @@ void CXBoxRenderer::RenderOSD()
   //m_pD3DDevice->SetTextureStageState( 1, D3DTSS_MINFILTER, D3DTEXF_LINEAR /*g_settings.m_minFilter*/ );
 
   // clip the output if we are not in FSV so that zoomed subs don't go all over the GUI
-  if ( !(g_graphicsContext.IsFullScreenVideo() || g_graphicsContext.IsCalibrating() ))
+  if ( !(CServiceBroker::GetWinSystem()->GetGfxContext().IsFullScreenVideo() || CServiceBroker::GetWinSystem()->GetGfxContext().IsCalibrating() ))
   {
-    g_graphicsContext.ClipToViewWindow();
+    CServiceBroker::GetWinSystem()->GetGfxContext().ClipToViewWindow();
   }
 
   // Render the image
@@ -456,17 +463,17 @@ void CXBoxRenderer::RenderOSD()
 //Get resolution based on current mode.
 RESOLUTION CXBoxRenderer::GetResolution()
 {
-  if (g_graphicsContext.IsFullScreenVideo() || g_graphicsContext.IsCalibrating())
+  if (CServiceBroker::GetWinSystem()->GetGfxContext().IsFullScreenVideo() || CServiceBroker::GetWinSystem()->GetGfxContext().IsCalibrating())
   {
     return m_iResolution;
   }
-  return g_graphicsContext.GetVideoResolution();
+  return CServiceBroker::GetWinSystem()->GetGfxContext().GetVideoResolution();
 }
 
 float CXBoxRenderer::GetAspectRatio()
 {
-  float fWidth = (float)m_iSourceWidth - CMediaSettings::Get().GetCurrentVideoSettings().m_CropLeft - CMediaSettings::Get().GetCurrentVideoSettings().m_CropRight;
-  float fHeight = (float)m_iSourceHeight - CMediaSettings::Get().GetCurrentVideoSettings().m_CropTop - CMediaSettings::Get().GetCurrentVideoSettings().m_CropBottom;
+  float fWidth = (float)m_iSourceWidth - CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CropLeft - CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CropRight;
+  float fHeight = (float)m_iSourceHeight - CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CropTop - CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CropBottom;
   return m_fSourceFrameRatio * fWidth / fHeight * m_iSourceHeight / m_iSourceWidth;
 }
 
@@ -483,7 +490,7 @@ void CXBoxRenderer::CalcNormalDisplayRect(float fOffsetX1, float fOffsetY1, floa
   // calculate the correct output frame ratio (using the users pixel ratio setting
   // and the output pixel ratio setting)
 
-  float fOutputFrameRatio = fInputFrameRatio / CDisplaySettings::Get().GetResolutionInfo(GetResolution()).fPixelRatio;
+  float fOutputFrameRatio = fInputFrameRatio / CDisplaySettings::GetInstance().GetResolutionInfo(GetResolution()).fPixelRatio;
 
   // allow a certain error to maximize screen size
   float fCorrection = fScreenWidth / fScreenHeight / fOutputFrameRatio - 1.0f;
@@ -523,7 +530,7 @@ void CXBoxRenderer::ManageTextures()
 {
   int neededbuffers = 0;
   //use 1 buffer in fullscreen mode and 2 buffers in windowed mode
-  if (g_graphicsContext.IsFullScreenVideo())
+  if (CServiceBroker::GetWinSystem()->GetGfxContext().IsFullScreenVideo())
   {
     if (m_NumOSDBuffers != 1)
     {
@@ -573,19 +580,19 @@ void CXBoxRenderer::ManageTextures()
 
 void CXBoxRenderer::ManageDisplay()
 {
-  const CRect rv = g_graphicsContext.GetViewWindow();
+  const CRect rv = CServiceBroker::GetWinSystem()->GetGfxContext().GetViewWindow();
   float fScreenWidth = rv.Width();
   float fScreenHeight = rv.Height();
   float fOffsetX1 = rv.x1;
   float fOffsetY1 = rv.y1;
 
   // source rect
-  rs.left = CMediaSettings::Get().GetCurrentVideoSettings().m_CropLeft;
-  rs.top = CMediaSettings::Get().GetCurrentVideoSettings().m_CropTop;
-  rs.right = m_iSourceWidth - CMediaSettings::Get().GetCurrentVideoSettings().m_CropRight;
-  rs.bottom = m_iSourceHeight - CMediaSettings::Get().GetCurrentVideoSettings().m_CropBottom;
+  rs.left = CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CropLeft;
+  rs.top = CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CropTop;
+  rs.right = m_iSourceWidth - CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CropRight;
+  rs.bottom = m_iSourceHeight - CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CropBottom;
 
-  CalcNormalDisplayRect(fOffsetX1, fOffsetY1, fScreenWidth, fScreenHeight, GetAspectRatio() * CDisplaySettings::Get().GetPixelRatio(), CDisplaySettings::Get().GetZoomAmount());
+  CalcNormalDisplayRect(fOffsetX1, fOffsetY1, fScreenWidth, fScreenHeight, GetAspectRatio() * CDisplaySettings::GetInstance().GetPixelRatio(), CDisplaySettings::GetInstance().GetZoomAmount());
 }
 
 void CXBoxRenderer::ChooseBestResolution(float fps)
@@ -610,7 +617,7 @@ void CXBoxRenderer::ChooseBestResolution(float fps)
 
   // Work out if the framerate suits PAL50 or PAL60
   bool bPal60 = false;
-  if (bUsingPAL && CSettings::GetInstance().GetInt("videoplayer.framerateconversions") == FRAME_RATE_USE_PAL60 && g_videoConfig.HasPAL60())
+  if (bUsingPAL && CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("videoplayer.framerateconversions") == FRAME_RATE_USE_PAL60 && g_videoConfig.HasPAL60())
   {
     // yes we're in PAL
     // yes PAL60 is allowed
@@ -627,7 +634,7 @@ void CXBoxRenderer::ChooseBestResolution(float fps)
   // If the display resolution was specified by the user then use it, unless
   // it's a PAL setting, whereby we use the above setting to autoswitch to PAL60
   // if appropriate
-  RESOLUTION DisplayRes = (RESOLUTION) CSettings::GetInstance().GetInt("videoplayer.displayresolution");
+  RESOLUTION DisplayRes = (RESOLUTION) CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("videoplayer.displayresolution");
   if ( DisplayRes != RES_AUTORES )
   {
     if (bPal60)
@@ -635,7 +642,7 @@ void CXBoxRenderer::ChooseBestResolution(float fps)
       if (DisplayRes == RES_PAL_16x9) DisplayRes = RES_PAL60_16x9;
       if (DisplayRes == RES_PAL_4x3) DisplayRes = RES_PAL60_4x3;
     }
-    CLog::Log(LOGNOTICE, "Display resolution USER : %s (%d)", CDisplaySettings::Get().GetResolutionInfo(DisplayRes).strMode.c_str(), DisplayRes);
+    CLog::Log(LOGINFO, "Display resolution USER : %s (%d)", CDisplaySettings::GetInstance().GetResolutionInfo(DisplayRes).strMode.c_str(), DisplayRes);
     m_iResolution = DisplayRes;
     return;
   }
@@ -727,7 +734,7 @@ void CXBoxRenderer::ChooseBestResolution(float fps)
     }
   }
 
-  CLog::Log(LOGNOTICE, "Display resolution AUTO : %s (%d)", CDisplaySettings::Get().GetResolutionInfo(m_iResolution).strMode.c_str(), m_iResolution);
+  CLog::Log(LOGINFO, "Display resolution AUTO : %s (%d)", CDisplaySettings::GetInstance().GetResolutionInfo(m_iResolution).strMode.c_str(), m_iResolution);
 }
 
 bool CXBoxRenderer::Configure(unsigned int width, unsigned int height, unsigned int d_width, unsigned int d_height, float fps, unsigned flags)
@@ -745,7 +752,7 @@ bool CXBoxRenderer::Configure(unsigned int width, unsigned int height, unsigned 
   m_fps = fps;
   m_iFlags = flags;
   m_bConfigured = true;
-  
+
   // setup what colorspace we live in
   if(flags & CONF_FLAGS_YUV_FULLRANGE)
     m_yuvrange = yuv_range_full;
@@ -758,7 +765,7 @@ bool CXBoxRenderer::Configure(unsigned int width, unsigned int height, unsigned 
       m_yuvcoef = yuv_coef_smtp240m; break;
     case CONF_FLAGS_YUVCOEF_BT709:
       m_yuvcoef = yuv_coef_bt709; break;
-    case CONF_FLAGS_YUVCOEF_BT601:    
+    case CONF_FLAGS_YUVCOEF_BT601:
       m_yuvcoef = yuv_coef_bt601; break;
     case CONF_FLAGS_YUVCOEF_EBU:
       m_yuvcoef = yuv_coef_ebu; break;
@@ -769,7 +776,7 @@ bool CXBoxRenderer::Configure(unsigned int width, unsigned int height, unsigned 
   // calculate the input frame aspect ratio
   CalculateFrameAspectRatio(d_width, d_height);
   ChooseBestResolution(m_fps);
-  SetViewMode(CMediaSettings::Get().GetCurrentVideoSettings().m_ViewMode);
+  SetViewMode(CMediaSettings::GetInstance().GetCurrentVideoSettings().m_ViewMode);
 
   ManageDisplay();
 
@@ -781,7 +788,7 @@ int CXBoxRenderer::NextYV12Texture()
 #ifdef MP_DIRECTRENDERING
   int source = m_iYV12RenderBuffer;
   do {
-    source = (source + 1) % m_NumYV12Buffers;    
+    source = (source + 1) % m_NumYV12Buffers;
   } while( source != m_iYV12RenderBuffer
     && m_image[source].flags & IMAGE_FLAG_INUSE);
 
@@ -804,10 +811,10 @@ int CXBoxRenderer::GetImage(YV12Image *image, int source, bool readonly)
   if( source == AUTOSOURCE )
     source = NextYV12Texture();
 
-#ifdef MP_DIRECTRENDERING 
+#ifdef MP_DIRECTRENDERING
     if( source < 0 )
     { /* no free source existed, so create one */
-      CSingleLock lock(g_graphicsContext);
+      CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
       if( CreateYV12Texture(m_NumYV12Buffers) )
       {
         source = m_NumYV12Buffers;
@@ -840,12 +847,12 @@ void CXBoxRenderer::ReleaseImage(int source, bool preserve)
 {
   if( m_image[source].flags & IMAGE_FLAG_WRITING )
     SetEvent(m_eventTexturesDone[source]);
-  
+
   m_image[source].flags &= ~IMAGE_FLAG_INUSE;
 
   /* if image should be preserved reserve it so it's not auto seleceted */
   if( preserve )
-    m_image[source].flags |= IMAGE_FLAG_RESERVED;  
+    m_image[source].flags |= IMAGE_FLAG_RESERVED;
 }
 
 void CXBoxRenderer::Reset()
@@ -855,14 +862,14 @@ void CXBoxRenderer::Reset()
     /* reset all image flags, this will cleanup textures later */
     m_image[i].flags = 0;
     /* reset texure locks, abit uggly, could result in tearing */
-    SetEvent(m_eventTexturesDone[i]); 
+    SetEvent(m_eventTexturesDone[i]);
   }
 }
 
 void CXBoxRenderer::Update(bool bPauseDrawing)
 {
   if (!m_bConfigured) return;
-  CSingleLock lock(g_graphicsContext);
+  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   ManageDisplay();
   ManageTextures();
 }
@@ -873,7 +880,7 @@ void CXBoxRenderer::RenderUpdate(bool clear, DWORD flags, DWORD alpha)
 
   if (!m_YUVTexture[m_iYV12RenderBuffer][FIELD_FULL][0]) return ;
 
-  CSingleLock lock(g_graphicsContext);
+  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   ManageDisplay();
   ManageTextures();
   if (clear)
@@ -896,8 +903,8 @@ void CXBoxRenderer::RenderUpdate(bool clear, DWORD flags, DWORD alpha)
 }
 
 void CXBoxRenderer::FlipPage(int source)
-{  
-  if(source == AUTOSOURCE) 
+{
+  if(source == AUTOSOURCE)
     source = NextYV12Texture();
 
   if( source >= 0 && source < m_NumYV12Buffers )
@@ -934,7 +941,7 @@ unsigned int CXBoxRenderer::DrawSlice(unsigned char *src[], int stride[], int w,
     return -1;
 
   if( WaitForSingleObject(m_eventTexturesDone[index], 500) == WAIT_TIMEOUT )
-    CLog::Log(LOGWARNING, CStdString(__FUNCTION__) + " - Timeout waiting for texture %d", index);
+    CLog::Log(LOGWARNING, "%s - Timeout waiting for texture %d", __FUNCTION__, index);
 
   YV12Image &im = m_image[index];
   // copy Y
@@ -979,7 +986,7 @@ unsigned int CXBoxRenderer::DrawSlice(unsigned char *src[], int stride[], int w,
 
 unsigned int CXBoxRenderer::PreInit()
 {
-  CSingleLock lock(g_graphicsContext);
+  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   m_bConfigured = false;
   m_iResolution = RES_PAL_4x3;
 
@@ -995,8 +1002,8 @@ unsigned int CXBoxRenderer::PreInit()
   m_iOSDTextureHeight[1] = 0;
 
   // setup the background colour
-  m_clearColour = (g_advancedSettings.m_videoBlackBarColour & 0xff) * 0x010101;
-  m_aspecterror = CSettings::GetInstance().GetInt("videoplayer.errorinaspect") * 0.01f;
+  m_clearColour = (CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_videoBlackBarColour & 0xff) * 0x010101;
+  m_aspecterror = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("videoplayer.errorinaspect") * 0.01f;
 
   // low memory pixel shader
   if (!m_hLowMemShader)
@@ -1037,7 +1044,7 @@ unsigned int CXBoxRenderer::PreInit()
 void CXBoxRenderer::UnInit()
 {
   CLog::Log(LOGDEBUG, "%s - Cleaning up resources", __FUNCTION__);
-  CSingleLock lock(g_graphicsContext);
+  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
   // YV12 textures, subtitle and osd stuff
   for (int i = 0; i < NUM_BUFFERS; ++i)
@@ -1045,7 +1052,7 @@ void CXBoxRenderer::UnInit()
     DeleteYV12Texture(i);
     DeleteOSDTextures(i);
   }
-  
+
   if (m_hLowMemShader)
   {
     m_pD3DDevice->DeletePixelShader(m_hLowMemShader);
@@ -1062,115 +1069,116 @@ void CXBoxRenderer::Render(DWORD flags)
   /* general stuff */
   RenderOSD();
 
-  if (g_graphicsContext.IsFullScreenVideo())
+  if (CServiceBroker::GetWinSystem()->GetGfxContext().IsFullScreenVideo())
   {
-    if (g_application.NeedRenderFullScreen())
-    { // render our subtitles and osd
-      g_application.RenderFullScreen();
+    // render our subtitles and osd
+    CGUIWindowFullScreen *pFSWin = CServiceBroker::GetGUI()->GetWindowManager().GetWindow<CGUIWindowFullScreen>(WINDOW_FULLSCREEN_VIDEO);
+    if (pFSWin && pFSWin->NeedRenderFullScreen())
+    {
+      pFSWin->RenderFullScreen();
+      CServiceBroker::GetGUI()->GetWindowManager().RenderDialogs();
     }
 
-    if (!g_application.m_pPlayer->IsPaused())
-    {
-      g_application.RenderMemoryStatus();
-    }
+    if (!CServiceBroker::GetAppMessenger()->IsProcessThread())
+      CServiceBroker::GetGUI()->GetInfoManager().GetInfoProviders().GetSystemInfoProvider().UpdateFPS();
   }
 }
 
 void CXBoxRenderer::SetViewMode(int iViewMode)
 {
   if (iViewMode < ViewModeNormal || iViewMode > ViewModeCustom) iViewMode = ViewModeNormal;
-  CMediaSettings::Get().GetCurrentVideoSettings().m_ViewMode = iViewMode;
+  CMediaSettings::GetInstance().GetCurrentVideoSettings().m_ViewMode = iViewMode;
 
-  if (CMediaSettings::Get().GetCurrentVideoSettings().m_ViewMode == ViewModeNormal)
+  if (CMediaSettings::GetInstance().GetCurrentVideoSettings().m_ViewMode == ViewModeNormal)
   { // normal mode...
-    CDisplaySettings::Get().SetPixelRatio(1.0);
-    CDisplaySettings::Get().SetZoomAmount(1.0);
+    CDisplaySettings::GetInstance().SetPixelRatio(1.0);
+    CDisplaySettings::GetInstance().SetZoomAmount(1.0);
     return ;
   }
-  if (CMediaSettings::Get().GetCurrentVideoSettings().m_ViewMode == ViewModeCustom)
+  if (CMediaSettings::GetInstance().GetCurrentVideoSettings().m_ViewMode == ViewModeCustom)
   {
-    CDisplaySettings::Get().SetZoomAmount(CMediaSettings::Get().GetCurrentVideoSettings().m_CustomZoomAmount);
-    CDisplaySettings::Get().SetPixelRatio(CMediaSettings::Get().GetCurrentVideoSettings().m_CustomPixelRatio);
+    CDisplaySettings::GetInstance().SetZoomAmount(CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CustomZoomAmount);
+    CDisplaySettings::GetInstance().SetPixelRatio(CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CustomPixelRatio);
     return ;
   }
 
   // get our calibrated full screen resolution
-  float fOffsetX1 = (float)CDisplaySettings::Get().GetResolutionInfo(m_iResolution).Overscan.left;
-  float fOffsetY1 = (float)CDisplaySettings::Get().GetResolutionInfo(m_iResolution).Overscan.top;
-  float fScreenWidth = (float)(CDisplaySettings::Get().GetResolutionInfo(m_iResolution).Overscan.right - CDisplaySettings::Get().GetResolutionInfo(m_iResolution).Overscan.left);
-  float fScreenHeight = (float)(CDisplaySettings::Get().GetResolutionInfo(m_iResolution).Overscan.bottom - CDisplaySettings::Get().GetResolutionInfo(m_iResolution).Overscan.top);
+  float fOffsetX1 = (float)CDisplaySettings::GetInstance().GetResolutionInfo(m_iResolution).Overscan.left;
+  float fOffsetY1 = (float)CDisplaySettings::GetInstance().GetResolutionInfo(m_iResolution).Overscan.top;
+  float fScreenWidth = (float)(CDisplaySettings::GetInstance().GetResolutionInfo(m_iResolution).Overscan.right - CDisplaySettings::GetInstance().GetResolutionInfo(m_iResolution).Overscan.left);
+  float fScreenHeight = (float)(CDisplaySettings::GetInstance().GetResolutionInfo(m_iResolution).Overscan.bottom - CDisplaySettings::GetInstance().GetResolutionInfo(m_iResolution).Overscan.top);
   // and the source frame ratio
   float fSourceFrameRatio = GetAspectRatio();
 
-  if (CMediaSettings::Get().GetCurrentVideoSettings().m_ViewMode == ViewModeZoom)
+  if (CMediaSettings::GetInstance().GetCurrentVideoSettings().m_ViewMode == ViewModeZoom)
   { // zoom image so no black bars
-    CDisplaySettings::Get().SetPixelRatio(1.0);
+    CDisplaySettings::GetInstance().SetPixelRatio(1.0);
     // calculate the desired output ratio
-    float fOutputFrameRatio = fSourceFrameRatio * CDisplaySettings::Get().GetPixelRatio() / CDisplaySettings::Get().GetResolutionInfo(m_iResolution).fPixelRatio;
+    float fOutputFrameRatio = fSourceFrameRatio * CDisplaySettings::GetInstance().GetPixelRatio() / CDisplaySettings::GetInstance().GetResolutionInfo(m_iResolution).fPixelRatio;
     // now calculate the correct zoom amount.  First zoom to full height.
     float fNewHeight = fScreenHeight;
     float fNewWidth = fNewHeight * fOutputFrameRatio;
-    CDisplaySettings::Get().SetZoomAmount(fNewWidth / fScreenWidth);
+    CDisplaySettings::GetInstance().SetZoomAmount(fNewWidth / fScreenWidth);
     if (fNewWidth < fScreenWidth)
     { // zoom to full width
       fNewWidth = fScreenWidth;
       fNewHeight = fNewWidth / fOutputFrameRatio;
-      CDisplaySettings::Get().SetZoomAmount(fNewHeight / fScreenHeight);
+      CDisplaySettings::GetInstance().SetZoomAmount(fNewHeight / fScreenHeight);
     }
   }
-  else if (CMediaSettings::Get().GetCurrentVideoSettings().m_ViewMode == ViewModeStretch4x3)
+  else if (CMediaSettings::GetInstance().GetCurrentVideoSettings().m_ViewMode == ViewModeStretch4x3)
   { // stretch image to 4:3 ratio
-    CDisplaySettings::Get().SetZoomAmount(1.0);
+    CDisplaySettings::GetInstance().SetZoomAmount(1.0);
     if (m_iResolution == RES_PAL_4x3 || m_iResolution == RES_PAL60_4x3 || m_iResolution == RES_NTSC_4x3 || m_iResolution == RES_HDTV_480p_4x3)
     { // stretch to the limits of the 4:3 screen.
       // incorrect behaviour, but it's what the users want, so...
-      CDisplaySettings::Get().SetPixelRatio((fScreenWidth / fScreenHeight) * CDisplaySettings::Get().GetResolutionInfo(m_iResolution).fPixelRatio / fSourceFrameRatio);
+      CDisplaySettings::GetInstance().SetPixelRatio((fScreenWidth / fScreenHeight) * CDisplaySettings::GetInstance().GetResolutionInfo(m_iResolution).fPixelRatio / fSourceFrameRatio);
     }
     else
     {
       // now we need to set g_settings.m_fPixelRatio so that
       // fOutputFrameRatio = 4:3.
-      CDisplaySettings::Get().SetPixelRatio((4.0f / 3.0f) / fSourceFrameRatio);
+      CDisplaySettings::GetInstance().SetPixelRatio((4.0f / 3.0f) / fSourceFrameRatio);
     }
   }
-  else if (CMediaSettings::Get().GetCurrentVideoSettings().m_ViewMode == ViewModeStretch14x9)
+  else if (CMediaSettings::GetInstance().GetCurrentVideoSettings().m_ViewMode == ViewModeStretch14x9)
   { // stretch image to 14:9 ratio
     // now we need to set g_settings.m_fPixelRatio so that
     // fOutputFrameRatio = 14:9.
-    CDisplaySettings::Get().SetPixelRatio((14.0f / 9.0f) / fSourceFrameRatio);
+    CDisplaySettings::GetInstance().SetPixelRatio((14.0f / 9.0f) / fSourceFrameRatio);
     // calculate the desired output ratio
-    float fOutputFrameRatio = fSourceFrameRatio * CDisplaySettings::Get().GetPixelRatio() / CDisplaySettings::Get().GetResolutionInfo(m_iResolution).fPixelRatio;
+    float fOutputFrameRatio = fSourceFrameRatio * CDisplaySettings::GetInstance().GetPixelRatio() / CDisplaySettings::GetInstance().GetResolutionInfo(m_iResolution).fPixelRatio;
     // now calculate the correct zoom amount.  First zoom to full height.
     float fNewHeight = fScreenHeight;
     float fNewWidth = fNewHeight * fOutputFrameRatio;
-    CDisplaySettings::Get().SetZoomAmount(fNewWidth / fScreenWidth);
+    CDisplaySettings::GetInstance().SetZoomAmount(fNewWidth / fScreenWidth);
     if (fNewWidth < fScreenWidth)
     { // zoom to full width
       fNewWidth = fScreenWidth;
       fNewHeight = fNewWidth / fOutputFrameRatio;
-      CDisplaySettings::Get().SetZoomAmount(fNewHeight / fScreenHeight);
+      CDisplaySettings::GetInstance().SetZoomAmount(fNewHeight / fScreenHeight);
     }
   }
-  else if (CMediaSettings::Get().GetCurrentVideoSettings().m_ViewMode == ViewModeStretch16x9)
+  else if (CMediaSettings::GetInstance().GetCurrentVideoSettings().m_ViewMode == ViewModeStretch16x9)
   { // stretch image to 16:9 ratio
-    CDisplaySettings::Get().SetZoomAmount(1.0);
+    CDisplaySettings::GetInstance().SetZoomAmount(1.0);
     if (m_iResolution == RES_PAL_4x3 || m_iResolution == RES_PAL60_4x3 || m_iResolution == RES_NTSC_4x3 || m_iResolution == RES_HDTV_480p_4x3)
     { // now we need to set g_settings.m_fPixelRatio so that
       // fOutputFrameRatio = 16:9.
-      CDisplaySettings::Get().SetPixelRatio((16.0f / 9.0f) / fSourceFrameRatio);
+      CDisplaySettings::GetInstance().SetPixelRatio((16.0f / 9.0f) / fSourceFrameRatio);
     }
     else
     { // stretch to the limits of the 16:9 screen.
       // incorrect behaviour, but it's what the users want, so...
-      CDisplaySettings::Get().SetPixelRatio((fScreenWidth / fScreenHeight) * CDisplaySettings::Get().GetResolutionInfo(m_iResolution).fPixelRatio / fSourceFrameRatio);
+      CDisplaySettings::GetInstance().SetPixelRatio((fScreenWidth / fScreenHeight) * CDisplaySettings::GetInstance().GetResolutionInfo(m_iResolution).fPixelRatio / fSourceFrameRatio);
     }
   }
-  else // if (CMediaSettings::Get().GetCurrentVideoSettings().m_ViewMode == ViewModeOriginal)
+  else // if (CMediaSettings::GetInstance().GetCurrentVideoSettings().m_ViewMode == ViewModeOriginal)
   { // zoom image so that the height is the original size
-    CDisplaySettings::Get().SetPixelRatio(1.0);
+    CDisplaySettings::GetInstance().SetPixelRatio(1.0);
     // get the size of the media file
     // calculate the desired output ratio
-    float fOutputFrameRatio = fSourceFrameRatio * CDisplaySettings::Get().GetPixelRatio() / CDisplaySettings::Get().GetResolutionInfo(m_iResolution).fPixelRatio;
+    float fOutputFrameRatio = fSourceFrameRatio * CDisplaySettings::GetInstance().GetPixelRatio() / CDisplaySettings::GetInstance().GetResolutionInfo(m_iResolution).fPixelRatio;
     // now calculate the correct zoom amount.  First zoom to full width.
     float fNewWidth = fScreenWidth;
     float fNewHeight = fNewWidth / fOutputFrameRatio;
@@ -1180,11 +1188,11 @@ void CXBoxRenderer::SetViewMode(int iViewMode)
       fNewWidth = fNewHeight * fOutputFrameRatio;
     }
     // now work out the zoom amount so that no zoom is done
-    CDisplaySettings::Get().SetZoomAmount((m_iSourceHeight - CMediaSettings::Get().GetCurrentVideoSettings().m_CropTop - CMediaSettings::Get().GetCurrentVideoSettings().m_CropBottom) / fNewHeight);
+    CDisplaySettings::GetInstance().SetZoomAmount((m_iSourceHeight - CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CropTop - CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CropBottom) / fNewHeight);
   }
 
-  CMediaSettings::Get().GetCurrentVideoSettings().m_CustomZoomAmount = CDisplaySettings::Get().GetZoomAmount();
-  CMediaSettings::Get().GetCurrentVideoSettings().m_CustomPixelRatio = CDisplaySettings::Get().GetPixelRatio();
+  CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CustomZoomAmount = CDisplaySettings::GetInstance().GetZoomAmount();
+  CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CustomPixelRatio = CDisplaySettings::GetInstance().GetPixelRatio();
 }
 
 void CXBoxRenderer::AutoCrop(bool bCrop)
@@ -1193,7 +1201,7 @@ void CXBoxRenderer::AutoCrop(bool bCrop)
 
   if (bCrop)
   {
-    CSingleLock lock(g_graphicsContext);
+    CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
     // apply auto-crop filter - only luminance needed, and we run vertically down 'n'
     // runs down the image.
     int min_detect = 8;                                // reasonable amount (what mplayer uses)
@@ -1204,7 +1212,7 @@ void CXBoxRenderer::AutoCrop(bool bCrop)
     int teletext_lines = 10;
     // Crop top
     BYTE *s = (BYTE *)lr.pBits + lr.Pitch*teletext_lines;
-    CMediaSettings::Get().GetCurrentVideoSettings().m_CropTop = m_iSourceHeight/2;
+    CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CropTop = m_iSourceHeight/2;
     for (unsigned int y = teletext_lines; y < m_iSourceHeight/2; y++)
     {
       total = 0;
@@ -1213,13 +1221,13 @@ void CXBoxRenderer::AutoCrop(bool bCrop)
       s += lr.Pitch;
       if (total > detect)
       {
-        CMediaSettings::Get().GetCurrentVideoSettings().m_CropTop = y;
+        CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CropTop = y;
         break;
       }
     }
     // Crop bottom
     s = (BYTE *)lr.pBits + (m_iSourceHeight-1)*lr.Pitch;
-    CMediaSettings::Get().GetCurrentVideoSettings().m_CropBottom = m_iSourceHeight/2;
+    CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CropBottom = m_iSourceHeight/2;
     for (unsigned int y = (int)m_iSourceHeight; y > m_iSourceHeight/2; y--)
     {
       total = 0;
@@ -1228,13 +1236,13 @@ void CXBoxRenderer::AutoCrop(bool bCrop)
       s -= lr.Pitch;
       if (total > detect)
       {
-        CMediaSettings::Get().GetCurrentVideoSettings().m_CropBottom = m_iSourceHeight - y;
+        CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CropBottom = m_iSourceHeight - y;
         break;
       }
     }
     // Crop left
     s = (BYTE *)lr.pBits;
-    CMediaSettings::Get().GetCurrentVideoSettings().m_CropLeft = m_iSourceWidth/2;
+    CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CropLeft = m_iSourceWidth/2;
     for (unsigned int x = 0; x < m_iSourceWidth/2; x++)
     {
       total = 0;
@@ -1243,13 +1251,13 @@ void CXBoxRenderer::AutoCrop(bool bCrop)
       s++;
       if (total > detect)
       {
-        CMediaSettings::Get().GetCurrentVideoSettings().m_CropLeft = x;
+        CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CropLeft = x;
         break;
       }
     }
     // Crop right
     s = (BYTE *)lr.pBits + (m_iSourceWidth-1);
-    CMediaSettings::Get().GetCurrentVideoSettings().m_CropRight= m_iSourceWidth/2;
+    CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CropRight= m_iSourceWidth/2;
     for (unsigned int x = (int)m_iSourceWidth-1; x > m_iSourceWidth/2; x--)
     {
       total = 0;
@@ -1258,7 +1266,7 @@ void CXBoxRenderer::AutoCrop(bool bCrop)
       s--;
       if (total > detect)
       {
-        CMediaSettings::Get().GetCurrentVideoSettings().m_CropRight = m_iSourceWidth - x;
+        CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CropRight = m_iSourceWidth - x;
         break;
       }
     }
@@ -1266,26 +1274,26 @@ void CXBoxRenderer::AutoCrop(bool bCrop)
   }
   else
   { // reset to defaults
-    CMediaSettings::Get().GetCurrentVideoSettings().m_CropLeft = 0;
-    CMediaSettings::Get().GetCurrentVideoSettings().m_CropRight = 0;
-    CMediaSettings::Get().GetCurrentVideoSettings().m_CropTop = 0;
-    CMediaSettings::Get().GetCurrentVideoSettings().m_CropBottom = 0;
+    CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CropLeft = 0;
+    CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CropRight = 0;
+    CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CropTop = 0;
+    CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CropBottom = 0;
   }
-  SetViewMode(CMediaSettings::Get().GetCurrentVideoSettings().m_ViewMode);
+  SetViewMode(CMediaSettings::GetInstance().GetCurrentVideoSettings().m_ViewMode);
 }
 
 void CXBoxRenderer::RenderLowMem(DWORD flags)
 {
-  CSingleLock lock(g_graphicsContext);
+  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   int index = m_iYV12RenderBuffer;
   // set scissors if we are not in fullscreen video
-  if ( !(g_graphicsContext.IsFullScreenVideo() || g_graphicsContext.IsCalibrating() ))
+  if ( !(CServiceBroker::GetWinSystem()->GetGfxContext().IsFullScreenVideo() || CServiceBroker::GetWinSystem()->GetGfxContext().IsCalibrating() ))
   {
-    g_graphicsContext.ClipToViewWindow();
+    CServiceBroker::GetWinSystem()->GetGfxContext().ClipToViewWindow();
   }
 
   if( WaitForSingleObject(m_eventTexturesDone[index], 500) == WAIT_TIMEOUT )
-    CLog::Log(LOGWARNING, CStdString(__FUNCTION__) + " - Timeout waiting for texture %d", index);
+    CLog::Log(LOGWARNING, "%s - Timeout waiting for texture %d", __FUNCTION__, index);
 
   for (int i = 0; i < 3; ++i)
   {
@@ -1346,7 +1354,7 @@ void CXBoxRenderer::RenderLowMem(DWORD flags)
 
 void CXBoxRenderer::CreateThumbnail(LPDIRECT3DSURFACE8 surface, unsigned int width, unsigned int height)
 {
-  CSingleLock lock(g_graphicsContext);
+  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   LPDIRECT3DSURFACE8 oldRT;
   RECT saveSize = rd;
   rd.left = rd.top = 0;
@@ -1366,8 +1374,8 @@ void CXBoxRenderer::CreateThumbnail(LPDIRECT3DSURFACE8 surface, unsigned int wid
 //********************************************************************************************************
 void CXBoxRenderer::DeleteYV12Texture(int index)
 {
-  CSingleLock lock(g_graphicsContext);
-  
+  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+
   YV12Image &im = m_image[index];
   YUVFIELDS &fields = m_YUVTexture[index];
 
@@ -1392,14 +1400,14 @@ void CXBoxRenderer::DeleteYV12Texture(int index)
     im.plane[p] = NULL;
 
   m_NumYV12Buffers = 0;
-  
+
   CLog::Log(LOGDEBUG, "Deleted YV12 texture %i", index);
 }
 
 void CXBoxRenderer::ClearYV12Texture(int index)
 {
   if( WaitForSingleObject(m_eventTexturesDone[index], 1000) == WAIT_TIMEOUT )
-    CLog::Log(LOGWARNING, CStdString(__FUNCTION__) + " - Timeout waiting for texture %d", index);
+    CLog::Log(LOGWARNING, "%s - Timeout waiting for texture %d", __FUNCTION__, index);
 
   YV12Image &im = m_image[index];
 
@@ -1412,7 +1420,7 @@ void CXBoxRenderer::ClearYV12Texture(int index)
 
 bool CXBoxRenderer::CreateYV12Texture(int index)
 {
-  CSingleLock lock(g_graphicsContext);
+  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   DeleteYV12Texture(index);
 
   /* since we also want the field textures, pitch must be texture aligned */
@@ -1505,10 +1513,14 @@ void CXBoxRenderer::TextureCallback(DWORD dwContext)
   SetEvent((HANDLE)dwContext);
 }
 
-void CXBoxRenderer::SettingOptionsRenderMethodsFiller(const CSetting *setting, std::vector< std::pair<std::string, int> > &list, int &current, void *data)
+void CXBoxRenderer::SettingOptionsRenderMethodsFiller(
+    const boost::shared_ptr<const CSetting>& setting,
+    std::vector<IntegerSettingOption>& list,
+    int& current,
+    void* data)
 {
-  list.push_back(make_pair(g_localizeStrings.Get(13355), RENDER_LQ_RGB_SHADER));
-  list.push_back(make_pair(g_localizeStrings.Get(13356), RENDER_OVERLAYS));
-  list.push_back(make_pair(g_localizeStrings.Get(13357), RENDER_HQ_RGB_SHADER));
-  list.push_back(make_pair(g_localizeStrings.Get(21397), RENDER_HQ_RGB_SHADERV2));
+  list.push_back(IntegerSettingOption(g_localizeStrings.Get(13355), RENDER_LQ_RGB_SHADER));
+  list.push_back(IntegerSettingOption(g_localizeStrings.Get(13356), RENDER_OVERLAYS));
+  list.push_back(IntegerSettingOption(g_localizeStrings.Get(13357), RENDER_HQ_RGB_SHADER));
+  list.push_back(IntegerSettingOption(g_localizeStrings.Get(21397), RENDER_HQ_RGB_SHADERV2));
 }

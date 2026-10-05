@@ -16,10 +16,12 @@
 #include "filesystem/Directory.h"
 #include "filesystem/File.h"
 #include "filesystem/MultiPathDirectory.h"
+#include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
 #include "guilib/LocalizeStrings.h"
 #include "programs/ProgramInfoTag.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/SettingsComponent.h"
 #include "utils/log.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
@@ -48,7 +50,7 @@ namespace PROGRAM
     {
       if (m_showDialog)
       {
-        CGUIDialogExtendedProgressBar* dialog = static_cast<CGUIDialogExtendedProgressBar*>(g_windowManager.GetWindow(WINDOW_DIALOG_EXT_PROGRESS));
+        CGUIDialogExtendedProgressBar* dialog = static_cast<CGUIDialogExtendedProgressBar*>(CServiceBroker::GetGUI()->GetWindowManager().GetWindow(WINDOW_DIALOG_EXT_PROGRESS));
         if (dialog)
           m_handle = dialog->GetHandle(g_localizeStrings.Get(314));
 
@@ -63,7 +65,7 @@ namespace PROGRAM
       CLog::Log(LOGERROR, "%s: Exception while scanning.", __FUNCTION__);
     }
 
-    g_infoManager.ResetLibraryBools();
+    CServiceBroker::GetGUI()->GetInfoManager().GetInfoProviders().GetLibraryInfoProvider().ResetLibraryBools();
     m_database.Close();
     m_bRunning = false;
 
@@ -96,7 +98,7 @@ namespace PROGRAM
     strArtworkPath = URIUtils::AddFileToFolder(strArtworkPath, "_resources", "artwork");
 
     CFileItemList items;
-    CDirectory::GetDirectory(strArtworkPath, items, g_advancedSettings.m_pictureExtensions, DIR_FLAG_DEFAULTS);
+    CDirectory::GetDirectory(strArtworkPath, items, CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_pictureExtensions, DIR_FLAG_DEFAULTS);
     for (int i = 0; i < items.Size(); ++i)
     {
       CFileItemPtr pItem = items[i];
@@ -111,7 +113,7 @@ namespace PROGRAM
     }
 
     for (CGUIListItem::ArtMap::const_iterator it = item->GetArt().begin(); it != item->GetArt().end(); ++it)
-      CTextureCache::Get().BackgroundCacheImage(it->second);
+      CServiceBroker::GetTextureCache()->BackgroundCacheImage(it->second);
   }
 
   std::string GetNFO(const std::string& strFilePath)
@@ -147,7 +149,7 @@ namespace PROGRAM
     }
 
     CFileItemList items;
-    if(!CDirectory::GetDirectory(strDirectory, items, g_advancedSettings.m_programExtensions, DIR_FLAG_DEFAULTS))
+    if(!CDirectory::GetDirectory(strDirectory, items, CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_programExtensions, DIR_FLAG_DEFAULTS))
       return false;
 
     for (int i = 0; i < items.Size(); ++i)
@@ -194,7 +196,7 @@ namespace PROGRAM
     }
     else
     {
-      scraper->GetProgramDetails(strPath, tag);
+      scraper->GetProgramDetails(CScraperUrl(strPath), tag);
     }
 
     // set default values if not present

@@ -19,11 +19,12 @@
  */
 
 #include "Edl.h"
-#include "include.h"
+#include "ServiceBroker.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "filesystem/File.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/SettingsComponent.h"
 #include "utils/log.h"
 #include "utils/XBMCTinyXML.h"
 #include "URL.h"
@@ -58,7 +59,7 @@ void CEdl::Clear()
   m_iTotalCutTime = 0;
 }
 
-bool CEdl::ReadEditDecisionLists(const CStdString& strMovie, const float fFrameRate, const int iHeight)
+bool CEdl::ReadEditDecisionLists(const std::string& strMovie, const float fFrameRate, const int iHeight)
 {
   /*
    * The frame rate hints returned from ffmpeg for the video stream do not appear to take into
@@ -136,11 +137,11 @@ bool CEdl::ReadEditDecisionLists(const CStdString& strMovie, const float fFrameR
   return bFound;
 }
 
-bool CEdl::ReadEdl(const CStdString& strMovie, const float fFramesPerSecond)
+bool CEdl::ReadEdl(const std::string& strMovie, const float fFramesPerSecond)
 {
   Clear();
 
-  CStdString edlFilename(URIUtils::ReplaceExtension(strMovie, ".edl"));
+  std::string edlFilename(URIUtils::ReplaceExtension(strMovie, ".edl"));
   if (!CFile::Exists(edlFilename))
     return false;
 
@@ -153,33 +154,34 @@ bool CEdl::ReadEdl(const CStdString& strMovie, const float fFramesPerSecond)
 
   bool bError = false;
   int iLine = 0;
-  CStdString strBuffer;
-  while (edlFile.ReadString(strBuffer.GetBuffer(1024), 1024))
+  std::string strBuffer;
+  strBuffer.resize(1024);
+  while (edlFile.ReadString(&strBuffer[0], 1024))
   {
-    strBuffer.ReleaseBuffer();
-
     // Log any errors from previous run in the loop
     if (bError)
       CLog::Log(LOGWARNING, "%s - Error on line %i in EDL file: %s", __FUNCTION__, iLine, edlFilename.c_str());
 
     iLine++;
 
-    CStdStringArray strFields(2);
+    char buffer1[513];
+    char buffer2[513];
     int iAction;
-    int iFieldsRead = sscanf(strBuffer, "%512s %512s %i", strFields[0].GetBuffer(512),
-                             strFields[1].GetBuffer(512), &iAction);
-    strFields[0].ReleaseBuffer();
-    strFields[1].ReleaseBuffer();
-
+    int iFieldsRead = sscanf(strBuffer.c_str(), "%512s %512s %i", buffer1,
+                             buffer2, &iAction);
     if (iFieldsRead != 2 && iFieldsRead != 3) // Make sure we read the right number of fields
     {
       bError = true;
       continue;
     }
 
+    std::vector<std::string> strFields(2);
+    strFields[0] = buffer1;
+    strFields[1] = buffer2;
+
     if (iFieldsRead == 2) // If only 2 fields read, then assume it's a scene marker.
     {
-      iAction = atoi(strFields[1]);
+      iAction = atoi(strFields[1].c_str());
       strFields[1] = strFields[0];
     }
 
@@ -190,10 +192,9 @@ bool CEdl::ReadEdl(const CStdString& strMovie, const float fFramesPerSecond)
     int64_t iCutStartEnd[2];
     for (int i = 0; i < 2; i++)
     {
-      if (strFields[i].Find(":") != -1) // HH:MM:SS.sss format
+      if (strFields[i].find(":") != -1) // HH:MM:SS.sss format
       {
-        CStdStringArray fieldParts;
-        StringUtils::SplitString(strFields[i], ".", fieldParts);
+        std::vector<std::string> fieldParts = StringUtils::Split(strFields[i], ".");
         if (fieldParts.size() == 1) // No ms
         {
           iCutStartEnd[i] = StringUtils::TimeStringToSeconds(fieldParts[0]) * (int64_t)1000; // seconds to ms
@@ -213,9 +214,9 @@ bool CEdl::ReadEdl(const CStdString& strMovie, const float fFramesPerSecond)
           }
           else if (fieldParts[1].length() > 3)
           {
-            fieldParts[1] = fieldParts[1].Left(3);
+            fieldParts[1] = fieldParts[1].substr(0, 3);
           }
-          iCutStartEnd[i] = StringUtils::TimeStringToSeconds(fieldParts[0]) * 1000 + atoi(fieldParts[1]); // seconds to ms
+          iCutStartEnd[i] = StringUtils::TimeStringToSeconds(fieldParts[0]) * 1000 + atoi(fieldParts[1].c_str()); // seconds to ms
         }
         else
         {
@@ -223,13 +224,13 @@ bool CEdl::ReadEdl(const CStdString& strMovie, const float fFramesPerSecond)
           continue;
         }
       }
-      else if (strFields[i].Left(1) == "#") // #12345 format for frame number
+      else if (strFields[i].substr(0, 1) == "#") // #12345 format for frame number
       {
-        iCutStartEnd[i] = (int64_t)(atol(strFields[i].Mid(1)) / fFramesPerSecond * 1000); // frame number to ms
+        iCutStartEnd[i] = (int64_t)(atol(strFields[i].substr(1).c_str()) / fFramesPerSecond * 1000); // frame number to ms
       }
       else // Plain old seconds in float format, e.g. 123.45
       {
-        iCutStartEnd[i] = (int64_t)(atof(strFields[i]) * 1000); // seconds to ms
+        iCutStartEnd[i] = (int64_t)(atof(strFields[i].c_str()) * 1000); // seconds to ms
       }
     }
 
@@ -284,8 +285,6 @@ bool CEdl::ReadEdl(const CStdString& strMovie, const float fFramesPerSecond)
     }
   }
 
-  strBuffer.ReleaseBuffer();
-
   if (bError) // Log last line warning, if there was one, since while loop will have terminated.
     CLog::Log(LOGWARNING, "%s - Error on line %i in EDL file: %s", __FUNCTION__, iLine, edlFilename.c_str());
 
@@ -305,11 +304,11 @@ bool CEdl::ReadEdl(const CStdString& strMovie, const float fFramesPerSecond)
   }
 }
 
-bool CEdl::ReadComskip(const CStdString& strMovie, const float fFramesPerSecond)
+bool CEdl::ReadComskip(const std::string& strMovie, const float fFramesPerSecond)
 {
   Clear();
 
-  CStdString comskipFilename(URIUtils::ReplaceExtension(strMovie, ".txt"));
+  std::string comskipFilename(URIUtils::ReplaceExtension(strMovie, ".txt"));
   if (!CFile::Exists(comskipFilename))
     return false;
 
@@ -385,7 +384,7 @@ bool CEdl::ReadComskip(const CStdString& strMovie, const float fFramesPerSecond)
   }
 }
 
-bool CEdl::ReadVideoReDo(const CStdString& strMovie)
+bool CEdl::ReadVideoReDo(const std::string& strMovie)
 {
   /*
    * VideoReDo file is strange. Tags are XML like, but it isn't an XML file.
@@ -394,7 +393,7 @@ bool CEdl::ReadVideoReDo(const CStdString& strMovie)
    */
 
   Clear();
-  CStdString videoReDoFilename(URIUtils::ReplaceExtension(strMovie, ".Vprj"));
+  std::string videoReDoFilename(URIUtils::ReplaceExtension(strMovie, ".Vprj"));
   if (!CFile::Exists(videoReDoFilename))
     return false;
 
@@ -476,11 +475,11 @@ bool CEdl::ReadVideoReDo(const CStdString& strMovie)
   }
 }
 
-bool CEdl::ReadBeyondTV(const CStdString& strMovie)
+bool CEdl::ReadBeyondTV(const std::string& strMovie)
 {
   Clear();
 
-  CStdString beyondTVFilename(URIUtils::ReplaceExtension(strMovie, URIUtils::GetExtension(strMovie) + ".chapters.xml"));
+  std::string beyondTVFilename(URIUtils::ReplaceExtension(strMovie, URIUtils::GetExtension(strMovie) + ".chapters.xml"));
   if (!CFile::Exists(beyondTVFilename))
     return false;
 
@@ -611,8 +610,8 @@ bool CEdl::AddCut(Cut& cut)
      * the start (autowait) and automatically rewind by a bit (autowind) at the end of the commercial
      * break.
      */
-    int autowait = g_advancedSettings.m_iEdlCommBreakAutowait * 1000; // seconds -> ms
-    int autowind = g_advancedSettings.m_iEdlCommBreakAutowind * 1000; // seconds -> ms
+    int autowait = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_iEdlCommBreakAutowait * 1000; // seconds -> ms
+    int autowind = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_iEdlCommBreakAutowind * 1000; // seconds -> ms
 
     if (cut.start > 0) // Only autowait if not at the start.
      cut.start += autowait;
@@ -679,10 +678,10 @@ bool CEdl::WriteMPlayerEdl()
     return false;
   }
 
-  CStdString strBuffer;
+  std::string strBuffer;
   for (int i = 0; i < (int)m_vecCuts.size(); i++)
   {
-    /* 
+    /*
      * MPlayer doesn't understand the scene marker (2) or commercial break (3) identifiers that XBMC
      * supports in EDL files.
      *
@@ -690,7 +689,7 @@ bool CEdl::WriteMPlayerEdl()
      *
      * Write out mutes (1) directly. Treat commercial breaks as cuts (everything other than MUTES = 0).
      */
-    strBuffer.AppendFormat("%.3f\t%.3f\t%i\n", (float)(m_vecCuts[i].start / 1000),
+    strBuffer += StringUtils::Format("%.3f\t%.3f\t%i\n", (float)(m_vecCuts[i].start / 1000),
                                                (float)(m_vecCuts[i].end / 1000),
                                                m_vecCuts[i].action == MUTE ? 1 : 0);
   }
@@ -702,22 +701,22 @@ bool CEdl::WriteMPlayerEdl()
   return true;
 }
 
-CStdString CEdl::GetMPlayerEdl()
+std::string CEdl::GetMPlayerEdl()
 {
   return MPLAYER_EDL_FILENAME;
 }
 
-bool CEdl::HasCut()
+bool CEdl::HasCut() const
 {
   return !m_vecCuts.empty();
 }
 
-int64_t CEdl::GetTotalCutTime()
+int64_t CEdl::GetTotalCutTime() const
 {
   return m_iTotalCutTime; // ms
 }
 
-int64_t CEdl::RemoveCutTime(int64_t iSeek)
+int64_t CEdl::RemoveCutTime(int64_t iSeek) const
 {
   if (!HasCut())
     return iSeek;
@@ -761,9 +760,9 @@ bool CEdl::HasSceneMarker()
   return !m_vecSceneMarkers.empty();
 }
 
-CStdString CEdl::GetInfo()
+std::string CEdl::GetInfo()
 {
-  CStdString strInfo = "";
+  std::string strInfo = "";
   if (HasCut())
   {
     int cutCount = 0, muteCount = 0, commBreakCount = 0;
@@ -783,16 +782,16 @@ CStdString CEdl::GetInfo()
       }
     }
     if (cutCount > 0)
-      strInfo.AppendFormat("c%i", cutCount);
+      strInfo += StringUtils::Format("c%i", cutCount);
     if (muteCount > 0)
-      strInfo.AppendFormat("m%i", muteCount);
+      strInfo += StringUtils::Format("m%i", muteCount);
     if (commBreakCount > 0)
-      strInfo.AppendFormat("b%i", commBreakCount);
+      strInfo += StringUtils::Format("b%i", commBreakCount);
   }
   if (HasSceneMarker())
-    strInfo.AppendFormat("s%i", m_vecSceneMarkers.size());
+    strInfo += StringUtils::Format("s%i", m_vecSceneMarkers.size());
 
-  return strInfo.IsEmpty() ? "-" : strInfo;
+  return strInfo.empty() ? "-" : strInfo;
 }
 
 bool CEdl::InCut(const int64_t iSeek, Cut *pCut)
@@ -859,10 +858,10 @@ bool CEdl::GetNextSceneMarker(bool bPlus, const int64_t iClock, int64_t *iSceneM
   return bFound;
 }
 
-CStdString CEdl::MillisecondsToTimeString(const int64_t iMilliseconds)
+std::string CEdl::MillisecondsToTimeString(const int64_t iMilliseconds)
 {
-  CStdString strTimeString = StringUtils::SecondsToTimeString((long)(iMilliseconds / 1000), TIME_FORMAT_HH_MM_SS); // milliseconds to seconds
-  strTimeString.AppendFormat(".%03i", iMilliseconds % 1000);
+  std::string strTimeString = StringUtils::SecondsToTimeString((long)(iMilliseconds / 1000), TIME_FORMAT_HH_MM_SS); // milliseconds to seconds
+  strTimeString += StringUtils::Format(".%03i", iMilliseconds % 1000);
   return strTimeString;
 }
 
@@ -883,13 +882,13 @@ void CEdl::MergeShortCommBreaks()
     m_vecCuts.erase(m_vecCuts.begin());
   }
 
-  if (g_advancedSettings.m_bEdlMergeShortCommBreaks)
+  if (CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_bEdlMergeShortCommBreaks)
   {
     for (int i = 0; i < (int)m_vecCuts.size() - 1; i++)
     {
       if ((m_vecCuts[i].action == COMM_BREAK && m_vecCuts[i + 1].action == COMM_BREAK)
-      &&  (m_vecCuts[i + 1].end - m_vecCuts[i].start < g_advancedSettings.m_iEdlMaxCommBreakLength * 1000) // s to ms
-      &&  (m_vecCuts[i + 1].start - m_vecCuts[i].end < g_advancedSettings.m_iEdlMaxCommBreakGap * 1000)) // s to ms
+      &&  (m_vecCuts[i + 1].end - m_vecCuts[i].start < CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_iEdlMaxCommBreakLength * 1000) // s to ms
+      &&  (m_vecCuts[i + 1].start - m_vecCuts[i].end < CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_iEdlMaxCommBreakGap * 1000)) // s to ms
       {
         Cut commBreak;
         commBreak.action = COMM_BREAK;
@@ -919,7 +918,7 @@ void CEdl::MergeShortCommBreaks()
      */
     if (!m_vecCuts.empty()
     &&  m_vecCuts[0].action == COMM_BREAK
-    &&  m_vecCuts[0].start < g_advancedSettings.m_iEdlMaxStartGap * 1000)
+    &&  m_vecCuts[0].start < CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_iEdlMaxStartGap * 1000)
     {
       CLog::Log(LOGDEBUG, "%s - Expanding first commercial break back to start [%s - %s].", __FUNCTION__,
                 MillisecondsToTimeString(m_vecCuts[0].start).c_str(), MillisecondsToTimeString(m_vecCuts[0].end).c_str());
@@ -933,11 +932,11 @@ void CEdl::MergeShortCommBreaks()
     {
       if (m_vecCuts[i].action == COMM_BREAK
       &&  m_vecCuts[i].start > 0
-      && (m_vecCuts[i].end - m_vecCuts[i].start) < g_advancedSettings.m_iEdlMinCommBreakLength * 1000)
+      && (m_vecCuts[i].end - m_vecCuts[i].start) < CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_iEdlMinCommBreakLength * 1000)
       {
         CLog::Log(LOGDEBUG, "%s - Removing short commercial break [%s - %s]. Minimum length: %i seconds", __FUNCTION__,
                   MillisecondsToTimeString(m_vecCuts[i].start).c_str(), MillisecondsToTimeString(m_vecCuts[i].end).c_str(),
-                  g_advancedSettings.m_iEdlMinCommBreakLength);
+                  CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_iEdlMinCommBreakLength);
         m_vecCuts.erase(m_vecCuts.begin() + i);
 
         i--;

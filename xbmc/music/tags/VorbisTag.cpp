@@ -19,7 +19,9 @@
  */
 
 #include "VorbisTag.h"
+#include "ServiceBroker.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/SettingsComponent.h"
 #include "utils/StringUtils.h"
 
 using namespace MUSIC_INFO;
@@ -34,10 +36,10 @@ CVorbisTag::~CVorbisTag()
 
 }
 
-int CVorbisTag::ParseTagEntry(CStdString& strTagEntry)
+int CVorbisTag::ParseTagEntry(std::string& strTagEntry)
 {
-  CStdString strTagValue;
-  CStdString strTagType;
+  std::string strTagValue;
+  std::string strTagType;
 
   // Split tag entry like ARTIST=Sublime
   SplitEntry( strTagEntry, strTagType, strTagValue);
@@ -72,19 +74,17 @@ int CVorbisTag::ParseTagEntry(CStdString& strTagEntry)
 
   if ( strTagType == "TRACKNUMBER" )
   {
-    tag.SetTrackNumber(atoi(strTagValue));
+    tag.SetTrackNumber(atoi(strTagValue.c_str()));
   }
 
   if ( strTagType == "DISCNUMBER" )
   {
-    tag.SetDiscNumber(atoi(strTagValue));
+    tag.SetDiscNumber(atoi(strTagValue.c_str()));
   }
 
   if ( strTagType == "DATE" )
   {
-    SYSTEMTIME dateTime;
-    dateTime.wYear = atoi(strTagValue);
-    tag.SetReleaseDate(dateTime);
+    tag.SetYear(atoi(strTagValue.c_str()));
   }
 
   if ( strTagType == "GENRE" )
@@ -99,7 +99,7 @@ int CVorbisTag::ParseTagEntry(CStdString& strTagEntry)
 
   if ( strTagType == "MUSICBRAINZ_ARTISTID" )
   {
-    tag.SetMusicBrainzArtistID(StringUtils::Split(strTagValue, g_advancedSettings.m_musicItemSeparator));
+    tag.SetMusicBrainzArtistID(StringUtils::Split(strTagValue, CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_musicItemSeparator));
   }
 
   if ( strTagType == "MUSICBRAINZ_ALBUMID" )
@@ -109,7 +109,7 @@ int CVorbisTag::ParseTagEntry(CStdString& strTagEntry)
 
   if ( strTagType == "MUSICBRAINZ_ALBUMARTISTID" )
   {
-    tag.SetMusicBrainzAlbumArtistID(StringUtils::Split(strTagValue, g_advancedSettings.m_musicItemSeparator));
+    tag.SetMusicBrainzAlbumArtistID(StringUtils::Split(strTagValue, CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_musicItemSeparator));
   }
 
   if ( strTagType == "COMMENT" || strTagType == "DESCRIPTION" )
@@ -119,7 +119,7 @@ int CVorbisTag::ParseTagEntry(CStdString& strTagEntry)
     tag.SetLyrics(strTagValue);
 
 
-  if ( strTagType == "RATING" && strTagValue.GetLength() == 1 && strTagValue[0] > '0' && strTagValue[0] < '6')
+  if ( strTagType == "RATING" && strTagValue.length() == 1 && strTagValue[0] > '0' && strTagValue[0] < '6')
     tag.SetRating(strTagValue[0]);
 
   //  Get new style replay gain info
@@ -163,15 +163,15 @@ int CVorbisTag::ParseTagEntry(CStdString& strTagEntry)
   return 0;
 }
 
-void CVorbisTag::SplitEntry(const CStdString& strTagEntry, CStdString& strTagType, CStdString& strTagValue)
+void CVorbisTag::SplitEntry(const std::string& strTagEntry, std::string& strTagType, std::string& strTagValue)
 {
-  int nPos = strTagEntry.Find( '=' );
+  int nPos = strTagEntry.find( '=' );
 
   if ( nPos > -1 )
   {
     // we use UTF-8 internally
-    strTagValue = strTagEntry.Mid( nPos + 1 );
-    strTagType = strTagEntry.Left( nPos );
-    strTagType.ToUpper();
+    strTagValue = strTagEntry.substr( nPos + 1 );
+    strTagType = strTagEntry.substr( 0, nPos );
+    StringUtils::ToUpper(strTagType);
   }
 }

@@ -17,7 +17,7 @@
  *  <http://www.gnu.org/licenses/>.
  *
  */
- 
+
 #include "utils/log.h"
 #include "DVDPlayerSubtitle.h"
 #include "DVDCodecs/Overlay/DVDOverlay.h"
@@ -34,13 +34,14 @@
 #include "DVDCodecs/DVDFactoryCodec.h"
 #include "DVDDemuxers/DVDDemuxUtils.h"
 #include "threads/SingleLock.h"
+#include "utils/StringUtils.h"
 
 using namespace std;
 
 CDVDPlayerSubtitle::CDVDPlayerSubtitle(CDVDOverlayContainer* pOverlayContainer)
 {
   m_pOverlayContainer = pOverlayContainer;
-  
+
   m_pSubtitleFileParser = NULL;
   m_pSubtitleStream = NULL;
   m_pOverlayCodec = NULL;
@@ -52,7 +53,7 @@ CDVDPlayerSubtitle::~CDVDPlayerSubtitle()
   CloseStream(false);
 }
 
-  
+
 void CDVDPlayerSubtitle::Flush()
 {
   SendMessage(new CDVDMsg(CDVDMsg::GENERAL_FLUSH));
@@ -79,7 +80,7 @@ void CDVDPlayerSubtitle::SendMessage(CDVDMsg* pMsg)
           overlay->Release();
         }
       }
-    } 
+    }
     else if (m_streaminfo.codec == AV_CODEC_ID_DVD_SUBTITLE)
     {
       CDVDOverlaySpu* pSPUInfo = m_dvdspus.AddData(pPacket->pData, pPacket->iSize, pPacket->pts);
@@ -110,7 +111,7 @@ void CDVDPlayerSubtitle::SendMessage(CDVDMsg* pMsg)
         || pMsg->IsType(CDVDMsg::GENERAL_RESET) )
   {
     m_dvdspus.Reset();
-    if (m_pSubtitleFileParser) 
+    if (m_pSubtitleFileParser)
       m_pSubtitleFileParser->Reset();
 
     if (m_pOverlayCodec)
@@ -210,10 +211,10 @@ bool CDVDPlayerSubtitle::AcceptsData()
   return m_pOverlayContainer->GetSize() < 5;
 }
 
-void CDVDPlayerSubtitle::GetCurrentSubtitle(CStdString& strSubtitle, double pts)
+void CDVDPlayerSubtitle::GetCurrentSubtitle(std::string& strSubtitle, double pts)
 {
   strSubtitle = "";
-  
+
   Process(pts); // TODO: move to separate thread?
 
   CSingleLock lock(*m_pOverlayContainer);
@@ -224,7 +225,7 @@ void CDVDPlayerSubtitle::GetCurrentSubtitle(CStdString& strSubtitle, double pts)
     {
       CDVDOverlay* pOverlay = *it;
 
-      if (pOverlay->IsOverlayType(DVDOVERLAY_TYPE_TEXT) 
+      if (pOverlay->IsOverlayType(DVDOVERLAY_TYPE_TEXT)
       && (pOverlay->iPTSStartTime <= pts)
       && (pOverlay->iPTSStopTime >= pts || pOverlay->iPTSStopTime == 0LL))
       {
@@ -242,5 +243,5 @@ void CDVDPlayerSubtitle::GetCurrentSubtitle(CStdString& strSubtitle, double pts)
       }
     }
   }
-  strSubtitle.TrimRight('\n');
+  StringUtils::TrimRight(strSubtitle, "\n");
 }

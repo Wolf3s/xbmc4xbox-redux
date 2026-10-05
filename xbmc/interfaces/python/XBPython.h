@@ -57,19 +57,17 @@ public:
   XBPython();
   virtual ~XBPython();
   virtual void OnPlayBackEnded();
-  virtual void OnPlayBackStarted();
-  virtual void OnAVStarted(const CFileItem &file);
-  virtual void OnAVChange();
+  virtual void OnPlayBackStarted(const CFileItem& file);
   virtual void OnPlayBackPaused();
   virtual void OnPlayBackResumed();
   virtual void OnPlayBackStopped();
   virtual void OnPlayBackError();
   virtual void OnPlayBackSpeedChanged(int iSpeed);
-  virtual void OnPlayBackSeek(int iTime, int seekOffset);
+  virtual void OnPlayBackSeek(int64_t iTime, int64_t seekOffset);
   virtual void OnPlayBackSeekChapter(int iChapter);
   virtual void OnQueueNextItem();
 
-  virtual void Announce(ANNOUNCEMENT::AnnouncementFlag flag, const char *sender, const char *message, const CVariant &data);
+  virtual void Announce(ANNOUNCEMENT::AnnouncementFlag flag, const std::string& sender, const std::string& message, const CVariant &data);
   void RegisterPythonPlayerCallBack(IPlayerCallback* pCallback);
   void UnregisterPythonPlayerCallBack(IPlayerCallback* pCallback);
   void RegisterPythonMonitorCallBack(XBMCAddon::xbmc::Monitor* pCallback);
@@ -90,7 +88,7 @@ public:
   virtual void Uninitialize();
   virtual bool OnScriptInitialized(ILanguageInvoker *invoker);
   virtual void OnScriptStarted(ILanguageInvoker *invoker);
-  virtual void OnScriptAbortRequested(ILanguageInvoker *invoker);
+  virtual void NotifyScriptAborting(ILanguageInvoker *invoker);
   virtual void OnExecutionEnded(ILanguageInvoker *invoker);
   virtual void OnScriptFinalized(ILanguageInvoker *invoker);
   virtual ILanguageInvoker* CreateInvoker();

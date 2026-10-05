@@ -1,30 +1,26 @@
 /*
- *      Copyright (C) 2005-2013 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include "include.h"
 #include "GUIVideoControl.h"
+
+#include "GUIComponent.h"
 #include "GUIWindowManager.h"
-#include "Application.h"
+#include "ServiceBroker.h"
+#include "application/ApplicationComponents.h"
+#include "application/ApplicationPlayer.h"
+#include "application/ApplicationPowerHandling.h"
 #ifdef HAS_VIDEO_PLAYBACK
 #include "cores/VideoRenderers/RenderManager.h"
 #endif
+#include "input/actions/ActionIDs.h"
+#include "utils/ColorUtils.h"
+
+using namespace KODI;
 
 CGUIVideoControl::CGUIVideoControl(int parentID, int controlID, float posX, float posY, float width, float height)
     : CGUIControl(parentID, controlID, posX, posY, width, height)
@@ -32,12 +28,11 @@ CGUIVideoControl::CGUIVideoControl(int parentID, int controlID, float posX, floa
   ControlType = GUICONTROL_VIDEO;
 }
 
-CGUIVideoControl::~CGUIVideoControl(void)
-{}
+CGUIVideoControl::~CGUIVideoControl(void) {}
 
 void CGUIVideoControl::Process(unsigned int currentTime, CDirtyRegionList &dirtyregions)
 {
-  // TODO Proper processing which marks when its actually changed. Just mark always for now.
+  //! @todo Proper processing which marks when its actually changed. Just mark always for now.
   MarkDirtyRegion();
 
   CGUIControl::Process(currentTime, dirtyregions);
@@ -45,27 +40,33 @@ void CGUIVideoControl::Process(unsigned int currentTime, CDirtyRegionList &dirty
 
 void CGUIVideoControl::Render()
 {
+  CApplicationComponents &components = CServiceBroker::GetAppComponents();
+  const boost::shared_ptr<CApplicationPlayer> appPlayer = components.GetComponent<CApplicationPlayer>();
 #ifdef HAS_VIDEO_PLAYBACK
   // don't render if we aren't playing video, or if the renderer isn't started
   // (otherwise the lock we have from CApplication::Render() may clash with the startup
   // locks in the RenderManager.)
-  if (g_application.m_pPlayer->IsPlayingVideo() && g_renderManager.IsStarted())
+  if (appPlayer->IsPlayingVideo() && g_renderManager.IsStarted())
   {
 #else
-  if (g_application.m_pPlayer->IsPlayingVideo())
+  if (appPlayer->IsPlayingVideo())
   {
 #endif
-    if (!g_application.m_pPlayer->IsPaused())
-      g_application.ResetScreenSaver();
+    if (!appPlayer->IsPaused())
+    {
+      CApplicationComponents &appComponents = CServiceBroker::GetAppComponents();
+      const boost::shared_ptr<CApplicationPowerHandling> appPower = appComponents.GetComponent<CApplicationPowerHandling>();
+      appPower->ResetScreenSaver();
+    }
 
-    g_graphicsContext.SetViewWindow(m_posX, m_posY, m_posX + m_width, m_posY + m_height);
-    g_graphicsContext.SetViewPort(m_posX, m_posY, m_width, m_height);
+    CServiceBroker::GetWinSystem()->GetGfxContext().SetViewWindow(m_posX, m_posY, m_posX + m_width, m_posY + m_height);
+    CServiceBroker::GetWinSystem()->GetGfxContext().SetViewPort(m_posX, m_posY, m_width, m_height);
 
 #ifdef HAS_VIDEO_PLAYBACK
-    color_t alpha = g_graphicsContext.MergeAlpha(0xFF000000) >> 24;
+    UTILS::COLOR::Color alpha = CServiceBroker::GetWinSystem()->GetGfxContext().MergeAlpha(0xFF000000) >> 24;
     g_renderManager.RenderUpdate(false, 0, alpha);
 #endif
-    g_graphicsContext.RestoreViewPort();
+    CServiceBroker::GetWinSystem()->GetGfxContext().RestoreViewPort();
   }
   CGUIControl::Render();
 }

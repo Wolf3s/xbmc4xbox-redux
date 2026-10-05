@@ -23,7 +23,7 @@
 #include "threads/SystemClock.h"
 #include "system.h"
 #include "SystemInfo.h"
-#include <conio.h>
+#include "ServiceBroker.h"
 #include "LangInfo.h"
 #include "cores/DllLoader/DllLoader.h"
 #include "GUIInfoManager.h"
@@ -31,19 +31,25 @@
 #include "filesystem/CurlFile.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
+#include "network/Network.h"
+#include "guilib/GUIComponent.h"
 #include "guilib/LocalizeStrings.h"
 #include "utils/TimeUtils.h"
 #include "utils/Temperature.h"
 #include "utils/log.h"
 #include "utils/XMLUtils.h"
 #ifdef HAS_XBOX_HARDWARE
-#include "xbox/Undocumented.h"
-#include "xbox/XKUtils.h"
-#include "xbox/XKHDD.h"
-#include "xbox/XKflash.h"
-#include "xbox/XKRC4.h"
 extern "C" XPP_DEVICE_TYPE XDEVICE_TYPE_IR_REMOTE_TABLE;
 #endif
+
+#include "platform/xbox/Undocumented.h"
+#include "platform/xbox/XKHDD.h"
+#include "platform/xbox/XKRC4.h"
+#include "platform/xbox/XKUtils.h"
+#include "platform/xbox/XKflash.h"
+
+#include <conio.h>
 
 CSysInfo g_sysinfo;
 
@@ -66,7 +72,7 @@ bool CSysInfoJob::DoWork()
     m_info.macAddress        = GetMACAddress();
 
     // The X2 series of modchips cause an error on XBE launching if GetModChipInfo()
-    if(!g_advancedSettings.m_DisableModChipDetection)
+    if(!CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_DisableModChipDetection)
       m_info.xboxModChip     = CSysInfo::GetModChipInfo();
     m_info.xboxBios          = g_sysinfo.GetBIOSInfo();
     m_info.mplayerversion    = CSysInfo::GetMPlayerVersion();
@@ -80,12 +86,12 @@ bool CSysInfoJob::DoWork()
     CSysInfo::GetRefurbInfo(m_info.hddbootdate, m_info.hddcyclecount);
 
     g_sysinfo.GetHDDInfo(m_info.HDDModel, m_info.HDDSerial, m_info.HDDFirmware, m_info.HDDpw, m_info.HDDLockState);
-    if (!g_advancedSettings.m_noDVDROM)
+    if (!CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_noDVDROM)
       g_sysinfo.GetDVDInfo(m_info.DVDModel, m_info.DVDFirmware);
   }
-  
+
   if (g_sysinfo.m_bSmartEnabled)
-  { // this will waste 4-8KB of memory on each refresh (this is issue on 3.5.3 too) 
+  { // this will waste 4-8KB of memory on each refresh (this is issue on 3.5.3 too)
     m_info.HDDTemp = XKHDD::GetHddSmartTemp();
   }
   else
@@ -100,15 +106,15 @@ const CSysData &CSysInfoJob::GetData() const
   return m_info;
 }
 
-CStdString CSysInfoJob::GetCPUFreqInfo()
+std::string CSysInfoJob::GetCPUFreqInfo()
 {
-  CStdString strCPUFreq;
+  std::string strCPUFreq;
   double CPUFreq = GetCPUFrequency();
-  strCPUFreq.Format("%4.2fMHz", CPUFreq);
+  strCPUFreq = StringUtils::Format("%4.2fMHz", CPUFreq);
   return strCPUFreq;
 }
 
-CStdString CSysInfoJob::GetInternetState()
+std::string CSysInfoJob::GetInternetState()
 {
 #ifdef HAS_XBOX_HARDWARE
   // check for ethernet link before checking for internet access
@@ -128,7 +134,7 @@ CStdString CSysInfoJob::GetInternetState()
     return g_localizeStrings.Get(13297);
 }
 
-CStdString CSysInfoJob::GetMACAddress()
+std::string CSysInfoJob::GetMACAddress()
 {
 #if defined(HAS_LINUX_NETWORK)
   CNetworkInterface* iface = g_application.getNetwork().GetFirstConnectedInterface();
@@ -139,36 +145,36 @@ CStdString CSysInfoJob::GetMACAddress()
 
   g_sysinfo.m_XKEEPROM->GetMACAddressString((LPSTR)&macaddress, ':');
 
-  CStdString strMacAddress;
-  strMacAddress.Format("%s", macaddress);
+  std::string strMacAddress;
+  strMacAddress = StringUtils::Format("%s", macaddress);
   return strMacAddress;
 }
 
-CStdString CSysInfoJob::GetVideoEncoder()
+std::string CSysInfoJob::GetVideoEncoder()
 {
 #ifndef _XBOX
   return "GPU: " + g_Windowing.GetRenderRenderer();
 #else
   int iTemp;
   if (HalReadSMBusValue(XKUtils::SMBDEV_VIDEO_ENCODER_CONNEXANT,XKUtils::VIDEO_ENCODER_CMD_DETECT,0,(LPBYTE)&iTemp)==0)
-  { 
-    CLog::Log(LOGDEBUG, "Video Encoder: CONNEXANT");  
-    return "CONNEXANT"; 
+  {
+    CLog::Log(LOGDEBUG, "Video Encoder: CONNEXANT");
+    return "CONNEXANT";
   }
   if (HalReadSMBusValue(XKUtils::SMBDEV_VIDEO_ENCODER_FOCUS,XKUtils::VIDEO_ENCODER_CMD_DETECT,0,(LPBYTE)&iTemp)==0)
-  { 
+  {
     CLog::Log(LOGDEBUG, "Video Encoder: FOCUS");
-    return "FOCUS";   
+    return "FOCUS";
   }
   if (HalReadSMBusValue(XKUtils::SMBDEV_VIDEO_ENCODER_XCALIBUR,XKUtils::VIDEO_ENCODER_CMD_DETECT,0,(LPBYTE)&iTemp)==0)
-  { 
-    CLog::Log(LOGDEBUG, "Video Encoder: XCALIBUR");   
+  {
+    CLog::Log(LOGDEBUG, "Video Encoder: XCALIBUR");
     return "XCALIBUR";
   }
-  else 
-  {  
-    CLog::Log(LOGDEBUG, "Video Encoder: UNKNOWN");  
-    return "UNKNOWN"; 
+  else
+  {
+    CLog::Log(LOGDEBUG, "Video Encoder: UNKNOWN");
+    return "UNKNOWN";
   }
 #endif
 }
@@ -216,9 +222,9 @@ bool CSysInfoJob::SystemUpTime(int iInputMinutes, int &iMinutes, int &iHours, in
   return true;
 }
 
-CStdString CSysInfoJob::GetSystemUpTime(bool bTotalUptime)
+std::string CSysInfoJob::GetSystemUpTime(bool bTotalUptime)
 {
-  CStdString strSystemUptime;
+  std::string strSystemUptime;
   int iInputMinutes, iMinutes,iHours,iDays;
 
   if(bTotalUptime)
@@ -235,21 +241,21 @@ CStdString CSysInfoJob::GetSystemUpTime(bool bTotalUptime)
   SystemUpTime(iInputMinutes,iMinutes, iHours, iDays);
   if (iDays > 0)
   {
-    strSystemUptime.Format("%i %s, %i %s, %i %s",
-      iDays,g_localizeStrings.Get(12393),
-      iHours,g_localizeStrings.Get(12392),
-      iMinutes, g_localizeStrings.Get(12391));
+    strSystemUptime = StringUtils::Format("%i %s, %i %s, %i %s",
+      iDays,g_localizeStrings.Get(12393).c_str(),
+      iHours,g_localizeStrings.Get(12392).c_str(),
+      iMinutes, g_localizeStrings.Get(12391).c_str());
   }
   else if (iDays == 0 && iHours >= 1 )
   {
-    strSystemUptime.Format("%i %s, %i %s",
-      iHours,g_localizeStrings.Get(12392),
-      iMinutes, g_localizeStrings.Get(12391));
+    strSystemUptime = StringUtils::Format("%i %s, %i %s",
+      iHours,g_localizeStrings.Get(12392).c_str(),
+      iMinutes, g_localizeStrings.Get(12391).c_str());
   }
   else if (iDays == 0 && iHours == 0 &&  iMinutes >= 0)
   {
-    strSystemUptime.Format("%i %s",
-      iMinutes, g_localizeStrings.Get(12391));
+    strSystemUptime = StringUtils::Format("%i %s",
+      iMinutes, g_localizeStrings.Get(12391).c_str());
   }
   return strSystemUptime;
 }
@@ -290,7 +296,7 @@ std::string CSysInfo::TranslateInfo(int info) const
   case SYSTEM_XBOX_BIOS:
     return m_info.xboxBios;
   case SYSTEM_XBOX_MODCHIP:
-    if (g_advancedSettings.m_DisableModChipDetection)
+    if (CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_DisableModChipDetection)
         return "Modchip lookup is disabled";
     return m_info.xboxModChip;
   // HDD request
@@ -319,6 +325,56 @@ std::string CSysInfo::TranslateInfo(int info) const
     return temp.IsValid() ? g_langInfo.GetTemperatureAsString(temp) : "N/A";
   }
 #endif
+  case NETWORK_LINK_STATE:
+    {
+      DWORD dwnetstatus = XNetGetEthernetLinkStatus();
+      if (dwnetstatus & XNET_ETHERNET_LINK_ACTIVE)
+      {
+        std::string linkStatus;
+        if (dwnetstatus & XNET_ETHERNET_LINK_100MBPS)
+          linkStatus += "100mbps ";
+        if (dwnetstatus & XNET_ETHERNET_LINK_10MBPS)
+          linkStatus += "10mbps ";
+        if (dwnetstatus & XNET_ETHERNET_LINK_FULL_DUPLEX)
+          linkStatus += g_localizeStrings.Get(153);
+        if (dwnetstatus & XNET_ETHERNET_LINK_HALF_DUPLEX)
+          linkStatus += g_localizeStrings.Get(152);
+        return linkStatus;
+      }
+      else
+        return g_localizeStrings.Get(159);
+    }
+  case NETWORK_IP_ADDRESS:
+    {
+      return CServiceBroker::GetNetwork().m_networkinfo.ip;
+    }
+    break;
+  case NETWORK_SUBNET_MASK:
+    {
+      return CServiceBroker::GetNetwork().m_networkinfo.subnet;
+    }
+    break;
+  case NETWORK_GATEWAY_ADDRESS:
+    {
+      return CServiceBroker::GetNetwork().m_networkinfo.gateway;
+    }
+    break;
+  case NETWORK_DNS1_ADDRESS:
+    {
+      return CServiceBroker::GetNetwork().m_networkinfo.DNS1;
+    }
+    break;
+  case NETWORK_DNS2_ADDRESS:
+    {
+      return CServiceBroker::GetNetwork().m_networkinfo.DNS2;
+    }
+    break;
+  case NETWORK_IS_DHCP:
+  {
+    if (CServiceBroker::GetNetwork().m_networkinfo.DHCP)
+      return g_localizeStrings.Get(148);
+    return g_localizeStrings.Get(147);
+  }
   case SYSTEM_UPTIME:
     return m_info.systemUptime;
   case SYSTEM_TOTALUPTIME:
@@ -398,9 +454,9 @@ struct Bios * CSysInfo::LoadBiosSigns()
 char* CSysInfo::MD5Buffer(char *buffer, long PosizioneInizio,int KBytes)
 {
   XBMC::XBMC_MD5 mdContext;
-  CStdString md5sumstring;
+  std::string md5sumstring;
   mdContext.append((unsigned char *)(buffer + PosizioneInizio), KBytes * 1024);
-  mdContext.getDigest(md5sumstring);
+  md5sumstring = mdContext.getDigest();
   strcpy(MD5_Sign, md5sumstring.c_str());
   return MD5_Sign;
 }
@@ -463,7 +519,7 @@ void CSysInfo::WriteTXTInfoFile()
   BOOL retVal = FALSE;
   DWORD dwBytesWrote = 0;
   CHAR tmpData[SYSINFO_TMP_SIZE];
-  CStdString tmpstring;
+  std::string tmpstring;
   LPSTR tmpFileStr = new CHAR[2048];
   ZeroMemory(tmpData, SYSINFO_TMP_SIZE);
   ZeroMemory(tmpFileStr, 2048);
@@ -620,7 +676,7 @@ bool CSysInfo::CreateEEPROMBackup()
   m_XKEEPROM->WriteToCFGFile(XBOX_EEPROM_CFG_BACKUP_FILE);
   return true;
 }
-bool CSysInfo::CheckBios(CStdString& strDetBiosNa)
+bool CSysInfo::CheckBios(std::string& strDetBiosNa)
 {
   BYTE data;
   char *BIOS_Name;
@@ -691,7 +747,7 @@ bool CSysInfo::CheckBios(CStdString& strDetBiosNa)
             return true;
         }
         else
-        { 
+        {
           CLog::Log(LOGINFO, "- BIOS: This is not a 256KB Bios!");
           // 512k Bios MD5
           if ((MD5BufferNew(flash_copy,0,512)) == (MD5BufferNew(flash_copy,524288,512)))
@@ -754,7 +810,7 @@ bool CSysInfo::CheckBios(CStdString& strDetBiosNa)
   free(BIOS_Name);
   return false;
 }
-bool CSysInfo::GetXBOXVersionDetected(CStdString& strXboxVer)
+bool CSysInfo::GetXBOXVersionDetected(std::string& strXboxVer)
 {
   unsigned int iTemp;
   char Ver[6];
@@ -776,11 +832,11 @@ bool CSysInfo::GetXBOXVersionDetected(CStdString& strXboxVer)
     else {  strXboxVer = "v1.2/v1.3";   return true;}
   }
   else if ( strcmp(Ver,("P2L")) == NULL){ strXboxVer = "v1.6";  return true;}
-  else  { strXboxVer.Format("UNKNOWN: Please report this --> %s",Ver); return true;
+  else  { strXboxVer = StringUtils::Format("UNKNOWN: Please report this --> %s",Ver); return true;
   }
 }
 
-bool CSysInfo::GetDVDInfo(CStdString& strDVDModel, CStdString& strDVDFirmware)
+bool CSysInfo::GetDVDInfo(std::string& strDVDModel, std::string& strDVDFirmware)
 {
   XKHDD::ATA_COMMAND_OBJ hddcommand;
   DWORD slen = 0;
@@ -798,23 +854,23 @@ bool CSysInfo::GetDVDInfo(CStdString& strDVDModel, CStdString& strDVDFirmware)
     ZeroMemory(&lpsDVDModel,100);
     XKHDD::GetIDEModel(hddcommand.DATA_BUFFER, lpsDVDModel);
     CLog::Log(LOGDEBUG, "DVD Model: %s",lpsDVDModel);
-    strDVDModel.Format("%s",lpsDVDModel);
+    strDVDModel = StringUtils::Format("%s",lpsDVDModel);
 
     //Get DVD FirmWare...
     CHAR lpsDVDFirmware[100];
     ZeroMemory(&lpsDVDFirmware,100);
     XKHDD::GetIDEFirmWare(hddcommand.DATA_BUFFER, lpsDVDFirmware);
     CLog::Log(LOGDEBUG, "DVD Firmware: %s",lpsDVDFirmware);
-    strDVDFirmware.Format("%s",lpsDVDFirmware);
+    strDVDFirmware = StringUtils::Format("%s",lpsDVDFirmware);
     m_dvdRequest= true;
   }
   //check if the requested values are empty to reset the request..
-  if(m_dvdRequest && strDVDModel.IsEmpty() && strDVDFirmware.IsEmpty())
+  if(m_dvdRequest && strDVDModel.empty() && strDVDFirmware.empty())
     m_dvdRequest=false;
 
   return m_dvdRequest;
 }
-bool CSysInfo::GetHDDInfo(CStdString& strHDDModel, CStdString& strHDDSerial,CStdString& strHDDFirmware,CStdString& strHDDpw,CStdString& strHDDLockState)
+bool CSysInfo::GetHDDInfo(std::string& strHDDModel, std::string& strHDDSerial,std::string& strHDDFirmware,std::string& strHDDpw,std::string& strHDDLockState)
 {
   XKHDD::ATA_COMMAND_OBJ hddcommand;
 
@@ -828,24 +884,24 @@ bool CSysInfo::GetHDDInfo(CStdString& strHDDModel, CStdString& strHDDSerial,CStd
     //Get Model Name
     CHAR lpsHDDModel[100] = "";
     XKHDD::GetIDEModel(hddcommand.DATA_BUFFER, lpsHDDModel);
-    strHDDModel.Format("%s",lpsHDDModel);
+    strHDDModel = StringUtils::Format("%s",lpsHDDModel);
 
     //Get Serial...
     CHAR lpsHDDSerial[100] = "";
     XKHDD::GetIDESerial(hddcommand.DATA_BUFFER, lpsHDDSerial);
-    strHDDSerial.Format("%s", lpsHDDSerial);
+    strHDDSerial = StringUtils::Format("%s", lpsHDDSerial);
 
     //Get HDD FirmWare...
     CHAR lpsHDDFirmware[100] = "";
     XKHDD::GetIDEFirmWare(hddcommand.DATA_BUFFER, lpsHDDFirmware);
-    strHDDFirmware.Format("%s", lpsHDDFirmware);
+    strHDDFirmware = StringUtils::Format("%s", lpsHDDFirmware);
 
     //Print HDD Password...
     BYTE pbHDDPassword[32] = "";
     CHAR lpsHDDPassword[65] = "";
     XKHDD::GenerateHDDPwd((UCHAR *)XboxHDKey, hddcommand.DATA_BUFFER, pbHDDPassword);
     XKGeneral::BytesToHexStr(pbHDDPassword, 20, lpsHDDPassword);
-    strHDDpw.Format("%s", lpsHDDPassword);
+    strHDDpw = StringUtils::Format("%s", lpsHDDPassword);
 
     //Get ATA Locked State
     DWORD SecStatus = XKHDD::GetIDESecurityStatus(hddcommand.DATA_BUFFER);
@@ -863,11 +919,11 @@ bool CSysInfo::GetHDDInfo(CStdString& strHDDModel, CStdString& strHDDSerial,CStd
     if (XKHDD::IsSmartSupported(hddcommand.DATA_BUFFER))
     {
       m_bSmartSupported = true;
-      CLog::Log(LOGNOTICE, "HDD: SMART is supported.");
+      CLog::Log(LOGINFO, "HDD: SMART is supported.");
       if (XKHDD::IsSmartEnabled(hddcommand.DATA_BUFFER))
       {
         m_bSmartEnabled = true;
-        CLog::Log(LOGNOTICE, "HDD: SMART is enabled.");
+        CLog::Log(LOGINFO, "HDD: SMART is enabled.");
       }
     }
 
@@ -875,12 +931,12 @@ bool CSysInfo::GetHDDInfo(CStdString& strHDDModel, CStdString& strHDDSerial,CStd
     m_hddRequest = true;
   }
   //check if the requested values are empty to reset the request..
-  if(m_hddRequest && strHDDModel.IsEmpty() && strHDDSerial.IsEmpty())
+  if(m_hddRequest && strHDDModel.empty() && strHDDSerial.empty())
     m_hddRequest = false;
 
   return m_hddRequest;
 }
-bool CSysInfo::GetRefurbInfo(CStdString& rfi_FirstBootTime, CStdString& rfi_PowerCycleCount)
+bool CSysInfo::GetRefurbInfo(std::string& rfi_FirstBootTime, std::string& rfi_PowerCycleCount)
 {
   XBOX_REFURB_INFO xri;
   SYSTEMTIME sys_time;
@@ -888,14 +944,14 @@ bool CSysInfo::GetRefurbInfo(CStdString& rfi_FirstBootTime, CStdString& rfi_Powe
     return false;
 
   FileTimeToSystemTime((FILETIME*)&xri.FirstBootTime, &sys_time);
-  rfi_FirstBootTime.Format("%d-%d-%d %d:%02d", 
-    sys_time.wMonth, 
-    sys_time.wDay, 
+  rfi_FirstBootTime = StringUtils::Format("%d-%d-%d %d:%02d",
+    sys_time.wMonth,
+    sys_time.wDay,
     sys_time.wYear,
     sys_time.wHour,
     sys_time.wMinute);
 
-  rfi_PowerCycleCount.Format("%d", xri.PowerCycleCount);
+  rfi_PowerCycleCount = StringUtils::Format("%d", xri.PowerCycleCount);
   return true;
 }
 #endif
@@ -930,12 +986,12 @@ bool CSysInfo::Save(TiXmlNode *settings) const
   return true;
 }
 
-bool CSysInfo::GetDiskSpace(const CStdString drive,int& iTotal, int& iTotalFree, int& iTotalUsed, int& iPercentFree, int& iPercentUsed)
+bool CSysInfo::GetDiskSpace(const std::string drive,int& iTotal, int& iTotalFree, int& iTotalUsed, int& iPercentFree, int& iPercentUsed)
 {
-  CStdString driveName = drive + ":\\";
+  std::string driveName = drive + ":\\";
   ULARGE_INTEGER total, totalFree, totalUsed;
 
-  if (drive.IsEmpty() || drive.Equals("*")) //All Drives
+  if (drive.empty() || drive == "*") //All Drives
   {
     ULARGE_INTEGER totalC, totalFreeC;
     ULARGE_INTEGER totalE, totalFreeE;
@@ -944,7 +1000,7 @@ bool CSysInfo::GetDiskSpace(const CStdString drive,int& iTotal, int& iTotalFree,
     ULARGE_INTEGER totalX, totalFreeX;
     ULARGE_INTEGER totalY, totalFreeY;
     ULARGE_INTEGER totalZ, totalFreeZ;
-    
+
     BOOL bC = GetDiskFreeSpaceEx("C:\\", NULL, &totalC, &totalFreeC);
     BOOL bE = GetDiskFreeSpaceEx("E:\\", NULL, &totalE, &totalFreeE);
     BOOL bF = GetDiskFreeSpaceEx("F:\\", NULL, &totalF, &totalFreeF);
@@ -952,7 +1008,7 @@ bool CSysInfo::GetDiskSpace(const CStdString drive,int& iTotal, int& iTotalFree,
     BOOL bX = GetDiskFreeSpaceEx("X:\\", NULL, &totalX, &totalFreeX);
     BOOL bY = GetDiskFreeSpaceEx("Y:\\", NULL, &totalY, &totalFreeY);
     BOOL bZ = GetDiskFreeSpaceEx("Z:\\", NULL, &totalZ, &totalFreeZ);
-    
+
     total.QuadPart = (bC?totalC.QuadPart:0)+
       (bE?totalE.QuadPart:0)+
       (bF?totalF.QuadPart:0)+
@@ -967,7 +1023,7 @@ bool CSysInfo::GetDiskSpace(const CStdString drive,int& iTotal, int& iTotalFree,
       (bX?totalFreeX.QuadPart:0)+
       (bY?totalFreeY.QuadPart:0)+
       (bZ?totalFreeZ.QuadPart:0);
-    
+
     iTotal = (int)(total.QuadPart/MB);
     iTotalFree = (int)(totalFree.QuadPart/MB);
     iTotalUsed = (int)((total.QuadPart - totalFree.QuadPart)/MB);
@@ -1014,7 +1070,7 @@ double CSysInfo::RDTSC(void)
   return x;
 }
 
-CStdString CSysInfo::GetModCHIPDetected()
+std::string CSysInfo::GetModCHIPDetected()
 {
   CXBoxFlash *mbFlash=new CXBoxFlash(); //Max description Leng= 40
   {
@@ -1191,7 +1247,7 @@ CStdString CSysInfo::GetModCHIPDetected()
     mbFlash->AddFCI(0xda,0xb6,"Winbond W39L040",0x80000);
     mbFlash->AddFCI(0xda,0x3d,"Winbond W39V040A",0x80000);
   }
-  CStdString strTemp = "", strTemp1 = "", strTemp2 = "";
+  std::string strTemp = "", strTemp1 = "", strTemp2 = "";
   if (mbFlash->CheckID()!=0 || mbFlash->CheckID2()!=0)
   {
     CLog::Log(LOGDEBUG, "- Detected TSOP/ModChip: %s",mbFlash->CheckID()->text);
@@ -1205,7 +1261,7 @@ CStdString CSysInfo::GetModCHIPDetected()
   {
     CLog::Log(LOGDEBUG, "- Detected TSOP/MOdCHIP: Detection does not match! (%s != %s)",strTemp1.c_str(),strTemp2.c_str());
     CLog::Log(LOGDEBUG, "- Detected TSOP/ModChip: Using -> %s",strTemp1.c_str());
-    strTemp.Format("%s",strTemp1.c_str());
+    strTemp = StringUtils::Format("%s",strTemp1.c_str());
   }
   else strTemp = strTemp2;
 
@@ -1214,17 +1270,17 @@ CStdString CSysInfo::GetModCHIPDetected()
   return strTemp;
 }
 
-CStdString CSysInfo::MD5BufferNew(char *buffer,long PosizioneInizio,int KBytes)
+std::string CSysInfo::MD5BufferNew(char *buffer,long PosizioneInizio,int KBytes)
 {
-  CStdString strReturn;
+  std::string strReturn;
   XBMC::XBMC_MD5 mdContext;
   mdContext.append((unsigned char *)(buffer + PosizioneInizio), KBytes * 1024);
-  mdContext.getDigest(strReturn);
+  strReturn = mdContext.getDigest();
   return strReturn;
 }
 
-CStdString CSysInfo::GetAVPackInfo()
-{  
+std::string CSysInfo::GetAVPackInfo()
+{
   //AV-Pack Detection PICReg(0x04)
   int cAVPack;
   HalReadSMBusValue(0x20,XKUtils::PIC16L_CMD_AV_PACK,0,(LPBYTE)&cAVPack);
@@ -1240,7 +1296,7 @@ CStdString CSysInfo::GetAVPackInfo()
   else return "Unknown";
 }
 
-CStdString CSysInfo::SmartXXModCHIP()
+std::string CSysInfo::SmartXXModCHIP()
 {
   // SmartXX ModChip Detection
   unsigned char uSmartXX_ID = ((_inp(0xf701)) & 0xf);
@@ -1253,13 +1309,13 @@ CStdString CSysInfo::SmartXXModCHIP()
     return "SmartXX OPX";
   else if ( uSmartXX_ID == 8 ) // SmartXX V3
     return "SmartXX V3";
-  else 
+  else
     return "None";
 }
 
-CStdString CSysInfo::GetMPlayerVersion()
+std::string CSysInfo::GetMPlayerVersion()
 {
-  CStdString strVersion="";
+  std::string strVersion="";
   DllLoader* mplayerDll;
   const char* (__cdecl* pMplayerGetVersion)();
   const char* (__cdecl* pMplayerGetCompileDate)();
@@ -1281,40 +1337,40 @@ CStdString CSysInfo::GetMPlayerVersion()
       btime = pMplayerGetCompileTime();
     if (version && date && btime)
     {
-      strVersion.Format("%s (%s - %s)",version, date, btime);
+      strVersion = StringUtils::Format("%s (%s - %s)",version, date, btime);
     }
     else if (version)
     {
-      strVersion.Format("%s",version);
+      strVersion = StringUtils::Format("%s",version);
     }
   }
   delete mplayerDll;
   mplayerDll=NULL;
   return strVersion;
 }
-CStdString CSysInfo::GetKernelVersion()
+std::string CSysInfo::GetKernelVersion()
 {
   int ikrnl = XboxKrnlVersion->Qfe & 67;
   CLog::Log(LOGDEBUG, "- XBOX Kernel Qfe= %i", XboxKrnlVersion->Qfe);
   CLog::Log(LOGDEBUG, "- XBOX Kernel Drive FG result= %i", ikrnl);
-  CStdString strKernel;
-  strKernel.Format("%u.%u.%u.%u", XboxKrnlVersion->VersionMajor,XboxKrnlVersion->VersionMinor,XboxKrnlVersion->Build,XboxKrnlVersion->Qfe);
+  std::string strKernel;
+  strKernel = StringUtils::Format("%u.%u.%u.%u", XboxKrnlVersion->VersionMajor,XboxKrnlVersion->VersionMinor,XboxKrnlVersion->Build,XboxKrnlVersion->Qfe);
   return strKernel;
 }
 bool CSysInfo::HasInternet() const
 {
   return m_info.haveInternetState;
 }
-CStdString CSysInfo::GetXBVerInfo()
+std::string CSysInfo::GetXBVerInfo()
 {
-  CStdString strXBOXVersion;
+  std::string strXBOXVersion;
   if (GetXBOXVersionDetected(strXBOXVersion))
     return strXBOXVersion;
-  else 
+  else
     return g_localizeStrings.Get(13205); // "Unknown"
 }
 
-CStdString CSysInfo::GetUnits(int iFrontPort)
+std::string CSysInfo::GetUnits(int iFrontPort)
 {
   // Get the Connected Units on the Front USB Ports!
   DWORD dwDeviceGamePad = XGetDevices(XDEVICE_TYPE_GAMEPAD);
@@ -1367,33 +1423,38 @@ CStdString CSysInfo::GetUnits(int iFrontPort)
   bHeadSet = dwDeviceHeadPhone > 0 && dwDeviceHeadPhone == iFrontPort;
   bMic = dwDeviceMicroPhone > 0 && dwDeviceMicroPhone == iFrontPort;
   bIR = dwDeviceIRRemote > 0 && dwDeviceIRRemote == iFrontPort;
-  
-  CStdString strReturn;
+
+  std::string strReturn;
   if (iFrontPort==4) iFrontPort = 3;
   if (iFrontPort==8) iFrontPort = 4;
-  strReturn.Format("%s%s%s%s%s%s%s%s%s%s%s", 
-    bPad ? g_localizeStrings.Get(38730):"", bPad && bKeyb ? ", ":"", bPad && bMem ? ", ":"", bPad && (bHeadSet || bMic) ? ", ":"",
-    bHeadSet || bMic ? g_localizeStrings.Get(38733):"", (bHeadSet || bMic) && bMem ? ", ":"",
-    bMem ? g_localizeStrings.Get(38734):"", bMem && bIR ? ", ":"",
-    bIR ? g_localizeStrings.Get(38735):""
+  strReturn = StringUtils::Format("%s%s%s%s%s%s%s%s%s",
+    bPad ? g_localizeStrings.Get(38730).c_str() : "", 
+    bPad && bKeyb ? ", " : "",
+    bPad && bMem ? ", " : "",
+    bPad && (bHeadSet || bMic) ? ", " : "",
+    bHeadSet || bMic ? g_localizeStrings.Get(38733).c_str() : "",
+    (bHeadSet || bMic) && bMem ? ", " : "",
+    bMem ? g_localizeStrings.Get(38734).c_str() : "",
+    bMem && bIR ? ", " : "",
+    bIR ? g_localizeStrings.Get(38735).c_str() : ""
     );
 
   return strReturn;
 }
 
-CStdString CSysInfo::GetXBOXSerial()
+std::string CSysInfo::GetXBOXSerial()
 {
   CHAR serial[SERIALNUMBER_SIZE + 1] = "";
   m_XKEEPROM->GetSerialNumberString(serial);
 
-  CStdString strXBOXSerial;
-  strXBOXSerial.Format("%s", serial);
-  return strXBOXSerial;  
+  std::string strXBOXSerial;
+  strXBOXSerial = StringUtils::Format("%s", serial);
+  return strXBOXSerial;
 }
 
-CStdString CSysInfo::GetXBProduceInfo()
+std::string CSysInfo::GetXBProduceInfo()
 {
-  CStdString serial = GetXBOXSerial();
+  std::string serial = GetXBOXSerial();
   // Print XBOX Production Place and Date
   char *info = (char *) serial.c_str();
   char *country;
@@ -1415,41 +1476,41 @@ CStdString CSysInfo::GetXBProduceInfo()
     country = "Unknown";
     break;
   }
-  
+
   CLog::Log(LOGDEBUG, "- XBOX production info: Country: %s, LineNumber: %c, Week %c%c, Year 200%c", country, info[0x00], info[0x08], info[0x09],info[0x07]);
-  CStdString strXBProDate;
-  strXBProDate.Format("%s, %s 200%c, %s: %c%c %s: %c",
-    country, 
-    g_localizeStrings.Get(201),
+  std::string strXBProDate;
+  strXBProDate = StringUtils::Format("%s, %s 200%c, %s: %c%c %s: %c",
+    country,
+    g_localizeStrings.Get(201).c_str(),
     info[0x07],
-    g_localizeStrings.Get(20169),
+    g_localizeStrings.Get(20169).c_str(),
     info[0x08],
     info[0x09],
-    g_localizeStrings.Get(20170),
+    g_localizeStrings.Get(20170).c_str(),
     info[0x00]);
   return strXBProDate;
 }
 
-CStdString CSysInfo::GetVideoXBERegion()
+std::string CSysInfo::GetVideoXBERegion()
 {
   //Print Video Standard & XBE Region...
-  CStdString XBEString, VideoStdString;
+  std::string XBEString, VideoString;
   switch (m_XKEEPROM->GetVideoStandardVal())
   {
   case XKEEPROM::NTSC_J:
-    VideoStdString = "NTSC J";
+    VideoString = "NTSC J";
     break;
   case XKEEPROM::NTSC_M:
-    VideoStdString = "NTSC M";
+    VideoString = "NTSC M";
     break;
   case XKEEPROM::PAL_I:
-    VideoStdString = "PAL I";
+    VideoString = "PAL I";
     break;
   case XKEEPROM::PAL_M:
-    VideoStdString = "PAL M";
+    VideoString = "PAL M";
     break;
   default:
-    VideoStdString = g_localizeStrings.Get(13205); // "Unknown"
+    VideoString = g_localizeStrings.Get(13205); // "Unknown"
   }
 
   switch(m_XKEEPROM->GetXBERegionVal())
@@ -1467,84 +1528,77 @@ CStdString CSysInfo::GetVideoXBERegion()
     XBEString = g_localizeStrings.Get(13205); // "Unknown"
   }
 
-  CStdString strVideoXBERegion;
-  strVideoXBERegion.Format("%s, %s", VideoStdString, XBEString);
+  std::string strVideoXBERegion = StringUtils::Format("%s, %s", VideoString.c_str(), XBEString.c_str());
   return strVideoXBERegion;
 }
 
-CStdString CSysInfo::GetDVDZone()
+std::string CSysInfo::GetDVDZone()
 {
   //Print DVD [Region] Zone ..
   DVD_ZONE dvdVal;
   dvdVal = m_XKEEPROM->GetDVDRegionVal();
-  CStdString strdvdzone;
-  strdvdzone.Format("%d", dvdVal);
-  return strdvdzone;
+  return StringUtils::Format("%d", dvdVal);
 }
 
-CStdString CSysInfo::GetXBLiveKey()
+std::string CSysInfo::GetXBLiveKey()
 {
   //Print XBLIVE Online Key..
   char livekey[ONLINEKEY_SIZE * 2 + 1] = "";
   m_XKEEPROM->GetOnlineKeyString(livekey);
 
-  CStdString strXBLiveKey;
-  strXBLiveKey.Format("%s", livekey);
-  return strXBLiveKey;
+  return StringUtils::Format("%s", livekey);
 }
 
-CStdString CSysInfo::GetHDDKey()
+std::string CSysInfo::GetHDDKey()
 {
   //Print HDD Key...
   char hdkey[HDDKEY_SIZE * 2 + 1];
   m_XKEEPROM->GetHDDKeyString((LPSTR)&hdkey);
 
-  CStdString strhddlockey;
-  strhddlockey.Format("%s", hdkey);
-  return strhddlockey;
+  return StringUtils::Format("%s", hdkey);
 }
 
-CStdString CSysInfo::GetModChipInfo()
+std::string CSysInfo::GetModChipInfo()
 {
-  CStdString strModChipInfo;
+  std::string strModChipInfo;
   // XBOX Modchip Type Detection
-  CStdString ModChip = GetModCHIPDetected();
-  CStdString SmartXX = SmartXXModCHIP();
-  
+  std::string ModChip = GetModCHIPDetected();
+  std::string SmartXX = SmartXXModCHIP();
+
   // Check if it is a SmartXX
-  if (!SmartXX.Equals("None"))
+  if (SmartXX != "None")
   {
-    strModChipInfo.Format("%s %s", g_localizeStrings.Get(38741), SmartXX);
+    strModChipInfo = StringUtils::Format("%s %s", g_localizeStrings.Get(38741).c_str(), SmartXX.c_str());
     CLog::Log(LOGDEBUG, "- Detected ModChip: %s",SmartXX.c_str());
   }
   else
   {
-    if ( !ModChip.Equals("Unknown/Onboard TSOP (protected)"))
+    if ( ModChip != "Unknown/Onboard TSOP (protected)")
     {
-      strModChipInfo.Format("%s %s", g_localizeStrings.Get(38741), ModChip);
+      strModChipInfo = StringUtils::Format("%s %s", g_localizeStrings.Get(38741).c_str(), ModChip.c_str());
     }
     else
     {
-      strModChipInfo.Format("%s %s", g_localizeStrings.Get(38741), g_localizeStrings.Get(20311));
+      strModChipInfo = StringUtils::Format("%s %s", g_localizeStrings.Get(38741).c_str(), g_localizeStrings.Get(20311).c_str());
     }
   }
   return strModChipInfo;
 }
 
-CStdString CSysInfo::GetBIOSInfo()
+std::string CSysInfo::GetBIOSInfo()
 {
   //Format bios informations
-  CStdString cBIOSName;
+  std::string cBIOSName;
   if(CheckBios(cBIOSName))
     return cBIOSName;
   else
     return "File: BiosIDs.ini Not Found!";
 }
 
-CStdString CSysInfo::GetTrayState()
+std::string CSysInfo::GetTrayState()
 {
   // Set DVD Drive State! [TrayOpen, NotReady....]
-  CStdString trayState = "D: ";
+  std::string trayState = "D: ";
   switch (CIoSupport::GetTrayState())
   {
   case TRAY_OPEN:
@@ -1567,19 +1621,19 @@ CStdString CSysInfo::GetTrayState()
 }
 #endif
 
-CStdString CSysInfo::GetHddSpaceInfo(int drive, bool shortText)
+std::string CSysInfo::GetHddSpaceInfo(int drive, bool shortText)
 {
  int percent;
  return GetHddSpaceInfo( percent, drive, shortText);
 }
 
-CStdString CSysInfo::GetHddSpaceInfo(int& percent, int drive, bool shortText)
+std::string CSysInfo::GetHddSpaceInfo(int& percent, int drive, bool shortText)
 {
   int total, totalFree, totalUsed, percentFree, percentused;
-  CStdString strDrive; 
+  std::string strDrive;
   bool bRet=false;
   percent = 0;
-  CStdString strRet;
+  std::string strRet;
   switch (drive)
   {
     case SYSTEM_FREE_SPACE:
@@ -1654,7 +1708,7 @@ CStdString CSysInfo::GetHddSpaceInfo(int& percent, int drive, bool shortText)
         case LCD_FREE_SPACE_E:
         case LCD_FREE_SPACE_F:
         case LCD_FREE_SPACE_G:
-          strRet.Format("%iMB", totalFree);
+          strRet = StringUtils::Format("%iMB", totalFree);
           break;
         case SYSTEM_FREE_SPACE:
         case SYSTEM_FREE_SPACE_C:
@@ -1690,10 +1744,10 @@ CStdString CSysInfo::GetHddSpaceInfo(int& percent, int drive, bool shortText)
       case SYSTEM_FREE_SPACE_X:
       case SYSTEM_FREE_SPACE_Y:
       case SYSTEM_FREE_SPACE_Z:
-        if (strDrive.IsEmpty())
-          strRet.Format("%i MB %s", totalFree, g_localizeStrings.Get(160));
+        if (strDrive.empty())
+          strRet = StringUtils::Format("%i MB %s", totalFree, g_localizeStrings.Get(160).c_str());
         else
-          strRet.Format("%s: %i MB %s", strDrive, totalFree, g_localizeStrings.Get(160));
+          strRet = StringUtils::Format("%s: %i MB %s", strDrive.c_str(), totalFree, g_localizeStrings.Get(160).c_str());
         break;
       case SYSTEM_USED_SPACE:
       case SYSTEM_USED_SPACE_C:
@@ -1703,40 +1757,40 @@ CStdString CSysInfo::GetHddSpaceInfo(int& percent, int drive, bool shortText)
       case SYSTEM_USED_SPACE_X:
       case SYSTEM_USED_SPACE_Y:
       case SYSTEM_USED_SPACE_Z:
-        if (strDrive.IsEmpty())
-          strRet.Format("%i MB %s", totalUsed, g_localizeStrings.Get(20162));
+        if (strDrive.empty())
+          strRet = StringUtils::Format("%i MB %s", totalUsed, g_localizeStrings.Get(20162).c_str());
         else
-          strRet.Format("%s: %i MB %s", strDrive, totalUsed, g_localizeStrings.Get(20162));
+          strRet = StringUtils::Format("%s: %i MB %s", strDrive.c_str(), totalUsed, g_localizeStrings.Get(20162).c_str());
         break;
       case SYSTEM_TOTAL_SPACE:
       case SYSTEM_TOTAL_SPACE_C:
       case SYSTEM_TOTAL_SPACE_E:
       case SYSTEM_TOTAL_SPACE_F:
       case SYSTEM_TOTAL_SPACE_G:
-        if (strDrive.IsEmpty())
-          strRet.Format("%i MB %s", total, g_localizeStrings.Get(20161));
+        if (strDrive.empty())
+          strRet = StringUtils::Format("%i MB %s", total, g_localizeStrings.Get(20161).c_str());
         else
-          strRet.Format("%s: %i MB %s", strDrive, total, g_localizeStrings.Get(20161));
+          strRet = StringUtils::Format("%s: %i MB %s", strDrive.c_str(), total, g_localizeStrings.Get(20161).c_str());
         break;
       case SYSTEM_FREE_SPACE_PERCENT:
       case SYSTEM_FREE_SPACE_PERCENT_C:
       case SYSTEM_FREE_SPACE_PERCENT_E:
       case SYSTEM_FREE_SPACE_PERCENT_F:
       case SYSTEM_FREE_SPACE_PERCENT_G:
-        if (strDrive.IsEmpty())
-          strRet.Format("%i %% %s", percentFree, g_localizeStrings.Get(160));
+        if (strDrive.empty())
+          strRet = StringUtils::Format("%i %% %s", percentFree, g_localizeStrings.Get(160).c_str());
         else
-          strRet.Format("%s: %i %% %s", strDrive, percentFree, g_localizeStrings.Get(160));
+          strRet = StringUtils::Format("%s: %i %% %s", strDrive.c_str(), percentFree, g_localizeStrings.Get(160).c_str());
         break;
       case SYSTEM_USED_SPACE_PERCENT:
       case SYSTEM_USED_SPACE_PERCENT_C:
       case SYSTEM_USED_SPACE_PERCENT_E:
       case SYSTEM_USED_SPACE_PERCENT_F:
       case SYSTEM_USED_SPACE_PERCENT_G:
-        if (strDrive.IsEmpty())
-          strRet.Format("%i %% %s", percentused, g_localizeStrings.Get(20162));
+        if (strDrive.empty())
+          strRet = StringUtils::Format("%i %% %s", percentused, g_localizeStrings.Get(20162).c_str());
         else
-          strRet.Format("%s: %i %% %s", strDrive, percentused, g_localizeStrings.Get(20162));
+          strRet = StringUtils::Format("%s: %i %% %s", strDrive.c_str(), percentused, g_localizeStrings.Get(20162).c_str());
         break;
       }
     }
@@ -1745,27 +1799,17 @@ CStdString CSysInfo::GetHddSpaceInfo(int& percent, int drive, bool shortText)
   {
     if (shortText)
       strRet = "N/A";
-    else if (strDrive.IsEmpty())
+    else if (strDrive.empty())
       strRet = g_localizeStrings.Get(161);
     else
-      strRet.Format("%s: %s", strDrive, g_localizeStrings.Get(161));
+      strRet = StringUtils::Format("%s: %s", strDrive.c_str(), g_localizeStrings.Get(161).c_str());
   }
   return strRet;
 }
 
-CStdString CSysInfo::GetUserAgent()
+std::string CSysInfo::GetUserAgent()
 {
-  CStdString result;
-  result = "XBMC/" + g_infoManager.GetLabel(SYSTEM_BUILD_VERSION) + " (";
-#if defined(_WIN32PC)
-  result += "Windows; ";
-  result += GetKernelVersion();
-#else
-  result += "Xbox";
-#endif
-  result += "; http://www.xbmc.org)";
-
-  return result;
+  return "XBMC/OGXbox";
 }
 
 CJob *CSysInfo::GetJob() const

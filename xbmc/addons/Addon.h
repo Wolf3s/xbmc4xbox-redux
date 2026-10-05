@@ -1,243 +1,491 @@
-#pragma once
 /*
- *      Copyright (C) 2005-2013 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include "IAddon.h"
-#include "addons/AddonVersion.h"
-#include "utils/XBMCTinyXML.h"
-#include "guilib/LocalizeStrings.h"
-#include "utils/ISerializable.h"
+#pragma once
+
+#include "addons/IAddon.h"
+
+#include <memory>
+#include <string>
+#include <boost/unordered_map.hpp>
 #include <vector>
 
-class TiXmlElement;
-class CAddonCallbacksAddon;
-class CVariant;
-
-typedef struct cp_plugin_info_t cp_plugin_info_t;
-typedef struct cp_extension_t cp_extension_t;
+class CXBMCTinyXML;
 
 namespace ADDON
 {
-  typedef std::vector<AddonPtr> VECADDONS;
-  typedef std::vector<AddonPtr>::iterator IVECADDONS;
 
-  const char* const ORIGIN_SYSTEM = "b6a50484-93a0-4afb-a01c-8d17e059feda";
+class CAddonType;
 
-// utils
-std::string TranslateType(TYPE type, bool pretty=false);
-std::string GetIcon(TYPE type);
-TYPE TranslateType(const std::string &string);
+class CAddonInfo;
+typedef boost::shared_ptr<CAddonInfo> AddonInfoPtr;
 
-void OnEnabled(const std::string& id);
-void OnDisabled(const std::string& id);
 void OnPreInstall(const AddonPtr& addon);
 void OnPostInstall(const AddonPtr& addon, bool update, bool modal);
 void OnPreUnInstall(const AddonPtr& addon);
 void OnPostUnInstall(const AddonPtr& addon);
 
-
-class AddonProps
-{
-public:
-  AddonProps() : type(ADDON_UNKNOWN), packageSize(0), version("0.0.0"), minversion("0.0.0") {};
-  AddonProps(std::string id, TYPE type) : id(boost::move(id)), type(type), packageSize(0), version("0.0.0"), minversion("0.0.0") {}
-
-  std::string id;
-  TYPE type;
-  AddonVersion version;
-  AddonVersion minversion;
-  std::string name;
-  std::string license;
-  std::string summary;
-  std::string description;
-  std::string libname;
-  std::string author;
-  std::string source;
-  std::string path;
-  std::string changelog;
-  std::string icon;
-  std::map<std::string, std::string> art;
-  std::vector<std::string> screenshots;
-  std::string disclaimer;
-  ADDONDEPS dependencies;
-  std::string broken;
-  InfoMap extrainfo;
-  CDateTime installDate;
-  CDateTime lastUpdated;
-  CDateTime lastUsed;
-  std::string origin;
-  uint64_t packageSize;
-};
-
-
 class CAddon : public IAddon
 {
 public:
-  explicit CAddon(AddonProps props);
+  explicit CAddon(const AddonInfoPtr& addonInfo, AddonType::Type addonType);
   virtual ~CAddon() {}
 
-  TYPE Type() const { return m_props.type; }
-  TYPE FullType() const { return Type(); }
-  bool IsType(TYPE type) const { return type == m_props.type; }
-  std::string ID() const{ return m_props.id; }
-  std::string Name() const { return m_props.name; }
-  bool IsInUse() const{ return false; };
-  AddonVersion Version() const { return m_props.version; }
-  AddonVersion MinVersion() const { return m_props.minversion; }
-  std::string Summary() const { return m_props.summary; }
-  std::string Description() const { return m_props.description; }
-  std::string Path() const { return m_props.path; }
-  std::string Profile() const { return m_profilePath; }
-  std::string LibPath() const;
-  std::string Author() const { return m_props.author; }
-  std::string ChangeLog() const { return m_props.changelog; }
-  std::string Icon() const { return m_props.icon; };
-  ArtMap Art() const { return m_props.art; };
-  std::vector<std::string> Screenshots() const { return m_props.screenshots; };
-  std::string Disclaimer() const { return m_props.disclaimer; }
-  std::string Broken() const { return m_props.broken; }
-  CDateTime InstallDate() const { return m_props.installDate; }
-  CDateTime LastUpdated() const { return m_props.lastUpdated; }
-  CDateTime LastUsed() const { return m_props.lastUsed; }
-  std::string Origin() const { return m_props.origin; }
-  uint64_t PackageSize() const { return m_props.packageSize; }
-  const InfoMap& ExtraInfo() const { return m_props.extrainfo; }
-  const ADDONDEPS& GetDeps() const { return m_props.dependencies; }
-
-  std::string FanArt() const
-  {
-    ADDON::InfoMap::const_iterator it = m_props.art.find("fanart");
-    return it != m_props.art.end() ? it->second : "";
-  }
-
-  /*! \brief Check whether the this addon can be configured or not
-   \return true if the addon has settings, false otherwise
-   \sa LoadSettings, LoadUserSettings, SaveSettings, HasUserSettings, GetSetting, UpdateSetting
+  /**
+   * @brief To get the main type of this addon
+   *
+   * This is the first type defined in **addon.xml** and can be different to the
+   * on @ref Type() defined type.
+   *
+   * @return The used main type of addon
    */
-  bool HasSettings();
+  virtual AddonType::Type MainType() const;
 
-  /*! \brief Check whether the user has configured this addon or not
-   \return true if previously saved settings are found, false otherwise
-   \sa LoadSettings, LoadUserSettings, SaveSettings, HasSettings, GetSetting, UpdateSetting
+  /**
+   * @brief To get the on this CAddon class processed addon type
+   *
+   * @return For this class used addon type
    */
-  virtual bool HasUserSettings();
+  virtual AddonType::Type Type() const { return m_type; }
 
-  /*! \brief Save any user configured settings
-   \sa LoadSettings, LoadUserSettings, HasSettings, HasUserSettings, GetSetting, UpdateSetting
+  /**
+   * @brief To check complete addon (not only this) contains a type
+   *
+   * @note This can be overridden by a child e.g. plugin to check for subtype
+   * e.g. video or music.
+   *
+   * @param[in] type The to checked type identifier
+   * @return true in case the wanted type is supported, false if not
    */
-  void SaveSettings();
+  virtual bool HasType(AddonType::Type type) const;
 
-  /*! \brief Update a user-configured setting with a new value
-   \param key the id of the setting to update
-   \param value the value that the setting should take
-   \sa LoadSettings, LoadUserSettings, SaveSettings, HasSettings, HasUserSettings, GetSetting
+  /**
+   * @brief To check complete addon (not only this) has a specific type
+   * defined in its first extension point including the provided subcontent
+   * e.g. video or audio
+   *
+   * @param[in] type Type identifier to be checked
+   * @return true in case the wanted type is the main type, false if not
    */
-  void UpdateSetting(const std::string& key, const std::string& value);
+  virtual bool HasMainType(AddonType::Type type) const;
 
-  /*! \brief Retrieve a particular settings value
-   If a previously configured user setting is available, we return it's value, else we return the default (if available)
-   \param key the id of the setting to retrieve
-   \return the current value of the setting, or the default if the setting has yet to be configured.
-   \sa LoadSettings, LoadUserSettings, SaveSettings, HasSettings, HasUserSettings, UpdateSetting
+  /**
+   * @brief The get for given addon type information and extension data
+   *
+   * @param[in] type The wanted type data
+   * @return addon type class with @ref CAddonExtensions as information
+   *
+   * @note This function return never a "nullptr", in case the wanted type is
+   * not supported, becomes a dummy of @ref CAddonType given.
+   *
+   * ------------------------------------------------------------------------
+   *
+   * **Example:**
+   * ~~~~~~~~~~~~~{.cpp}
+   * // To get e.g. <extension ... name="blablabla" /> from addon.xml
+   * std::string name = Type(ADDON_...)->GetValue("@name").asString();
+   * ~~~~~~~~~~~~~
+   *
    */
-  std::string GetSetting(const std::string& key);
+  const CAddonType* Type(AddonType::Type type) const;
 
-  TiXmlElement* GetSettingsXML();
+  virtual std::string ID() const;
+  virtual std::string Name() const;
+  virtual bool IsInUse() const { return false; }
+  virtual bool IsBinary() const;
+  virtual CAddonVersion Version() const;
+  virtual CAddonVersion MinVersion() const;
+  virtual std::string Summary() const;
+  virtual std::string Description() const;
+  virtual std::string Path() const;
+  virtual std::string Profile() const;
+  virtual std::string LibPath() const;
+  virtual std::string Author() const;
+  virtual std::string ChangeLog() const;
+  virtual std::string Icon() const;
+  virtual ArtMap Art() const;
+  virtual std::vector<std::string> Screenshots() const;
+  virtual std::string Disclaimer() const;
+  virtual AddonLifecycleState::Type LifecycleState() const;
+  virtual std::string LifecycleStateDescription() const;
+  virtual CDateTime InstallDate() const;
+  virtual CDateTime LastUpdated() const;
+  virtual CDateTime LastUsed() const;
+  virtual std::string Origin() const;
+  virtual std::string OriginName() const;
+  virtual uint64_t PackageSize() const;
+  virtual const InfoMap& ExtraInfo() const;
+  virtual const std::vector<DependencyInfo>& GetDependencies() const;
+  virtual std::string FanArt() const;
+
+  /*!
+   * \brief Check add-on for support from independent work instances.
+   *
+   * \return true if the add-on supports individual add-on instances, false otherwise
+   */
+  virtual bool SupportsMultipleInstances() const;
+
+  /*!
+   * \brief Return the used instance path type of the add-on type.
+   *
+   * \return The route used to instance handling, @ref AddonInstanceUse::NONE if not supported.
+   */
+  virtual AddonInstanceSupport::Type InstanceUseType() const;
+
+  /*!
+   * \brief Gives active, independently working instance identifiers for this add-on.
+   *
+   * This function is supported if add-on type has defined
+   * @ref AddonInstanceUse::BY_SETTINGS and the associated settings
+   * are available.
+   *
+   * \return List of active instance identifiers.
+   */
+  virtual std::vector<AddonInstanceId> GetKnownInstanceIds() const;
+
+  /*!
+   * \brief Check whether the add-on supports individual settings per add-on instance.
+   *
+   * This function is supported if add-on type has defined
+   * @ref AddonInstanceUse::BY_SETTINGS
+   *
+   * \return true if the add-on supports individual settings per add-on instance, false otherwise
+   */
+  virtual bool SupportsInstanceSettings() const;
+
+  /*!
+   * \brief Delete selected instance settings from storage.
+   *
+   * The related instance-settings-[0-9...].xml file will be deleted by this method.
+   *
+   * \param[in] instance Instance identifier to use.
+   * \return true on success, false otherwise.
+   */
+  virtual bool DeleteInstanceSettings(AddonInstanceId instance);
+
+  /*!
+   * \brief Check whether this add-on can be configured by the user.
+   *
+   * \return true if the add-on has settings, false otherwise
+   */
+  virtual bool CanHaveAddonOrInstanceSettings();
+
+  /*!
+   * \brief Check whether this add-on can be configured by the user.
+   *
+   * \param[in] id Instance identifier to use, use @ref ADDON_SETTINGS_ID
+   *               to denote global add-on settings from settings.xml.
+   * \return true if the add-on has settings, false otherwise
+   *
+   * \sa LoadSettings, LoadUserSettings, SaveSettings, HasUserSettings, GetSetting, UpdateSetting
+   */
+  virtual bool HasSettings(AddonInstanceId id = ADDON_SETTINGS_ID);
+
+  /*!
+   * \brief Check whether the user has configured this add-on or not.
+   *
+   * \param[in] id Instance identifier to use, use @ref ADDON_SETTINGS_ID
+   *               to denote global add-on settings from settings.xml.
+   * \return true if previously saved settings are found, false otherwise
+   *
+   * \sa LoadSettings, LoadUserSettings, SaveSettings, HasSettings, GetSetting, UpdateSetting
+   */
+  virtual bool HasUserSettings(AddonInstanceId id = ADDON_SETTINGS_ID);
+
+  /*!
+   * \brief Save any user configured settings
+   *
+   * \param[in] instance Instance identifier to use, use @ref ADDON_SETTINGS_ID
+   *                     to denote global add-on settings from settings.xml.
+   * \return true if the operation was successful, false otherwise
+   *
+   * \sa LoadSettings, LoadUserSettings, HasSettings, HasUserSettings, GetSetting, UpdateSetting
+   */
+  virtual bool SaveSettings(AddonInstanceId id = ADDON_SETTINGS_ID);
+
+  /*!
+   * \brief Update a user-configured setting with a new value.
+   *
+   * \param[in] key the id of the setting to update
+   * \param[in] value the value that the setting should take
+   * \param[in] id Instance identifier to use, use @ref ADDON_SETTINGS_ID
+   *               to denote global add-on settings from settings.xml.
+   *
+   * \sa LoadSettings, LoadUserSettings, SaveSettings, HasSettings, HasUserSettings, GetSetting
+   */
+  virtual void UpdateSetting(const std::string& key,
+                     const std::string& value,
+                     AddonInstanceId id = ADDON_SETTINGS_ID);
+
+  /*!
+   * \brief Update a user-configured setting with a new boolean value.
+   *
+   * \param[in] key the id of the setting to update
+   * \param[in] value the value that the setting should take
+   * \param[in] id Instance identifier to use, use @ref ADDON_SETTINGS_ID
+   *               to denote global add-on settings from settings.xml.
+   *
+   * \sa LoadSettings, LoadUserSettings, SaveSettings, HasSettings, HasUserSettings, GetSetting
+   */
+  virtual bool UpdateSettingBool(const std::string& key,
+                         bool value,
+                         AddonInstanceId id = ADDON_SETTINGS_ID);
+
+  /*!
+   * \brief Update a user-configured setting with a new integer value.
+   *
+   * \param[in] key the id of the setting to update
+   * \param[in] value the value that the setting should take
+   * \param[in] id Instance identifier to use, use @ref ADDON_SETTINGS_ID
+   *               to denote global add-on settings from settings.xml.
+   *
+   * \sa LoadSettings, LoadUserSettings, SaveSettings, HasSettings, HasUserSettings, GetSetting
+   */
+  virtual bool UpdateSettingInt(const std::string& key,
+                        int value,
+                        AddonInstanceId id = ADDON_SETTINGS_ID);
+
+  /*!
+   * \brief Update a user-configured setting with a new number value.
+   *
+   * \param[in] key the id of the setting to update
+   * \param[in] value the value that the setting should take
+   * \param[in] id Instance identifier to use, use @ref ADDON_SETTINGS_ID
+   *               to denote global add-on settings from settings.xml.
+   *
+   * \sa LoadSettings, LoadUserSettings, SaveSettings, HasSettings, HasUserSettings, GetSetting
+   */
+  virtual bool UpdateSettingNumber(const std::string& key,
+                           double value,
+                           AddonInstanceId id = ADDON_SETTINGS_ID);
+
+  /*!
+   * \brief Update a user-configured setting with a new string value.
+   *
+   * \param[in] key the id of the setting to update
+   * \param[in] value the value that the setting should take
+   * \param[in] id Instance identifier to use, use @ref ADDON_SETTINGS_ID
+   *               to denote global add-on settings from settings.xml.
+   *
+   * \sa LoadSettings, LoadUserSettings, SaveSettings, HasSettings, HasUserSettings, GetSetting
+   */
+  virtual bool UpdateSettingString(const std::string& key,
+                           const std::string& value,
+                           AddonInstanceId id = ADDON_SETTINGS_ID);
+
+  /*!
+   * \brief Retrieve a particular settings value.
+   *
+   * If a previously configured user setting is available, we return it's value, else we return the default (if available).
+   *
+   * \param[in] key the id of the setting to retrieve
+   * \param[in] id Instance identifier to use, use @ref ADDON_SETTINGS_ID
+   *               to denote global add-on settings from settings.xml.
+   * \return the current value of the setting, or the default if the setting has yet to be configured.
+   *
+   * \sa LoadSettings, LoadUserSettings, SaveSettings, HasSettings, HasUserSettings, UpdateSetting
+   */
+  virtual std::string GetSetting(const std::string& key, AddonInstanceId id = ADDON_SETTINGS_ID);
+
+  /*!
+   * \brief Retrieve a particular settings value as boolean.
+   *
+   * If a previously configured user setting is available, we return it's value, else we return the default (if available).
+   *
+   * \param[in] key the id of the setting to retrieve
+   * \param[out] value the current value of the setting, or the default if the setting has yet to be configured
+   * \param[in] id Instance identifier to use, use @ref ADDON_SETTINGS_ID
+   *               to denote global add-on settings from settings.xml.
+   * \return true if the setting's value was retrieved, false otherwise.
+   *
+   * \sa LoadSettings, LoadUserSettings, SaveSettings, HasSettings, HasUserSettings, UpdateSetting
+   */
+  virtual bool GetSettingBool(const std::string& key,
+                      bool& value,
+                      AddonInstanceId id = ADDON_SETTINGS_ID);
+
+  /*!
+   * \brief Retrieve a particular settings value as integer.
+   *
+   * If a previously configured user setting is available, we return it's value, else we return the default (if available)
+   *
+   * \param[in] key the id of the setting to retrieve
+   * \param[out] value the current value of the setting, or the default if the setting has yet to be configured
+   * \param[in] id Instance identifier to use, use @ref ADDON_SETTINGS_ID
+   *               to denote global add-on settings from settings.xml.
+   * \return true if the setting's value was retrieved, false otherwise.
+   *
+   * \sa LoadSettings, LoadUserSettings, SaveSettings, HasSettings, HasUserSettings, UpdateSetting
+   */
+  virtual bool GetSettingInt(const std::string& key,
+                     int& value,
+                     AddonInstanceId id = ADDON_SETTINGS_ID);
+
+  /*!
+   * \brief Retrieve a particular settings value as number.
+   *
+   * If a previously configured user setting is available, we return it's value, else we return the default (if available)
+   *
+   * \param[in] key the id of the setting to retrieve
+   * \param[out] value the current value of the setting, or the default if the setting has yet to be configured
+   * \param[in] id Instance identifier to use, use @ref ADDON_SETTINGS_ID
+   *               to denote global add-on settings from settings.xml.
+   * \return true if the setting's value was retrieved, false otherwise.
+   *
+   * \sa LoadSettings, LoadUserSettings, SaveSettings, HasSettings, HasUserSettings, UpdateSetting
+   */
+  virtual bool GetSettingNumber(const std::string& key,
+                        double& value,
+                        AddonInstanceId id = ADDON_SETTINGS_ID);
+
+  /*!
+   * \brief Retrieve a particular settings value as string
+   *
+   * If a previously configured user setting is available, we return it's value, else we return the default (if available)
+   *
+   * \param[in] key the id of the setting to retrieve
+   * \param[out] value the current value of the setting, or the default if the setting has yet to be configured
+   * \param[in] id Instance identifier to use, use @ref ADDON_SETTINGS_ID
+   *               to denote global add-on settings from settings.xml.
+   * \return true if the setting's value was retrieved, false otherwise.
+   *
+   * \sa LoadSettings, LoadUserSettings, SaveSettings, HasSettings, HasUserSettings, UpdateSetting
+   */
+  virtual bool GetSettingString(const std::string& key,
+                        std::string& value,
+                        AddonInstanceId id = ADDON_SETTINGS_ID);
+
+  virtual boost::shared_ptr<CAddonSettings> GetSettings(AddonInstanceId id = ADDON_SETTINGS_ID);
 
   /*! \brief get the required version of a dependency.
    \param dependencyID the addon ID of the dependency.
    \return the version this addon requires.
    */
-  AddonVersion GetDependencyVersion(const std::string &dependencyID) const;
+  virtual CAddonVersion GetDependencyVersion(const std::string& dependencyID) const;
 
   /*! \brief return whether or not this addon satisfies the given version requirements
    \param version the version to meet.
    \return true if  min_version <= version <= current_version, false otherwise.
    */
-  bool MeetsVersion(const AddonVersion &version) const;
-  bool ReloadSettings();
+  virtual bool MeetsVersion(const CAddonVersion& versionMin, const CAddonVersion& version) const;
 
-  /*! \brief callback for when this add-on is disabled.
-   Use to perform any needed actions (e.g. stop a service)
-   */
-  void OnDisabled() {};
+  virtual bool ReloadSettings(AddonInstanceId id = ADDON_SETTINGS_ID);
 
-  /*! \brief callback for when this add-on is enabled.
-   Use to perform any needed actions (e.g. start a service)
-   */
-  void OnEnabled() {};
+  virtual void ResetSettings(AddonInstanceId id = ADDON_SETTINGS_ID);
 
   /*! \brief retrieve the running instance of an add-on if it persists while running.
    */
-  AddonPtr GetRunningInstance() const { return AddonPtr(); }
+  virtual AddonPtr GetRunningInstance() const { return AddonPtr(); }
 
-  void OnPreInstall() {};
-  void OnPostInstall(bool update, bool modal) {};
-  void OnPreUnInstall() {};
-  void OnPostUnInstall() {};
+  virtual void OnPreInstall(){};
+  virtual void OnPostInstall(bool update, bool modal){};
+  virtual void OnPreUnInstall(){};
+  virtual void OnPostUnInstall(){};
 
 protected:
-  /*! \brief Load the default settings and these with any previously configured user settings
-   \param bForce force the load of settings even if they are already loaded (reload)
-   \return true if settings exist, false otherwise
-   \sa LoadUserSettings, SaveSettings, HasSettings, HasUserSettings, GetSetting, UpdateSetting
+  /*!
+   * \brief Whether or not the settings have been initialized.
+   *
+   * \param[in] id Instance identifier to use, use @ref ADDON_SETTINGS_ID
+   *               to denote global add-on settings from settings.xml.
+   * \return true if settings initialize was successfull
    */
-  virtual bool LoadSettings(bool bForce = false);
+  virtual bool SettingsInitialized(AddonInstanceId id = ADDON_SETTINGS_ID) const;
 
-  /*! \brief Load the user settings
-   \return true if user settings exist, false otherwise
-   \sa LoadSettings, SaveSettings, HasSettings, HasUserSettings, GetSetting, UpdateSetting
+  /*!
+   * \brief Whether or not the settings have been loaded.
+   *
+   * \param[in] id Instance identifier to use, use @ref ADDON_SETTINGS_ID
+   *               to denote global add-on settings from settings.xml.
+   * \return true if settings are loaded correct
    */
-  virtual bool LoadUserSettings();
+  virtual bool SettingsLoaded(AddonInstanceId id = ADDON_SETTINGS_ID) const;
 
-  /* \brief Whether there are settings to be saved
-   \sa SaveSettings
+  /*!
+   * \brief Load the default settings and override these with any previously configured user settings
+   *
+   * \param[in] bForce force the load of settings even if they are already loaded (reload)
+   * \param[in] loadUserSettings whether or not to load user settings
+   * \param[in] id Instance identifier to use, use @ref ADDON_SETTINGS_ID
+   *               to denote global add-on settings from settings.xml.
+   * \return true if settings exist, false otherwise
+   *
+   * \sa LoadUserSettings, SaveSettings, HasSettings, HasUserSettings, GetSetting, UpdateSetting
    */
-  virtual bool HasSettingsToSave() const;
+  bool LoadSettings(bool bForce, bool loadUserSettings, AddonInstanceId id = ADDON_SETTINGS_ID);
 
-  /*! \brief Parse settings from an XML document
-   \param doc XML document to parse for settings
-   \param loadDefaults if true, the default attribute is used and settings are reset prior to parsing, else the value attribute is used.
-   \return true if settings are loaded, false otherwise
-   \sa SettingsToXML
+  /*!
+   * \brief Load the user settings
+   *
+   * \param[in] id Instance identifier to use, use @ref ADDON_SETTINGS_ID
+   *               to denote global add-on settings from settings.xml.
+   * \return true if user settings exist, false otherwise
+   *
+   * \sa LoadSettings, SaveSettings, HasSettings, HasUserSettings, GetSetting, UpdateSetting
    */
-  virtual bool SettingsFromXML(const CXBMCTinyXML &doc, bool loadDefaults = false);
+  virtual bool LoadUserSettings(AddonInstanceId id = ADDON_SETTINGS_ID);
 
-  /*! \brief Write settings into an XML document
-   \param doc XML document to receive the settings
-   \sa SettingsFromXML
+  /*!
+   * \brief Whether there are settings to be saved
+   *
+   * \param[in] id Instance identifier to use, use @ref ADDON_SETTINGS_ID
+   *               to denote global add-on settings from settings.xml.
+   * \return true if settings has to save
+   *
+   * \sa SaveSettings
    */
-  virtual void SettingsToXML(CXBMCTinyXML &doc) const;
+  virtual bool HasSettingsToSave(AddonInstanceId id = ADDON_SETTINGS_ID) const;
 
-  const AddonProps m_props;
-  CXBMCTinyXML      m_addonXmlDoc;
-  bool              m_settingsLoaded;
-  bool              m_userSettingsLoaded;
+  /*!
+   * \brief Parse settings from an XML document
+   *
+   * \param[in] doc XML document to parse for settings
+   * \param[in] loadDefaults if true, the default attribute is used and settings are reset prior to parsing, else the value attribute is used.
+   * \param[in] id Instance identifier to use, use @ref ADDON_SETTINGS_ID
+   *               to denote global add-on settings from settings.xml.
+   * \return true if settings are loaded, false otherwise
+   *
+   * \sa SettingsToXML
+   */
+  virtual bool SettingsFromXML(const CXBMCTinyXML& doc,
+                               bool loadDefaults,
+                               AddonInstanceId id = ADDON_SETTINGS_ID);
+
+  /*!
+   * \brief Write settings into an XML document
+   *
+   * \param[out] doc XML document to receive the settings
+   * \param[in] id Instance identifier to use, use @ref ADDON_SETTINGS_ID
+   *               to denote global add-on settings from settings.xml.
+   * \return true if settings are saved, false otherwise
+   *
+   * \sa SettingsFromXML
+   */
+  virtual bool SettingsToXML(CXBMCTinyXML& doc, AddonInstanceId id = ADDON_SETTINGS_ID) const;
+
+  const AddonInfoPtr m_addonInfo;
 
 private:
-  bool m_hasSettings;
+  struct CSettingsData
+  {
+    CSettingsData() : m_loadSettingsFailed(false), m_hasUserSettings(false) {}
+    bool m_loadSettingsFailed;
+    bool m_hasUserSettings;
+    std::string m_addonSettingsPath;
+    std::string m_userSettingsPath;
+    boost::shared_ptr<CAddonSettings> m_addonSettings;
+  };
 
-  std::string m_profilePath;
-  std::string m_userSettingsPath;
-  std::map<std::string, std::string> m_settings;
+  bool InitSettings(AddonInstanceId id);
+  boost::shared_ptr<CAddonSettings> FindInstanceSettings(AddonInstanceId id) const;
+
+  mutable boost::unordered_map<AddonInstanceId, CSettingsData> m_settings;
+  const AddonType::Type m_type;
 };
 
-}; /* namespace ADDON */
-
+}; // namespace ADDON

@@ -29,7 +29,7 @@ public:
   WAVCodec();
   virtual ~WAVCodec();
 
-  virtual bool Init(const CStdString &strFile, unsigned int filecache);
+  virtual bool Init(const std::string &strFile, unsigned int filecache);
   virtual void DeInit();
   virtual __int64 Seek(__int64 iSeekTime);
   virtual int ReadPCM(BYTE *pBuffer, int size, int *actualsize);
@@ -39,5 +39,8 @@ private:
   long m_iDataStart;
   long m_iDataLen;
   DWORD m_ChannelMask;
+
+  std::string m_strFileName;
+  bool m_bInited;
 };
 

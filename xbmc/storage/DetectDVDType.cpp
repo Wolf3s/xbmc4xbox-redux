@@ -24,17 +24,20 @@
 #include "DetectDVDType.h"
 #include "filesystem/iso9660.h"
 #include "threads/SingleLock.h"
-#ifdef HAS_UNDOCUMENTED
-#include "xbox/Undocumented.h"
-#endif
 #include "settings/AdvancedSettings.h"
+#include "settings/SettingsComponent.h"
 #include "GUIUserMessages.h"
 #include "utils/URIUtils.h"
+#include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
 #include "filesystem/File.h"
 #include "FileItem.h"
-#include "Application.h"
+#include "application/Application.h"
+#include "application/ApplicationComponents.h"
+#include "application/ApplicationPlayer.h"
 #include "Util.h"
+
+#include "platform/xbox/Undocumented.h"
 
 using namespace XFILE;
 using namespace MEDIA_DETECT;
@@ -43,10 +46,9 @@ CCriticalSection CDetectDVDMedia::m_muReadingMedia;
 CEvent CDetectDVDMedia::m_evAutorun;
 int CDetectDVDMedia::m_DriveState = DRIVE_CLOSED_NO_MEDIA;
 CCdInfo* CDetectDVDMedia::m_pCdInfo = NULL;
-time_t CDetectDVDMedia::m_LastPoll = 0;
 CDetectDVDMedia* CDetectDVDMedia::m_pInstance = NULL;
-CStdString CDetectDVDMedia::m_diskLabel = "";
-CStdString CDetectDVDMedia::m_diskPath = "";
+std::string CDetectDVDMedia::m_diskLabel = "";
+std::string CDetectDVDMedia::m_diskPath = "";
 
 CDetectDVDMedia::CDetectDVDMedia() : CThread("CDetectDVDMedia")
 {
@@ -70,12 +72,7 @@ void CDetectDVDMedia::OnStartup()
 
 void CDetectDVDMedia::Process()
 {
-  if (g_advancedSettings.m_usePCDVDROM)
-  {
-    m_DriveState = DRIVE_CLOSED_MEDIA_PRESENT;
-  }
-
-  while (( !m_bStop ) && (!g_advancedSettings.m_usePCDVDROM))
+  while ( !m_bStop )
   {
     Sleep(500);
     UpdateDvdrom();
@@ -122,8 +119,12 @@ VOID CDetectDVDMedia::UpdateDvdrom()
         {
           // Send Message to GUI that disc been ejected
           SetNewDVDShareUrl("D:\\", false, g_localizeStrings.Get(502));
-          CGUIMessage msg(GUI_MSG_NOTIFY_ALL, 0, 0, GUI_MSG_REMOVED_MEDIA);
-          g_windowManager.SendThreadMessage( msg );
+          CGUIComponent* gui = CServiceBroker::GetGUI();
+          if (gui)
+          {
+            CGUIMessage msg(GUI_MSG_NOTIFY_ALL, 0, 0, GUI_MSG_REMOVED_MEDIA);
+            gui->GetWindowManager().SendThreadMessage( msg );
+          }
           m_isoReader.Reset();
           waitLock.Leave();
           m_DriveState = DRIVE_OPEN;
@@ -145,8 +146,12 @@ VOID CDetectDVDMedia::UpdateDvdrom()
             m_pCdInfo = NULL;
           }
           waitLock.Leave();
-          CGUIMessage msg(GUI_MSG_NOTIFY_ALL, 0, 0, GUI_MSG_UPDATE_SOURCES);
-          g_windowManager.SendThreadMessage( msg );
+          CGUIComponent* gui = CServiceBroker::GetGUI();
+          if (gui)
+          {
+            CGUIMessage msg(GUI_MSG_NOTIFY_ALL, 0, 0, GUI_MSG_UPDATE_SOURCES);
+            gui->GetWindowManager().SendThreadMessage( msg );
+          }
           // Do we really need sleep here? This will fix: [ 1530771 ] "Open tray" problem
           // Sleep(6000);
           return ;
@@ -165,9 +170,13 @@ VOID CDetectDVDMedia::UpdateDvdrom()
           m_DriveState = DRIVE_CLOSED_NO_MEDIA;
           SetNewDVDShareUrl("D:\\", false, g_localizeStrings.Get(504));
           // Send Message to GUI that disc has changed
-          CGUIMessage msg(GUI_MSG_NOTIFY_ALL, 0, 0, GUI_MSG_UPDATE_SOURCES);
           waitLock.Leave();
-          g_windowManager.SendThreadMessage( msg );
+          CGUIComponent* gui = CServiceBroker::GetGUI();
+          if (gui)
+          {
+            CGUIMessage msg(GUI_MSG_NOTIFY_ALL, 0, 0, GUI_MSG_UPDATE_SOURCES);
+            gui->GetWindowManager().SendThreadMessage( msg );
+          }
           return ;
         }
         break;
@@ -180,9 +189,13 @@ VOID CDetectDVDMedia::UpdateDvdrom()
           CIoSupport::RemapDriveLetter('D', "Cdrom0");
           // Detect ISO9660(mode1/mode2) or CDDA filesystem
           DetectMediaType();
-          CGUIMessage msg(GUI_MSG_NOTIFY_ALL, 0, 0, GUI_MSG_UPDATE_SOURCES);
           waitLock.Leave();
-            g_windowManager.SendThreadMessage( msg );
+          CGUIComponent* gui = CServiceBroker::GetGUI();
+          if (gui)
+          {
+            CGUIMessage msg(GUI_MSG_NOTIFY_ALL, 0, 0, GUI_MSG_UPDATE_SOURCES);
+            gui->GetWindowManager().SendThreadMessage( msg );
+          }
           // Tell the application object that a new Cd is inserted
           // So autorun can be started.
           if ( !m_bStartup )
@@ -206,8 +219,8 @@ void CDetectDVDMedia::DetectMediaType()
   bool bCDDA(false);
   CLog::Log(LOGINFO, "Detecting DVD-ROM media filesystem...");
 
-  CStdString strNewUrl;
-  CCdIoSupport cdio; 
+  std::string strNewUrl;
+  CCdIoSupport cdio;
 
   // Delete old CD-Information
   if ( m_pCdInfo != NULL )
@@ -249,7 +262,8 @@ void CDetectDVDMedia::DetectMediaType()
 
   if (m_pCdInfo->IsISOUDF(1))
   {
-    if (!g_advancedSettings.m_detectAsUdf)
+    boost::shared_ptr<CSettingsComponent> settingsComponent = CServiceBroker::GetSettingsComponent();
+    if (settingsComponent && settingsComponent->GetAdvancedSettings()->m_detectAsUdf)
     {
       strNewUrl = "iso9660://";
       m_isoReader.Scan();
@@ -272,7 +286,7 @@ void CDetectDVDMedia::DetectMediaType()
     CLog::Log(LOGWARNING, "Filesystem is not supported");
   }
 
-  CStdString strLabel = "";
+  std::string strLabel = "";
   if (bCDDA)
   {
     strLabel = "Audio-CD";
@@ -280,15 +294,15 @@ void CDetectDVDMedia::DetectMediaType()
   else
   {
     strLabel = m_pCdInfo->GetDiscLabel();
-    strLabel.TrimRight(" ");
+    StringUtils::TrimRight(strLabel, " ");
   }
 
   SetNewDVDShareUrl( strNewUrl , bCDDA, strLabel);
 }
 
-void CDetectDVDMedia::SetNewDVDShareUrl( const CStdString& strNewUrl, bool bCDDA, const CStdString& strDiscLabel )
+void CDetectDVDMedia::SetNewDVDShareUrl( const std::string& strNewUrl, bool bCDDA, const std::string& strDiscLabel )
 {
-  CStdString strDescription = "DVD";
+  std::string strDescription = "DVD";
   if (bCDDA) strDescription = "CD";
 
   if (strDiscLabel != "") strDescription = strDiscLabel;
@@ -298,7 +312,7 @@ void CDetectDVDMedia::SetNewDVDShareUrl( const CStdString& strNewUrl, bool bCDDA
   m_diskPath = strNewUrl;
 
   // update label to xbe label if applicable
-  if ((g_advancedSettings.m_usePCDVDROM || IsDiscInDrive()) && !bCDDA && CFile::Exists("D:\\default.xbe"))
+  if (IsDiscInDrive() && !bCDDA && CFile::Exists("D:\\default.xbe"))
     CUtil::GetXBEDescription("D:\\default.xbe", m_diskLabel);
 }
 
@@ -348,7 +362,7 @@ DWORD CDetectDVDMedia::GetTrayState()
     m_dwLastTrayState = m_dwTrayState;
   }
 
-#ifdef HAS_DVD_DRIVE
+#ifdef HAS_OPTICAL_DRIVE
   return DRIVE_NOT_READY;
 #else
   return DRIVE_READY;
@@ -380,38 +394,7 @@ int CDetectDVDMedia::DriveReady()
 bool CDetectDVDMedia::IsDiscInDrive()
 {
   CSingleLock waitLock(m_muReadingMedia);
-  bool bResult = true;
-  if ( m_DriveState != DRIVE_CLOSED_MEDIA_PRESENT )
-  {
-    bResult = false;
-  }
-
-  if (g_advancedSettings.m_usePCDVDROM)
-  {
-    // allow the application to poll once every five seconds
-    if ((clock() - m_LastPoll) > 5000)
-    {
-      // only poll if we're not playing media from the drive
-      if (!(g_application.m_pPlayer->IsPlaying() && g_application.CurrentFileItem().IsOnDVD()))
-      {
-        CLog::Log(LOGINFO, "Polling PC-DVDROM...");
-
-        m_isoReader.Reset();
-
-        CIoSupport::Dismount("Cdrom0");
-        if (CIoSupport::RemapDriveLetter('D', "Cdrom0") == S_OK)
-        {
-          if (m_pInstance)
-          {
-            m_pInstance->DetectMediaType();
-          }
-        }
-      }
-      m_LastPoll = clock();
-    }
-  }
-
-  return bResult;
+  return m_DriveState == DRIVE_CLOSED_MEDIA_PRESENT;
 }
 
 // Static function
@@ -426,12 +409,12 @@ CCdInfo* CDetectDVDMedia::GetCdInfo()
   return pCdInfo;
 }
 
-const CStdString &CDetectDVDMedia::GetDVDLabel()
+const std::string &CDetectDVDMedia::GetDVDLabel()
 {
   return m_diskLabel;
 }
 
-const CStdString &CDetectDVDMedia::GetDVDPath()
+const std::string &CDetectDVDMedia::GetDVDPath()
 {
   return m_diskPath;
 }

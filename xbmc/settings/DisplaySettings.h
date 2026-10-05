@@ -1,53 +1,46 @@
-#pragma once
 /*
- *      Copyright (C) 2013 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2013-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include <set>
-#include <vector>
+#pragma once
 
-// #include "guilib/Resolution.h" -> try to move RESOLUTION and RESOLUTION_INFO to Resolution.h
-#include "guilib/GraphicContext.h"
+#include "settings/ISubSettings.h"
 #include "settings/lib/ISettingCallback.h"
-#include "settings/lib/ISubSettings.h"
 #include "threads/CriticalSection.h"
 #include "utils/Observer.h"
+#include "windowing/GraphicContext.h" // RESOLUTION
+
+#include <map>
+#include <set>
+#include <utility>
+#include <vector>
 
 class TiXmlNode;
+struct IntegerSettingOption;
+struct StringSettingOption;
 
 class CDisplaySettings : public ISettingCallback, public ISubSettings,
                          public Observable
 {
 public:
-  static CDisplaySettings& Get();
+  static CDisplaySettings& GetInstance();
 
   virtual bool Load(const TiXmlNode *settings);
   virtual bool Save(TiXmlNode *settings) const;
   virtual void Clear();
 
-  virtual bool OnSettingChanging(const CSetting *setting);
-  virtual bool OnSettingUpdate(CSetting* &setting, const char *oldSettingId, const TiXmlNode *oldSettingNode);
+  virtual bool OnSettingChanging(const boost::shared_ptr<const CSetting>& setting);
 
   /*!
    \brief Returns the currently active resolution
+
    This resolution might differ from the display resolution which is based on
    the user's settings.
+
    \sa SetCurrentResolution
    \sa GetResolutionInfo
    \sa GetDisplayResolution
@@ -56,8 +49,10 @@ public:
   void SetCurrentResolution(RESOLUTION resolution, bool save = false);
   /*!
    \brief Returns the best-matching resolution of the videoscreen.screenmode setting value
+
    This resolution might differ from the current resolution which is based on
    the properties of the operating system and the attached displays.
+
    \sa GetCurrentResolution
    */
   RESOLUTION GetDisplayResolution() const;
@@ -79,9 +74,15 @@ public:
   void SetZoomAmount(float zoomAmount) { m_zoomAmount = zoomAmount; }
   float GetPixelRatio() const { return m_pixelRatio; }
   void SetPixelRatio(float pixelRatio) { m_pixelRatio = pixelRatio; }
+  static void SettingOptionsResolutionsFiller(const boost::shared_ptr<const CSetting>& setting,
+                                              std::vector<IntegerSettingOption>& list,
+                                              int& current,
+                                              void* data);
+  static void SettingOptionsFramerateconversionsFiller(const boost::shared_ptr<const CSetting>& setting,
+                                                       std::vector<IntegerSettingOption>& list,
+                                                       int& current,
+                                                       void* data);
 
-  static void SettingOptionsResolutionsFiller(const CSetting *setting, std::vector< std::pair<std::string, int> > &list, int &current, void *data);
-  static void SettingOptionsFramerateconversionsFiller(const CSetting *setting, std::vector< std::pair<std::string, int> > &list, int &current, void *data);
 
 protected:
   CDisplaySettings();
@@ -100,13 +101,6 @@ private:
   float m_zoomAmount;         // current zoom amount
   float m_pixelRatio;         // current pixel ratio
 
-  /*!
-   \brief A set of pairs consisting of a setting identifier
-   and a boolean value which should be ignored in specific
-   situations. If the boolean value is "true" the whole
-   OnSettingChanging() logic must be skipped once. If it
-   is "false" only showing the GUI dialog must be skipped.
-   */
-  std::set< std::pair<std::string, bool> > m_ignoreSettingChanging;
-  CCriticalSection m_critical;
+  bool m_resolutionChangeAborted;
+  mutable CCriticalSection m_critical;
 };

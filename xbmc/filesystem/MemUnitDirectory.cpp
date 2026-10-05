@@ -19,12 +19,14 @@
  */
 
 #include "MemUnitDirectory.h"
-#include "DirectoryCache.h"
-#include "utils/MemoryUnitManager.h"
-#include "MemoryUnits/IFileSystem.h"
-#include "MemoryUnits/IDevice.h"
+
 #include "FileItem.h"
 #include "URL.h"
+#include "filesystem/DirectoryCache.h"
+
+#include "platform/xbox/filesystem/IDevice.h"
+#include "platform/xbox/filesystem/IFileSystem.h"
+#include "platform/xbox/filesystem/MemoryUnitManager.h"
 
 using namespace XFILE;
 
@@ -36,13 +38,13 @@ CMemUnitDirectory::~CMemUnitDirectory(void)
 
 bool CMemUnitDirectory::GetDirectory(const CURL& url, CFileItemList &items)
 {
-  CStdString strPath = url.Get();
+  std::string strPath = url.Get();
   IFileSystem *fileSystem = GetFileSystem(strPath);
   if (!fileSystem) return false;
-  
+
   g_directoryCache.ClearDirectory(strPath);
   CFileItemList cacheItems;
-  if (!fileSystem->GetDirectory(strPath.Mid(7), cacheItems))
+  if (!fileSystem->GetDirectory(strPath.substr(7), cacheItems))
   {
     delete fileSystem;
     return false;
@@ -83,10 +85,10 @@ bool CMemUnitDirectory::Exists(const CURL& url)
   return false;
 }
 
-IFileSystem *CMemUnitDirectory::GetFileSystem(const CStdString &path)
+IFileSystem *CMemUnitDirectory::GetFileSystem(const std::string &path)
 {
   // format is mem#://folder/file
-  if (!path.Left(3).Equals("mem") || path.size() < 7)
+  if (path.substr(0, 3) != "mem" || path.size() < 7)
     return NULL;
 
   char unit = path[3] - '0';

@@ -1,33 +1,24 @@
 /*
- *      Copyright (C) 2005-2013 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2023-2026 Team Xodi
+ *  This file is part of Xodi - https://github.com/antonic901/xbmc4xbox-redux
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "GUIWindowInsignia.h"
 
 #include "GUIUserMessages.h"
-#include "guilib/Key.h"
+#include "guilib/WindowIDs.h"
+#include "input/actions/Action.h"
+#include "input/actions/ActionIDs.h"
 #include "guilib/GUIBaseContainer.h"
 #include "guilib/GUIStaticItem.h"
 #include "guilib/GUIListItem.h"
 #include "guilib/LocalizeStrings.h"
 #include "dialogs/GUIDialogKaiToast.h"
 #include "listproviders/StaticProvider.h"
+#include "input/keyboard/KeyIDs.h"
 #include "interfaces/builtins/Builtins.h"
 #include "utils/Insignia.h"
 #include "utils/Variant.h"
@@ -73,7 +64,7 @@ bool CGUIWindowInsignia::OnAction(const CAction &action)
   CGUIControl *focusedControl = GetFocusedControl();
   if (focusedControl && action.GetButtonCode() == KEY_BUTTON_A && focusedControl->GetID() == CONTROL_GAMES_LIST)
   {
-    CGUIListItemPtr game = m_pGamesContainer->GetListItem(0);
+    boost::shared_ptr<CGUIListItem> game = m_pGamesContainer->GetListItem(0);
 
     CProgramDatabase database;
     database.Open();
@@ -114,5 +105,5 @@ void CGUIWindowInsignia::ClearProperties()
   SetProperty("OnlineUsers", "");
 
   if (m_pGamesContainer)
-    m_pGamesContainer->SetListProvider(nullptr);
+    m_pGamesContainer->SetListProvider(NULL);
 }

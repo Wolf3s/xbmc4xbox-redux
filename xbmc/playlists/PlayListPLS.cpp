@@ -1,45 +1,35 @@
 /*
- *      Copyright (C) 2005-2013 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
+
+#include "PlayListPLS.h"
+
+#include "FileItem.h"
+#include "PlayListFactory.h"
+#include "Util.h"
+#include "filesystem/File.h"
+#include "music/tags/MusicInfoTag.h"
+#include "utils/CharsetConverter.h"
+#include "utils/StringUtils.h"
+#include "utils/URIUtils.h"
+#include "utils/XBMCTinyXML.h"
+#include "utils/XMLUtils.h"
+#include "utils/log.h"
+#include "video/VideoInfoTag.h"
 
 #include <iostream>
 #include <memory>
 #include <string>
 #include <vector>
 
-#include "PlayListPLS.h"
-#include "PlayListFactory.h"
-#include "Util.h"
-#include "utils/StringUtils.h"
-#include "filesystem/File.h"
-#include "video/VideoInfoTag.h"
-#include "music/tags/MusicInfoTag.h"
-#include "utils/CharsetConverter.h"
-#include "utils/log.h"
-#include "utils/URIUtils.h"
-#include "utils/XBMCTinyXML.h"
-#include "utils/XMLUtils.h"
-
 using namespace XFILE;
 using namespace PLAYLIST;
 
-#define START_PLAYLIST_MARKER "[playlist]" // may be case-insentive (equivalent to .ini file on win32)
+#define START_PLAYLIST_MARKER "[playlist]" // may be case-insensitive (equivalent to .ini file on win32)
 #define PLAYLIST_NAME     "PlaylistName"
 
 /*----------------------------------------------------------------------
@@ -54,11 +44,9 @@ Length2=5
 NumberOfEntries=2
 Version=2
 ----------------------------------------------------------------------*/
-CPlayListPLS::CPlayListPLS(void)
-{}
+CPlayListPLS::CPlayListPLS(void) {}
 
-CPlayListPLS::~CPlayListPLS(void)
-{}
+CPlayListPLS::~CPlayListPLS(void) {}
 
 bool CPlayListPLS::Load(const std::string &strFile)
 {
@@ -87,7 +75,8 @@ bool CPlayListPLS::Load(const std::string &strFile)
 
   if (file.GetLength() > 1024*1024)
   {
-    CLog::Log(LOGWARNING, "%s - File is larger than 1 MB, most likely not a playlist",__FUNCTION__);
+    CLog::Log(LOGWARNING, "%s - File is larger than 1 MB, most likely not a playlist",
+              __FUNCTION__);
     return false;
   }
 
@@ -96,7 +85,7 @@ bool CPlayListPLS::Load(const std::string &strFile)
 
   // run through looking for the [playlist] marker.
   // if we find another http stream, then load it.
-  while (1)
+  while (true)
   {
     if ( !file.ReadString(szLine, sizeof(szLine) ) )
     {
@@ -118,7 +107,7 @@ bool CPlayListPLS::Load(const std::string &strFile)
   {
     strLine = szLine;
     StringUtils::RemoveCRLF(strLine);
-    size_t iPosEqual = strLine.find("=");
+    size_t iPosEqual = strLine.find('=');
     if (iPosEqual != std::string::npos)
     {
       std::string strLeft = strLine.substr(0, iPosEqual);
@@ -188,7 +177,10 @@ bool CPlayListPLS::Load(const std::string &strFile)
 
   if (bFailed)
   {
-    CLog::Log(LOGERROR, "File %s is not a valid PLS playlist. Location of first file,title or length is not permitted (eg. File0 should be File1)", URIUtils::GetFileName(strFileName).c_str());
+    CLog::Log(LOGERROR,
+              "File %s is not a valid PLS playlist. Location of first file,title or length is not "
+              "permitted (eg. File0 should be File1)",
+              URIUtils::GetFileName(strFileName).c_str());
     return false;
   }
 
@@ -223,7 +215,7 @@ void CPlayListPLS::Save(const std::string& strFileName) const
   write += StringUtils::Format("%s\n", START_PLAYLIST_MARKER);
   std::string strPlayListName=m_strPlayListName;
   g_charsetConverter.utf8ToStringCharset(strPlayListName);
-  write += StringUtils::Format("PlaylistName=%s\n", strPlayListName.c_str() );
+  write += StringUtils::Format("PlaylistName=%s\n", strPlayListName.c_str());
 
   for (int i = 0; i < (int)m_vecItems.size(); ++i)
   {
@@ -232,9 +224,10 @@ void CPlayListPLS::Save(const std::string& strFileName) const
     g_charsetConverter.utf8ToStringCharset(strFileName);
     std::string strDescription=item->GetLabel();
     g_charsetConverter.utf8ToStringCharset(strDescription);
-    write += StringUtils::Format("File%i=%s\n", i + 1, strFileName.c_str() );
-    write += StringUtils::Format("Title%i=%s\n", i + 1, strDescription.c_str() );
-    write += StringUtils::Format("Length%i=%u\n", i + 1, item->GetMusicInfoTag()->GetDuration() / 1000 );
+    write += StringUtils::Format("File%i=%s\n", i + 1, strFileName.c_str());
+    write += StringUtils::Format("Title%i=%s\n", i + 1, strDescription.c_str());
+    write +=
+        StringUtils::Format("Length%i=%i\n", i + 1, item->GetMusicInfoTag()->GetDuration() / 1000);
   }
 
   write += StringUtils::Format("NumberOfEntries=%" PRIuS"\n", m_vecItems.size());
@@ -289,7 +282,7 @@ bool CPlayListASX::LoadAsxIniInfo(std::istream &stream)
 
 bool CPlayListASX::LoadData(std::istream& stream)
 {
-  CLog::Log(LOGNOTICE, "Parsing ASX");
+  CLog::Log(LOGINFO, "Parsing ASX");
 
   if(stream.peek() == '[')
   {
@@ -307,6 +300,9 @@ bool CPlayListASX::LoadData(std::istream& stream)
     }
 
     TiXmlElement *pRootElement = xmlDoc.RootElement();
+
+    if (!pRootElement)
+      return false;
 
     // lowercase every element
     TiXmlNode *pNode = pRootElement;
@@ -364,7 +360,7 @@ bool CPlayListASX::LoadData(std::istream& stream)
           title = pTitle->FirstChild()->ValueStr();
 
         while (pRef)
-        { // multiple references may apear for one entry
+        { // multiple references may appear for one entry
           // duration may exist on this level too
           value = XMLUtils::GetAttribute(pRef, "href");
           if (!value.empty())
@@ -386,7 +382,7 @@ bool CPlayListASX::LoadData(std::istream& stream)
         if (!value.empty())
         { // found an entryref, let's try loading that url
           boost::movelib::unique_ptr<CPlayList> playlist(CPlayListFactory::Create(value));
-          if (NULL != playlist.get())
+          if (nullptr != playlist)
             if (playlist->Load(value))
               Add(*playlist);
         }

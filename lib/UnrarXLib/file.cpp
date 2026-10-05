@@ -38,18 +38,6 @@ File::~File()
 }
 
 
-void File::operator = (File &SrcFile)
-{
-  //hFile=SrcFile.hFile;
-  m_File = SrcFile.m_File;
-  strcpy(FileName,SrcFile.FileName);
-  NewFile=SrcFile.NewFile;
-  LastWrite=SrcFile.LastWrite;
-  HandleType=SrcFile.HandleType;
-  SrcFile.SkipClose=true;
-}
-
-
 bool File::Open(const char *Name,const wchar *NameW,bool OpenShared,bool Update)
 {
   /*ErrorType=FILE_SUCCESS;
@@ -158,7 +146,7 @@ bool File::Create(const char *Name,const wchar *NameW)
 #else
   hFile=fopen(Name,CREATEBINARY);
 #endif*/
-  CStdString strPath = URIUtils::GetDirectory(Name);
+  std::string strPath = URIUtils::GetDirectory(Name);
   CUtil::CreateDirectoryEx(strPath);
   m_File.OpenForWrite(Name,true);
   NewFile=true;
@@ -245,7 +233,7 @@ bool File::Close()
   return(success);
   //return(true);
 }
-  
+
 
 void File::Flush()
 {
@@ -388,7 +376,7 @@ int File::Read(void *Data,int Size)
     }
     break;
   }
-  
+
   return(ReadSize);
 }
 

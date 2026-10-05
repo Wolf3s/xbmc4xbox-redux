@@ -1,31 +1,21 @@
-#pragma once
 /*
- *      Copyright (C) 2014 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2014-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include <map>
-#include <set>
+#pragma once
 
-#include "FileItem.h"
 #include "threads/CriticalSection.h"
 #include "utils/JobManager.h"
 
+#include <map>
+#include <memory>
+#include <set>
+
+class CFileItem;
 class CGUIDialogProgressBarHandle;
 class CVideoLibraryJob;
 
@@ -38,7 +28,7 @@ class CVideoLibraryJob;
 class CVideoLibraryQueue : protected CJobQueue
 {
 public:
-  ~CVideoLibraryQueue();
+  virtual ~CVideoLibraryQueue();
 
   /*!
    \brief Gets the singleton instance of the video library queue.
@@ -72,15 +62,19 @@ public:
    \param[in] paths Set with database IDs of paths to be cleaned
    \param[in] asynchronous Run the clean job asynchronously. Defaults to true
    \param[in] progressBar Progress bar to update in GUI. Defaults to NULL (no progress bar to update)
+   \return True if the video library cleaning job has started, false otherwise
    */
-  void CleanLibrary(const std::set<int>& paths = std::set<int>(), bool asynchronous = true, CGUIDialogProgressBarHandle* progressBar = NULL);
+  bool CleanLibrary(const std::set<int>& paths = std::set<int>(),
+                    bool asynchronous = true,
+                    CGUIDialogProgressBarHandle* progressBar = NULL);
 
   /*!
   \brief Executes a library cleaning with a modal dialog.
 
   \param[in] paths Set with database IDs of paths to be cleaned
+  \return True if the video library cleaning job has started, false otherwise
   */
-  void CleanLibraryModal(const std::set<int>& paths = std::set<int>());
+  bool CleanLibraryModal(const std::set<int>& paths = std::set<int>());
 
   /*!
    \brief Enqueues a job to refresh the details of the given item.
@@ -91,7 +85,11 @@ public:
    \param[in] refreshAll Whether to refresh all sub-items (in case of a tvshow)
    \param[in] searchTitle Title to use for the search (instead of determining it from the item's filename/path)
    */
-  void RefreshItem(CFileItemPtr item, bool ignoreNfo = false, bool forceRefresh = true, bool refreshAll = false, const std::string& searchTitle = "");
+  void RefreshItem(boost::shared_ptr<CFileItem> item,
+                   bool ignoreNfo = false,
+                   bool forceRefresh = true,
+                   bool refreshAll = false,
+                   const std::string& searchTitle = "");
 
   /*!
    \brief Refreshes the details of the given item with a modal dialog.
@@ -101,7 +99,9 @@ public:
    \param[in] refreshAll Whether to refresh all sub-items (in case of a tvshow)
    \return True if the item has been successfully refreshed, false otherwise.
   */
-  bool RefreshItemModal(CFileItemPtr item, bool forceRefresh = true, bool refreshAll = false);
+  bool RefreshItemModal(boost::shared_ptr<CFileItem> item,
+                        bool forceRefresh = true,
+                        bool refreshAll = false);
 
   /*!
    \brief Queue a watched status update job.
@@ -109,7 +109,14 @@ public:
    \param[in] item Item to update watched status for
    \param[in] watched New watched status
    */
-  void MarkAsWatched(const CFileItemPtr &item, bool watched);
+  void MarkAsWatched(const boost::shared_ptr<CFileItem>& item, bool watched);
+
+  /*!
+   \brief Queue a reset resume point job.
+
+   \param[in] item Item to reset the resume point for
+   */
+  void ResetResumePoint(const boost::shared_ptr<CFileItem>& item);
 
   /*!
    \brief Adds the given job to the queue.
@@ -121,7 +128,7 @@ public:
   /*!
    \brief Cancels the given job and removes it from the queue.
 
-   \param[in] job Video library job to be canceld and removed from the queue.
+   \param[in] job Video library job to be canceled and removed from the queue.
    */
   void CancelJob(CVideoLibraryJob *job);
 

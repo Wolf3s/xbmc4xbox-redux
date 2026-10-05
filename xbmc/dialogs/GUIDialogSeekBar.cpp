@@ -1,81 +1,81 @@
 /*
- *      Copyright (C) 2005-2013 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "GUIDialogSeekBar.h"
-#include "Application.h"
-#include "GUIInfoManager.h"
-#include "utils/SeekHandler.h"
 
-#define POPUP_SEEK_PROGRESS     401
-#define POPUP_SEEK_LABEL        402
+#include "GUIInfoManager.h"
+#include "SeekHandler.h"
+#include "application/ApplicationComponents.h"
+#include "application/ApplicationPlayer.h"
+#include "guilib/GUIComponent.h"
+#include "guilib/GUIMessage.h"
+#include "guilib/guiinfo/GUIInfoLabels.h"
+
+#include <cmath>
+
+#define POPUP_SEEK_PROGRESS           401
 
 CGUIDialogSeekBar::CGUIDialogSeekBar(void)
   : CGUIDialog(WINDOW_DIALOG_SEEK_BAR, "DialogSeekBar.xml", MODELESS)
 {
   m_loadType = LOAD_ON_GUI_INIT;    // the application class handles our resources
+  m_lastProgress = 0;
 }
 
-CGUIDialogSeekBar::~CGUIDialogSeekBar(void)
-{
-}
+CGUIDialogSeekBar::~CGUIDialogSeekBar(void) {}
 
 bool CGUIDialogSeekBar::OnMessage(CGUIMessage& message)
 {
-  switch ( message.GetMessage() )
+  switch (message.GetMessage())
   {
   case GUI_MSG_WINDOW_INIT:
   case GUI_MSG_WINDOW_DEINIT:
     return CGUIDialog::OnMessage(message);
-
-  case GUI_MSG_LABEL_SET:
-    if (message.GetSenderId() == GetID() && message.GetControlId() == POPUP_SEEK_LABEL)
-      return CGUIDialog::OnMessage(message);
-    break;
-
   case GUI_MSG_ITEM_SELECT:
-    if (message.GetSenderId() == GetID() && message.GetControlId() == POPUP_SEEK_PROGRESS)
+    if (message.GetSenderId() == GetID() &&
+        message.GetControlId() == POPUP_SEEK_PROGRESS)
       return CGUIDialog::OnMessage(message);
     break;
+  case GUI_MSG_REFRESH_TIMER:
+    return CGUIDialog::OnMessage(message);
   }
   return false; // don't process anything other than what we need!
 }
 
 void CGUIDialogSeekBar::FrameMove()
 {
-  if (!g_application.m_pPlayer->HasPlayer())
+  const CApplicationComponents &components = CServiceBroker::GetAppComponents();
+  const boost::shared_ptr<const CApplicationPlayer> appPlayer = components.GetComponent<CApplicationPlayer>();
+  if (!appPlayer->HasPlayer())
   {
     Close(true);
     return;
   }
 
-  // update controls
-  if (!CSeekHandler::Get().InProgress() && g_infoManager.GetTotalPlayTime())
-  { // position the bar at our current time
-    CONTROL_SELECT_ITEM(POPUP_SEEK_PROGRESS, (unsigned int)(static_cast<float>(g_infoManager.GetPlayTime()) / g_infoManager.GetTotalPlayTime() * 0.1f));
-    SET_CONTROL_LABEL(POPUP_SEEK_LABEL, g_infoManager.GetCurrentPlayTime());
-  }
-  else
-  {
-    CONTROL_SELECT_ITEM(POPUP_SEEK_PROGRESS, (unsigned int)g_infoManager.GetSeekPercent());
-    SET_CONTROL_LABEL(POPUP_SEEK_LABEL, g_infoManager.GetCurrentSeekTime());
-  }
+  int progress = GetProgress();
+  if (progress != m_lastProgress)
+    CONTROL_SELECT_ITEM(POPUP_SEEK_PROGRESS, m_lastProgress = progress);
 
   CGUIDialog::FrameMove();
+}
+
+int CGUIDialogSeekBar::GetProgress() const
+{
+  const CGUIInfoManager& infoMgr = CServiceBroker::GetGUI()->GetInfoManager();
+
+  int progress = 0;
+
+  const CApplicationComponents &components = CServiceBroker::GetAppComponents();
+  const boost::shared_ptr<const CApplicationPlayer> appPlayer = components.GetComponent<CApplicationPlayer>();
+  if (appPlayer->GetSeekHandler().GetSeekSize() != 0)
+    infoMgr.GetInt(progress, PLAYER_SEEKBAR, INFO::DEFAULT_CONTEXT);
+  else
+    infoMgr.GetInt(progress, PLAYER_PROGRESS, INFO::DEFAULT_CONTEXT);
+
+  return progress;
 }

@@ -24,13 +24,18 @@
 #include "Encoder.h"
 #include "DllFlacEnc.h"
 
+namespace KODI
+{
+namespace CDRIP
+{
+
 class CEncoderFlac : public CEncoder
 {
 public:
   CEncoderFlac();
   virtual ~CEncoderFlac();
-  bool Init(const char* strFile, int iInChannels, int iInRate, int iInBits);
-  int Encode(int nNumBytesRead, uint8_t* pbtStream);
+  bool Init();
+  ssize_t Encode(uint8_t* pbtStream, size_t nNumBytesRead);
   bool Close();
 
 private:
@@ -45,5 +50,8 @@ private:
   static FLAC__StreamEncoderSeekStatus seek_callback(const FLAC__StreamEncoder *encoder, FLAC__uint64 absolute_byte_offset, void *client_data);
   static FLAC__StreamEncoderTellStatus tell_callback(const FLAC__StreamEncoder *encoder, FLAC__uint64 *absolute_byte_offset, void *client_data);
 };
+
+} /* namespace CDRIP */
+} /* namespace KODI */
 
 #endif // _ENCODERFLAC_H

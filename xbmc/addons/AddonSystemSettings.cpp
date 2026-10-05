@@ -1,57 +1,47 @@
 /*
- *      Copyright (C) 2015 Team Kodi
- *      http://kodi.tv
+ *  Copyright (C) 2015-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include "addons/AddonManager.h"
-#include "addons/AddonInstaller.h"
-#include "addons/AddonSystemSettings.h"
-#include "ServiceBroker.h"
-#include "addons/RepositoryUpdater.h"
-#include "guilib/GUIWindowManager.h"
-#include "messaging/helpers/DialogHelper.h"
-#include "settings/Settings.h"
-#include "utils/log.h"
+#include "AddonSystemSettings.h"
 
+#include "ServiceBroker.h"
+#include "addons/AddonInstaller.h"
+#include "addons/AddonManager.h"
+#include "addons/IAddon.h"
+#include "addons/addoninfo/AddonInfo.h"
+#include "guilib/GUIComponent.h"
+#include "guilib/GUIWindowManager.h"
+#include "guilib/LocalizeStrings.h"
+#include "messaging/helpers/DialogHelper.h"
+#include "messaging/helpers/DialogOKHelper.h"
+#include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
+#include "settings/lib/Setting.h"
+#include "utils/StringUtils.h"
+#include "utils/log.h"
 
 namespace ADDON
 {
 
-std::map<ADDON::TYPE, std::string> CreateActiveSettings() {
-  std::map<ADDON::TYPE, std::string> settings;
-  settings[ADDON::ADDON_VIZ] = "musicplayer.visualisation";
-  settings[ADDON::ADDON_SCREENSAVER] = "screensaver.mode";
-  settings[ADDON::ADDON_SCRAPER_ALBUMS] = "musiclibrary.albumsscraper";
-  settings[ADDON::ADDON_SCRAPER_ARTISTS] = "musiclibrary.artistsscraper";
-  settings[ADDON::ADDON_SCRAPER_MOVIES] = "scrapers.moviesdefault";
-  settings[ADDON::ADDON_SCRAPER_MUSICVIDEOS] = "scrapers.musicvideosdefault";
-  settings[ADDON::ADDON_SCRAPER_TVSHOWS] = "scrapers.tvshowsdefault";
-  settings[ADDON::ADDON_WEB_INTERFACE] = "services.webskin";
-  settings[ADDON::ADDON_RESOURCE_LANGUAGE] = "locale.language";
-  settings[ADDON::ADDON_SCRIPT_WEATHER] = "weather.addon";
-  settings[ADDON::ADDON_SKIN] = "lookandfeel.skin";
-  settings[ADDON::ADDON_RESOURCE_UISOUNDS] = "lookandfeel.soundskin";
-  return settings;
+CAddonSystemSettings::CAddonSystemSettings()
+{
+  m_activeSettings[AddonType::RESOURCE_LANGUAGE] = CSettings::SETTING_LOCALE_LANGUAGE;
+  m_activeSettings[AddonType::RESOURCE_UISOUNDS] = CSettings::SETTING_LOOKANDFEEL_SOUNDSKIN;
+  m_activeSettings[AddonType::SCRAPER_ALBUMS] = CSettings::SETTING_MUSICLIBRARY_ALBUMSSCRAPER;
+  m_activeSettings[AddonType::SCRAPER_ARTISTS] = CSettings::SETTING_MUSICLIBRARY_ARTISTSSCRAPER;
+  m_activeSettings[AddonType::SCRAPER_MOVIES] = CSettings::SETTING_SCRAPERS_MOVIESDEFAULT;
+  m_activeSettings[AddonType::SCRAPER_MUSICVIDEOS] = CSettings::SETTING_SCRAPERS_MUSICVIDEOSDEFAULT;
+  m_activeSettings[AddonType::SCRAPER_TVSHOWS] = CSettings::SETTING_SCRAPERS_TVSHOWSDEFAULT;
+  m_activeSettings[AddonType::SCREENSAVER] = CSettings::SETTING_SCREENSAVER_MODE;
+  m_activeSettings[AddonType::SCRIPT_WEATHER] = CSettings::SETTING_WEATHER_ADDON;
+  m_activeSettings[AddonType::SKIN] = CSettings::SETTING_LOOKANDFEEL_SKIN;
+  m_activeSettings[AddonType::WEB_INTERFACE] = CSettings::SETTING_SERVICES_WEBSKIN;
+  m_activeSettings[AddonType::VISUALIZATION] = CSettings::SETTING_MUSICPLAYER_VISUALISATION;
 }
-
-CAddonSystemSettings::CAddonSystemSettings() :
-  m_activeSettings(CreateActiveSettings())
-{}
 
 CAddonSystemSettings& CAddonSystemSettings::GetInstance()
 {
@@ -59,53 +49,72 @@ CAddonSystemSettings& CAddonSystemSettings::GetInstance()
   return inst;
 }
 
-void CAddonSystemSettings::OnSettingAction(const CSetting* setting)
+void CAddonSystemSettings::OnSettingAction(const boost::shared_ptr<const CSetting>& setting)
 {
-  if (setting->GetId() == "addons.managedependencies")
+  if (setting->GetId() == CSettings::SETTING_ADDONS_MANAGE_DEPENDENCIES)
   {
     std::vector<std::string> params;
     params.push_back("addons://dependencies/");
     params.push_back("return");
-    g_windowManager.ActivateWindow(WINDOW_ADDON_BROWSER, params);
+    CServiceBroker::GetGUI()->GetWindowManager().ActivateWindow(WINDOW_ADDON_BROWSER, params);
   }
-  else if (setting->GetId() == "addons.showrunning")
+  else if (setting->GetId() == CSettings::SETTING_ADDONS_SHOW_RUNNING)
   {
     std::vector<std::string> params;
     params.push_back("addons://running/");
     params.push_back("return");
-    g_windowManager.ActivateWindow(WINDOW_ADDON_BROWSER, params);
+    CServiceBroker::GetGUI()->GetWindowManager().ActivateWindow(WINDOW_ADDON_BROWSER, params);
+  }
+  else if (setting->GetId() == CSettings::SETTING_ADDONS_REMOVE_ORPHANED_DEPENDENCIES)
+  {
+    using namespace KODI::MESSAGING::HELPERS;
+
+    const std::vector<std::string> removedItems = CAddonInstaller::GetInstance().RemoveOrphanedDepsRecursively();
+    if (removedItems.size() > 0)
+    {
+      const std::string message =
+          StringUtils::Format(g_localizeStrings.Get(36641).c_str(), StringUtils::Join(removedItems, ", ").c_str());
+
+      ShowOKDialogText(36640, message); // "following orphaned were removed..."
+    }
+    else
+    {
+      ShowOKDialogText(36640, 36642); // "no orphaned found / removed"
+    }
   }
 }
 
-void CAddonSystemSettings::OnSettingChanged(const CSetting* setting)
+void CAddonSystemSettings::OnSettingChanged(const boost::shared_ptr<const CSetting>& setting)
 {
   using namespace KODI::MESSAGING::HELPERS;
 
-  if (setting->GetId() == "addons.unknownsources"
-    && CSettings::GetInstance().GetBool("addons.unknownsources")
-    && ShowYesNoDialogText(19098, 36618) != YES)
+  if (setting->GetId() == CSettings::SETTING_ADDONS_ALLOW_UNKNOWN_SOURCES &&
+      CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
+          CSettings::SETTING_ADDONS_ALLOW_UNKNOWN_SOURCES) &&
+      ShowYesNoDialogText(19098, 36618) != KODI::MESSAGING::HELPERS::CHOICE_YES)
   {
-    CSettings::GetInstance().SetBool("addons.unknownsources", false);
+    CServiceBroker::GetSettingsComponent()->GetSettings()->SetBool(CSettings::SETTING_ADDONS_ALLOW_UNKNOWN_SOURCES, false);
   }
 }
 
-bool CAddonSystemSettings::GetActive(const TYPE& type, AddonPtr& addon)
+bool CAddonSystemSettings::GetActive(AddonType::Type type, AddonPtr& addon)
 {
-  std::map<ADDON::TYPE, std::string>::const_iterator it = m_activeSettings.find(type);
+  std::map<ADDON::AddonType::Type, std::string>::const_iterator it = m_activeSettings.find(type);
   if (it != m_activeSettings.end())
   {
-    std::string settingValue = CSettings::GetInstance().GetString(it->second);
-    return CServiceBroker::GetAddonMgr().GetAddon(settingValue, addon, type);
+    std::string settingValue = CServiceBroker::GetSettingsComponent()->GetSettings()->GetString(it->second);
+    return CServiceBroker::GetAddonMgr().GetAddon(settingValue, addon, type,
+                                                  OnlyEnabled::CHOICE_YES);
   }
   return false;
 }
 
-bool CAddonSystemSettings::SetActive(const TYPE& type, const std::string& addonID)
+bool CAddonSystemSettings::SetActive(AddonType::Type type, const std::string& addonID)
 {
-  std::map<ADDON::TYPE, std::string>::const_iterator it = m_activeSettings.find(type);
+  std::map<ADDON::AddonType::Type, std::string>::const_iterator it = m_activeSettings.find(type);
   if (it != m_activeSettings.end())
   {
-    CSettings::GetInstance().SetString(it->second, addonID);
+    CServiceBroker::GetSettingsComponent()->GetSettings()->SetString(it->second, addonID);
     return true;
   }
   return false;
@@ -117,13 +126,13 @@ bool CAddonSystemSettings::IsActive(const IAddon& addon)
   return GetActive(addon.Type(), active) && active->ID() == addon.ID();
 }
 
-bool CAddonSystemSettings::UnsetActive(const AddonPtr& addon)
+bool CAddonSystemSettings::UnsetActive(const AddonInfoPtr& addon)
 {
-  std::map<ADDON::TYPE, std::string>::const_iterator it = m_activeSettings.find(addon->Type());
+  std::map<ADDON::AddonType::Type, std::string>::const_iterator it = m_activeSettings.find(addon->MainType());
   if (it == m_activeSettings.end())
     return true;
 
-  CSettingString *setting = static_cast<CSettingString*>(CSettings::GetInstance().GetSetting(it->second));
+  boost::shared_ptr<CSettingString> setting = boost::static_pointer_cast<CSettingString>(CServiceBroker::GetSettingsComponent()->GetSettings()->GetSetting(it->second));
   if (setting->GetValue() != addon->ID())
     return true;
 
@@ -134,56 +143,16 @@ bool CAddonSystemSettings::UnsetActive(const AddonPtr& addon)
   return true;
 }
 
-bool IsCompatible(const AddonPtr a)
+int CAddonSystemSettings::GetAddonAutoUpdateMode() const
 {
-  return CServiceBroker::GetAddonMgr().IsCompatible(*a);
+  return CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(
+      CSettings::SETTING_ADDONS_AUTOUPDATES);
 }
 
-ADDON::VECADDONS getIncompatible()
+AddonRepoUpdateMode::Type CAddonSystemSettings::GetAddonRepoUpdateMode() const
 {
-  VECADDONS incompatible;
-  CServiceBroker::GetAddonMgr().GetAddons(incompatible);
-  std::vector<AddonPtr>::iterator end_it = boost::range::remove_if(incompatible, IsCompatible);
-  incompatible.erase(end_it, incompatible.end());
-  return incompatible;
-}
-
-std::vector<std::string> CAddonSystemSettings::MigrateAddons(boost::function<void(void)> onMigrate)
-{
-  if (getIncompatible().empty())
-    return std::vector<std::string>();
-
-  if (CSettings::GetInstance().GetInt("general.addonupdates") == AUTO_UPDATES_ON)
-  {
-    onMigrate();
-
-    if (CRepositoryUpdater::GetInstance().CheckForUpdates())
-      CRepositoryUpdater::GetInstance().Await();
-
-    CLog::Log(LOGINFO, "ADDON: waiting for add-ons to update...");
-    CAddonInstaller::GetInstance().InstallUpdatesAndWait();
-  }
-
-  VECADDONS incompatible = getIncompatible();
-  for (VECADDONS::const_iterator it = incompatible.begin(); it != incompatible.end(); ++it)
-    CLog::Log(LOGNOTICE, "ADDON: %s version %s is incompatible", (*it)->ID().c_str(), (*it)->Version().asString().c_str());
-
-  std::vector<std::string> changed;
-  for (VECADDONS::const_iterator it = incompatible.begin(); it != incompatible.end(); ++it)
-  {
-    const ADDON::AddonPtr &addon = *it;
-    if (!UnsetActive(addon))
-    {
-      CLog::Log(LOGWARNING, "ADDON: failed to unset %s", addon->ID().c_str());
-      continue;
-    }
-    if (!CServiceBroker::GetAddonMgr().DisableAddon(addon->ID()))
-    {
-      CLog::Log(LOGWARNING, "ADDON: failed to disable %s", addon->ID().c_str());
-    }
-    changed.push_back(addon->Name());
-  }
-
-  return changed;
+  const int updateMode = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(
+      CSettings::SETTING_ADDONS_UPDATEMODE);
+  return static_cast<AddonRepoUpdateMode::Type>(updateMode);
 }
 }

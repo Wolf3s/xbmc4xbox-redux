@@ -1,18 +1,13 @@
 
 
-#include "include.h"
 #include "TextureBundle.h"
 #include "Texture.h"
-#include "GraphicContext.h"
-#ifdef HAS_XBOX_D3D
-#include <XGraphics.h>
+#include "windowing/GraphicContext.h"
 #include "utils/CharsetConverter.h"
-#else
-#include "DirectXGraphics.h"
-#endif
 #include "liblzo/LZO1X.H"
 #include "addons/Skin.h"
 #include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "utils/URIUtils.h"
 #include "utils/StringUtils.h"
 #include "filesystem/SpecialProtocol.h"
@@ -109,23 +104,23 @@ bool CTextureBundle::OpenBundle()
   if (m_hFile != INVALID_HANDLE_VALUE)
     Cleanup();
 
-  CStdString strPath;
+  std::string strPath;
 
   if (m_themeBundle)
   {
     // if we are the theme bundle, we only load if the user has chosen
     // a valid theme (or the skin has a default one)
-    CStdString themeXPR = CSettings::GetInstance().GetString("lookandfeel.skintheme");
-    if (!themeXPR.IsEmpty() && themeXPR.CompareNoCase("SKINDEFAULT"))
+    std::string themeXPR = CServiceBroker::GetSettingsComponent()->GetSettings()->GetString("lookandfeel.skintheme");
+    if (!themeXPR.empty() && StringUtils::CompareNoCase(themeXPR, "SKINDEFAULT"))
     {
-      strPath = URIUtils::AddFileToFolder(g_graphicsContext.GetMediaDir(), "media");
+      strPath = URIUtils::AddFileToFolder(CServiceBroker::GetWinSystem()->GetGfxContext().GetMediaDir(), "media");
       strPath = URIUtils::AddFileToFolder(strPath, themeXPR);
     }
     else
       return false;
   }
   else
-    strPath = URIUtils::AddFileToFolder(g_graphicsContext.GetMediaDir(), "media/Textures.xpr");
+    strPath = URIUtils::AddFileToFolder(CServiceBroker::GetWinSystem()->GetGfxContext().GetMediaDir(), "media/Textures.xpr");
 
   if (GetFileAttributes(strPath.c_str()) == -1)
     return false;
@@ -133,7 +128,7 @@ bool CTextureBundle::OpenBundle()
   m_TimeStamp.dwLowDateTime = m_TimeStamp.dwHighDateTime = 0;
 
 #ifdef _XBOX
-  if (ALIGN % XGetDiskSectorSize(strPath.Left(3).c_str()))
+  if (ALIGN % XGetDiskSectorSize(strPath.substr(0, 3).c_str()))
   {
     CLog::Log(LOGWARNING, "Disk sector size is not supported, caching textures.xpr");
 
@@ -146,7 +141,7 @@ bool CTextureBundle::OpenBundle()
         CompareFileTime(&FindData[0].ftLastWriteTime, &FindData[1].ftLastWriteTime))
     {
       SetFileAttributes("Z:\\Textures.xpr", FILE_ATTRIBUTE_NORMAL); //must set readable before overwriting
-      if (!CopyFile(strPath, "Z:\\Textures.xpr", FALSE))
+      if (!CopyFile(strPath.c_str(), "Z:\\Textures.xpr", FALSE))
       {
         CLog::Log(LOGERROR, "Unable to open file: %s: %x", strPath.c_str(), GetLastError());
         return false;
@@ -213,7 +208,7 @@ bool CTextureBundle::OpenBundle()
   n = (HeaderSize - sizeof(XPR_HEADER)) / sizeof(DiskFileHeader_t);
   for (unsigned i = 0; i < n; ++i)
   {
-    std::pair<CStdString, FileHeader_t> entry;
+    std::pair<std::string, FileHeader_t> entry;
     entry.first = Normalize(FileHeader[i].Name);
     entry.second.Offset = FileHeader[i].Offset;
     entry.second.UnpackedSize = FileHeader[i].UnpackedSize;
@@ -271,7 +266,7 @@ bool CTextureBundle::HasFile(const std::string& Filename)
       return false;
   }
 
-  CStdString name = Normalize(Filename);
+  std::string name = Normalize(Filename);
   return m_FileHeaders.find(name) != m_FileHeaders.end();
 }
 
@@ -283,10 +278,10 @@ void CTextureBundle::GetTexturesFromPath(const std::string &path, std::vector<st
   if (m_hFile == INVALID_HANDLE_VALUE && !OpenBundle())
     return;
 
-  CStdString testPath = Normalize(path);
+  std::string testPath = Normalize(path);
   if (!URIUtils::HasSlashAtEnd(testPath))
     testPath += "\\";
-  std::map<CStdString, FileHeader_t>::iterator it;
+  std::map<std::string, FileHeader_t>::iterator it;
   for (it = m_FileHeaders.begin(); it != m_FileHeaders.end(); it++)
   {
     if (StringUtils::StartsWithNoCase(it->first, testPath))
@@ -294,9 +289,9 @@ void CTextureBundle::GetTexturesFromPath(const std::string &path, std::vector<st
   }
 }
 
-bool CTextureBundle::PreloadFile(const CStdString& Filename)
+bool CTextureBundle::PreloadFile(const std::string& Filename)
 {
-  CStdString name = Normalize(Filename);
+  std::string name = Normalize(Filename);
 
   if (m_PreLoadBuffer[m_PreloadIdx])
     free(m_PreLoadBuffer[m_PreloadIdx]);
@@ -349,9 +344,9 @@ bool CTextureBundle::PreloadFile(const CStdString& Filename)
   return false;
 }
 
-bool CTextureBundle::LoadFile(const CStdString& Filename, CAutoTexBuffer& UnpackedBuf)
+bool CTextureBundle::LoadFile(const std::string& Filename, CAutoTexBuffer& UnpackedBuf)
 {
-  CStdString name = Normalize(Filename);
+  std::string name = Normalize(Filename);
   if (m_CurFileHeader[0] != m_FileHeaders.end() && m_CurFileHeader[0]->first == name)
     m_LoadIdx = 0;
   else if (m_CurFileHeader[1] != m_FileHeaders.end() && m_CurFileHeader[1]->first == name)
@@ -419,7 +414,7 @@ bool CTextureBundle::LoadFile(const CStdString& Filename, CAutoTexBuffer& Unpack
   return success;
 }
 
-bool CTextureBundle::LoadTexture(const std::string& Filename, CBaseTexture** ppTexture, int &width, int &height)
+bool CTextureBundle::LoadTexture(const std::string& Filename, CTexture** ppTexture, int &width, int &height)
 {
   DWORD ResDataOffset;
   *ppTexture = NULL;
@@ -500,7 +495,7 @@ PackedLoadError:
   if (pPal) delete pPal;
   return false;
 }
-int CTextureBundle::LoadAnim(const std::string& Filename, CBaseTexture*** ppTextures,
+int CTextureBundle::LoadAnim(const std::string& Filename, CTexture*** ppTextures,
                               int &width, int &height, int& nLoops, int** ppDelays)
 {
   DWORD ResDataOffset;
@@ -557,7 +552,7 @@ int CTextureBundle::LoadAnim(const std::string& Filename, CBaseTexture*** ppText
   ResDataOffset = ((DWORD)(Next - UnpackedBuf) + 127) & ~127;
   ResData = UnpackedBuf + ResDataOffset;
 
-  *ppTextures = new CBaseTexture*[nTextures];
+  *ppTextures = new CTexture*[nTextures];
   for (int i = 0; i < nTextures; ++i)
   {
     if ((ppTex[i]->Common & D3DCOMMON_TYPE_MASK) != D3DCOMMON_TYPE_TEXTURE)
@@ -612,8 +607,8 @@ void CTextureBundle::SetThemeBundle(bool themeBundle)
 // lower case + using \\ rather than /
 std::string CTextureBundle::Normalize(const std::string &name)
 {
-  CStdString newName(name);
-  newName.Normalize();
-  newName.Replace('/','\\');
+  std::string newName(name);
+  StringUtils::ToLower(newName);
+  StringUtils::Replace(newName, '/','\\');
   return newName;
 }

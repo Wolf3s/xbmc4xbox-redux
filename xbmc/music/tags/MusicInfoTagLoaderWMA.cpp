@@ -19,10 +19,12 @@
  */
 
 #include "music/tags/MusicInfoTagLoaderWMA.h"
+#include "ServiceBroker.h"
 #include "Util.h"
 #include "music/tags/MusicInfoTag.h"
 #include "filesystem/File.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/SettingsComponent.h"
 #include "AutoPtrHandle.h"
 #include "utils/CharsetConverter.h"
 #include "utils/log.h"
@@ -32,22 +34,21 @@ using namespace AUTOPTR;
 using namespace XFILE;
 using namespace MUSIC_INFO;
 
-CStdString fixString(CStdString &ansiString)
+std::string fixString(std::string &ansiString)
 // ucs2CharsetToStringCharset is always called even when not required resulting in some strings
 // twice the length they should be. This function is a quick fix to the problem. The correct
 // solution would be to call ucs2CharsetToStringCharset only when necessary.
 {
-  int halfLen = ansiString.length() / 2 - 1;
-  CStdString out = "";
+  int halfLen = static_cast<int>(ansiString.length()) / 2 - 1;
 
-  if (halfLen > 0)
-    if (*(ansiString.Mid(halfLen, 1).c_str()) == 0 &&
-        *(ansiString.Mid(halfLen + 1, 1).c_str()) == 0)
-      out = ansiString.Left(halfLen);
-  if (out == "")
-    return ansiString ;
-  else
-    return out ;
+  if (halfLen > 0 &&
+      ansiString[halfLen] == '\0' &&
+      ansiString[halfLen + 1] == '\0')
+  {
+    return ansiString.substr(0, halfLen);
+  }
+
+  return ansiString;
 }
 
 
@@ -67,9 +68,9 @@ typedef enum WMT_ATTR_DATATYPE
 // http://msdn.microsoft.com/library/default.asp?url=/library/en-us/wmform/htm/wm_picture.asp
 typedef struct _WMPicture
 {
-  CStdString pwszMIMEType;
+  std::string pwszMIMEType;
   BYTE bPictureType;
-  CStdStringW pwszDescription;
+  std::wstring pwszDescription;
   DWORD dwDataLen;
   BYTE* pbData;
 }
@@ -84,7 +85,7 @@ CMusicInfoTagLoaderWMA::~CMusicInfoTagLoaderWMA()
 // Based on MediaInfo
 // by J�r�me Martinez, Zen@MediaArea.net
 // http://sourceforge.net/projects/mediainfo/
-bool CMusicInfoTagLoaderWMA::Load(const CStdString& strFileName, CMusicInfoTag& tag, EmbeddedArt *art)
+bool CMusicInfoTagLoaderWMA::Load(const std::string& strFileName, CMusicInfoTag& tag, EmbeddedArt *art)
 {
   try
   {
@@ -151,7 +152,7 @@ bool CMusicInfoTagLoaderWMA::Load(const CStdString& strFileName, CMusicInfoTag& 
 
       iOffset += 10;
 
-      CStdString utf8String;
+      std::string utf8String;
       if (nTitleSize)
       {
         // TODO: UTF-8 Do we need to "fixString" these strings at all?
@@ -186,7 +187,7 @@ bool CMusicInfoTagLoaderWMA::Load(const CStdString& strFileName, CMusicInfoTag& 
     ////Codec
     //TCHAR C1[30];
     //_itoa(pData[iOffset]+pData[iOffset+1]*0x100, C1, 16);
-    //CStdString Codec=C1;
+    //std::string Codec=C1;
     //while (Codec.size()<4)
     //  Codec='0'+Codec;
     //Audio[0](ZT("Codec"))=Codec;
@@ -240,7 +241,7 @@ bool CMusicInfoTagLoaderWMA::Load(const CStdString& strFileName, CMusicInfoTag& 
         iOffset += 2;
 
         // Get frame name
-        CStdString strFrameName((LPWSTR)(pData.get() + iOffset));
+        std::string strFrameName((LPSTR)(pData.get() + iOffset));
         iOffset += iFrameNameSize;
 
         // Get datatype of frame
@@ -264,7 +265,7 @@ bool CMusicInfoTagLoaderWMA::Load(const CStdString& strFileName, CMusicInfoTag& 
         {
           LPWSTR pwszValue = (LPWSTR)(pData.get() + iOffset);
           // TODO: UTF-8: Do we need to "fixString" these utf8 strings?
-          CStdString utf8String;
+          std::string utf8String;
           g_charsetConverter.wToUTF8(pwszValue, utf8String);
           SetTagValueString(strFrameName, utf8String, tag);
         }
@@ -327,7 +328,7 @@ bool CMusicInfoTagLoaderWMA::Load(const CStdString& strFileName, CMusicInfoTag& 
         iOffset += 4;
 
         // Get frame name
-        CStdString strFrameName((LPWSTR)(pData.get() + iOffset));
+        std::string strFrameName((LPSTR)(pData.get() + iOffset));
         iOffset += iFrameNameSize;
 
         // Sanity check for buffer size
@@ -343,7 +344,7 @@ bool CMusicInfoTagLoaderWMA::Load(const CStdString& strFileName, CMusicInfoTag& 
         {
           LPWSTR pwszValue = (LPWSTR)(pData.get() + iOffset);
           // TODO: UTF-8: Do we need to "fixString" these utf8 strings?
-          CStdString utf8String;
+          std::string utf8String;
           g_charsetConverter.wToUTF8(pwszValue, utf8String);
           SetTagValueString(strFrameName, utf8String, tag);
         }
@@ -388,7 +389,7 @@ bool CMusicInfoTagLoaderWMA::Load(const CStdString& strFileName, CMusicInfoTag& 
   return false;
 }
 
-void CMusicInfoTagLoaderWMA::SetTagValueString(const CStdString& strFrameName, const CStdString& strValue, CMusicInfoTag& tag)
+void CMusicInfoTagLoaderWMA::SetTagValueString(const std::string& strFrameName, const std::string& strValue, CMusicInfoTag& tag)
 {
   if (strFrameName == "WM/AlbumTitle")
   {
@@ -415,9 +416,7 @@ void CMusicInfoTagLoaderWMA::SetTagValueString(const CStdString& strFrameName, c
   //else if (strFrameName=="WM/Track") // Old Tracknumber, should not be used anymore
   else if (strFrameName == "WM/Year")
   {
-    SYSTEMTIME dateTime;
-    dateTime.wYear = atoi(strValue.c_str());
-    tag.SetReleaseDate(dateTime);
+    tag.SetYear(atoi(strValue.c_str()));
   }
   else if (strFrameName == "WM/Genre")
   {
@@ -427,7 +426,7 @@ void CMusicInfoTagLoaderWMA::SetTagValueString(const CStdString& strFrameName, c
       tag.SetGenre(strValue);
     else
     {
-      std::vector<std::string> genres = StringUtils::Split(strValue, g_advancedSettings.m_musicItemSeparator);
+      std::vector<std::string> genres = StringUtils::Split(strValue, CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_musicItemSeparator);
       for (unsigned int index = 0; index < genres.size(); index++)
         tag.AppendGenre(genres.at(index));
     }
@@ -463,7 +462,7 @@ void CMusicInfoTagLoaderWMA::SetTagValueString(const CStdString& strFrameName, c
   //}
 }
 
-void CMusicInfoTagLoaderWMA::SetTagValueDWORD(const CStdString& strFrameName, DWORD dwValue, CMusicInfoTag& tag)
+void CMusicInfoTagLoaderWMA::SetTagValueDWORD(const std::string& strFrameName, DWORD dwValue, CMusicInfoTag& tag)
 {
   if (strFrameName == "WM/TrackNumber")
   {
@@ -472,7 +471,7 @@ void CMusicInfoTagLoaderWMA::SetTagValueDWORD(const CStdString& strFrameName, DW
   }
 }
 
-void CMusicInfoTagLoaderWMA::SetTagValueBinary(const CStdString& strFrameName, const LPBYTE pValue, CMusicInfoTag& tag, EmbeddedArt *art)
+void CMusicInfoTagLoaderWMA::SetTagValueBinary(const std::string& strFrameName, const LPBYTE pValue, CMusicInfoTag& tag, EmbeddedArt *art)
 {
   if (strFrameName == "WM/Picture")
   {
@@ -486,8 +485,8 @@ void CMusicInfoTagLoaderWMA::SetTagValueBinary(const CStdString& strFrameName, c
     picture.dwDataLen = (DWORD)pValue[iPicOffset] + (pValue[iPicOffset + 1] * 0x100) + (pValue[iPicOffset + 2] * 0x10000);
     iPicOffset += 4;
 
-    CStdStringW wString;
-    CStdString16 utf16String = (uint16_t*)(pValue+iPicOffset);
+    std::wstring wString;
+    std::u16string utf16String = (uint16_t*)(pValue+iPicOffset);
     g_charsetConverter.utf16LEtoW(utf16String, wString);
     g_charsetConverter.wToUTF8(wString, picture.pwszMIMEType);
     iPicOffset += (wString.length() * 2);
@@ -508,13 +507,13 @@ void CMusicInfoTagLoaderWMA::SetTagValueBinary(const CStdString& strFrameName, c
       {
         tag.SetCoverArtInfo(picture.dwDataLen, picture.pwszMIMEType);
         if (art)
-          art->set(picture.pbData, picture.dwDataLen, picture.pwszMIMEType);
+          art->Set(picture.pbData, picture.dwDataLen, picture.pwszMIMEType);
       }
     }
   }
 }
 
-void CMusicInfoTagLoaderWMA::SetTagValueBool(const CStdString& strFrameName, BOOL bValue, CMusicInfoTag& tag)
+void CMusicInfoTagLoaderWMA::SetTagValueBool(const std::string& strFrameName, BOOL bValue, CMusicInfoTag& tag)
 {
   //else if (strFrameName=="isVBR")
   //{

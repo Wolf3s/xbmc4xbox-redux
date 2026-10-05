@@ -234,11 +234,11 @@ HANDLE CCdIoSupport::OpenCDROM()
   return (HANDLE) cdio;
 }
 
-HANDLE CCdIoSupport::OpenIMAGE( CStdString& strFilename )
+HANDLE CCdIoSupport::OpenIMAGE( std::string& strFilename )
 {
   CSingleLock lock(*m_cdio);
 
-  CdIo* cdio = ::cdio_open(strFilename, DRIVER_UNKNOWN);
+  CdIo* cdio = ::cdio_open(strFilename.c_str(), DRIVER_UNKNOWN);
 
   return (HANDLE) cdio;
 }
@@ -850,12 +850,12 @@ CCdInfo* CCdIoSupport::GetCdInfo()
         if (m_nUDFVerMajor > 0x1)
         {
           ti.nfsInfo = FS_UNKNOWN;
-          m_strDiscLabel.Empty();
+          m_strDiscLabel.clear();
         }
         else if (m_nUDFVerMinor > 0x2)
         {
           ti.nfsInfo = FS_UNKNOWN;
-          m_strDiscLabel.Empty();
+          m_strDiscLabel.clear();
         }
       }
 

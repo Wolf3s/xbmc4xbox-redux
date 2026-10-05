@@ -60,28 +60,28 @@ public:
   virtual bool IsPaused() const { return m_bPaused; }
   virtual bool HasVideo() const { return false; }
   virtual bool HasAudio() const { return true; }
-  virtual bool CanSeek();
+  virtual bool CanSeek() const;
   virtual void Seek(bool bPlus = true, bool bLargeStep = false, bool bChapterOverride = false);
   virtual void SeekPercentage(float fPercent = 0.0f);
-  virtual float GetPercentage();
-  virtual void SetVolume(long nVolume);
+  virtual float GetPercentage() const;
+  virtual void SetVolume(float volume);
   virtual void SetDynamicRangeCompression(long drc);
-  virtual void GetAudioInfo( CStdString& strAudioInfo) {}
-  virtual void GetVideoInfo( CStdString& strVideoInfo) {}
-  virtual void GetGeneralInfo( CStdString& strVideoInfo) {}
+  virtual void GetAudioInfo( std::string& strAudioInfo) {}
+  virtual void GetVideoInfo( std::string& strVideoInfo) {}
+  virtual void GetGeneralInfo( std::string& strVideoInfo) {}
   virtual void Update(bool bPauseDrawing = false) {}
   virtual void GetVideoRect(RECT& SrcRect, RECT& DestRect){}
   virtual void GetVideoAspectRatio(float& fAR) {}
   virtual void ToFFRW(int iSpeed = 0);
-  virtual int GetCacheLevel() const; 
-  virtual int64_t GetTotalTime();
-  __int64 GetTotalTime64();
+  virtual int GetCacheLevel() const;
+  virtual int64_t GetTotalTime() const;
+  __int64 GetTotalTime64() const;
   virtual int GetAudioBitrate();
   virtual int GetChannels();
   virtual int GetBitsPerSample();
   virtual int GetSampleRate();
-  virtual CStdString GetAudioCodecName();
-  virtual __int64 GetTime();
+  virtual std::string GetAudioCodecName();
+  virtual __int64 GetTime() const;
   virtual void ResetTime();
   virtual void SeekTime(__int64 iTime = 0);
   // Skip to next track/item inside the current media (if supported).
@@ -92,7 +92,7 @@ public:
   virtual void RegisterAudioCallback(IAudioCallback *pCallback);
   virtual void UnRegisterAudioCallback();
 
-  static bool HandlesType(const CStdString &type);
+  static bool HandlesType(const std::string &type);
   virtual void DoAudioWork();
 
 protected:
@@ -118,12 +118,12 @@ protected:
   int m_iSpeed;   // current playing speed
 
 private:
-  
+
   bool ProcessPAP();    // does the actual reading and decode from our PAP dll
 
   __int64 m_SeekTime;
   int     m_IsFFwdRewding;
-  __int64 m_timeOffset; 
+  __int64 m_timeOffset;
   bool    m_forceFadeToNext;
 
   int m_currentDecoder;
@@ -136,22 +136,18 @@ private:
   bool AddPacketsToStream(int stream, CAudioDecoder &dec);
   bool FindFreePacket(int stream, DWORD *pdwPacket );     // Looks for a free packet
   void FreeStream(int stream);
-  bool CreateStream(int stream, int channels, int samplerate, int bitspersample, CStdString codec = "");
+  bool CreateStream(int stream, int channels, int samplerate, int bitspersample, std::string codec = "");
   void FlushStreams();
   void WaitForStream();
   void SetStreamVolume(int stream, long nVolume);
-  
+
   void UpdateCrossFadingTime(const CFileItem& file);
   bool QueueNextFile(const CFileItem &file, bool checkCrossFading);
   void UpdateCacheLevel();
 
   int m_currentStream;
 
-#ifdef HAS_XBOX_AUDIO
   IDirectSoundStream *m_pStream[2];
-#else
-  LPDIRECTSOUNDBUFFER m_pStream[2];
-#endif
 
   AudioPacket      m_packet[2][PACKET_COUNT];
 

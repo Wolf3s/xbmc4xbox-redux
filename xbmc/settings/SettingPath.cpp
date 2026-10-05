@@ -1,41 +1,33 @@
 /*
- *      Copyright (C) 2013 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2013-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "SettingPath.h"
+
+#include "ServiceBroker.h"
+#include "settings/AdvancedSettings.h"
+#include "settings/SettingsComponent.h"
 #include "settings/lib/SettingsManager.h"
-#include "utils/log.h"
 #include "utils/StringUtils.h"
 #include "utils/XBMCTinyXML.h"
 #include "utils/XMLUtils.h"
+#include "utils/log.h"
+
+#include <boost/make_shared.hpp>
 
 #define XML_ELM_DEFAULT     "default"
 #define XML_ELM_CONSTRAINTS "constraints"
 
 CSettingPath::CSettingPath(const std::string &id, CSettingsManager *settingsManager /* = NULL */)
-  : CSettingString(id, settingsManager),
-    m_writable(true)
+  : CSettingString(id, settingsManager), m_writable(true), m_hideExtension(false)
 { }
 
 CSettingPath::CSettingPath(const std::string &id, int label, const std::string &value, CSettingsManager *settingsManager /* = NULL */)
-  : CSettingString(id, label, value, settingsManager),
-    m_writable(true)
+  : CSettingString(id, label, value, settingsManager), m_writable(true), m_hideExtension(false)
 { }
 
 CSettingPath::CSettingPath(const std::string &id, const CSettingPath &setting)
@@ -44,9 +36,9 @@ CSettingPath::CSettingPath(const std::string &id, const CSettingPath &setting)
   copy(setting);
 }
 
-CSetting* CSettingPath::Clone(const std::string &id) const
+SettingPtr CSettingPath::Clone(const std::string &id) const
 {
-  return new CSettingPath(id, *this);
+  return boost::make_shared<CSettingPath>(id, *this);
 }
 
 bool CSettingPath::Deserialize(const TiXmlNode *node, bool update /* = false */)
@@ -56,8 +48,8 @@ bool CSettingPath::Deserialize(const TiXmlNode *node, bool update /* = false */)
   if (!CSettingString::Deserialize(node, update))
     return false;
 
-  if (m_control != nullptr &&
-     (m_control->GetType() != "button" || (m_control->GetFormat() != "path" && m_control->GetFormat() != "file")))
+  if (m_control != NULL &&
+     (m_control->GetType() != "button" || (m_control->GetFormat() != "path" && m_control->GetFormat() != "file" && m_control->GetFormat() != "image")))
   {
     CLog::Log(LOGERROR, "CSettingPath: invalid <control> of \"%s\"", m_id.c_str());
     return false;
@@ -68,6 +60,8 @@ bool CSettingPath::Deserialize(const TiXmlNode *node, bool update /* = false */)
   {
     // get writable
     XMLUtils::GetBoolean(constraints, "writable", m_writable);
+    // get hide extensions
+    XMLUtils::GetBoolean(constraints, "hideextensions", m_hideExtension);
 
     // get sources
     const TiXmlNode *sources = constraints->FirstChild("sources");
@@ -77,13 +71,22 @@ bool CSettingPath::Deserialize(const TiXmlNode *node, bool update /* = false */)
       const TiXmlNode *source = sources->FirstChild("source");
       while (source != NULL)
       {
-        std::string strSource = source->FirstChild()->ValueStr();
-        if (!strSource.empty())
-          m_sources.push_back(strSource);
+        const TiXmlNode *child = source->FirstChild();
+        if (child != NULL)
+        {
+          const std::string& strSource = child->ValueStr();
+          if (!strSource.empty())
+            m_sources.push_back(strSource);
+        }
 
         source = source->NextSibling("source");
       }
     }
+
+    // get masking
+    const TiXmlNode *masking = constraints->FirstChild("masking");
+    if (masking != NULL)
+      m_masking = masking->FirstChild()->ValueStr();
   }
 
   return true;
@@ -99,11 +102,48 @@ bool CSettingPath::SetValue(const std::string &value)
   return CSettingString::SetValue(value);
 }
 
-void CSettingPath::copy(const CSettingPath &setting)
+std::string CSettingPath::GetMasking() const
+{
+  if (m_masking.empty())
+    return m_masking;
+
+  // setup masking
+  std::string audioMask = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_musicExtensions;
+  std::string videoMask = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_videoExtensions;
+  std::string imageMask = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_pictureExtensions;
+  const char *execMask = "";
+#if defined(TARGET_WINDOWS)
+  execMask = ".exe|.bat|.cmd|.py";
+#elif defined(_XBOX)
+  execMask = ".xbe|.py";
+#endif // defined(TARGET_WINDOWS)
+
+  std::string masking = m_masking;
+  if (masking == "video")
+    return videoMask;
+  if (masking == "audio")
+    return audioMask;
+  if (masking == "image")
+    return imageMask;
+  if (masking == "executable")
+    return execMask;
+
+  // convert mask qualifiers
+  StringUtils::Replace(masking, "$AUDIO", audioMask);
+  StringUtils::Replace(masking, "$VIDEO", videoMask);
+  StringUtils::Replace(masking, "$IMAGE", imageMask);
+  StringUtils::Replace(masking, "$EXECUTABLE", execMask);
+
+  return masking;
+}
+
+void CSettingPath::copy(const CSettingPath& setting)
 {
   CSettingString::Copy(setting);
 
   CExclusiveLock lock(m_critical);
   m_writable = setting.m_writable;
   m_sources = setting.m_sources;
+  m_hideExtension = setting.m_hideExtension;
+  m_masking = setting.m_masking;
 }

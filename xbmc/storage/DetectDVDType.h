@@ -28,11 +28,12 @@
 //
 //
 
-#include "cdioSupport.h"
 #include "threads/CriticalSection.h"
 #include "threads/Event.h"
 #include "threads/Thread.h"
-#include "boost/shared_ptr.hpp"
+#include "cdioSupport.h"
+
+#include <boost/shared_ptr.hpp>
 
 namespace MEDIA_DETECT
 {
@@ -53,23 +54,22 @@ public:
   static CCdInfo* GetCdInfo();
   static CEvent m_evAutorun;
 
-  static const CStdString &GetDVDLabel();
-  static const CStdString &GetDVDPath();
+  static const std::string &GetDVDLabel();
+  static const std::string &GetDVDPath();
 
   static void UpdateState();
 protected:
   void UpdateDvdrom();
   DWORD GetTrayState();
-  
+
 
   void DetectMediaType();
-  void SetNewDVDShareUrl( const CStdString& strNewUrl, bool bCDDA, const CStdString& strDiscLabel );
+  void SetNewDVDShareUrl( const std::string& strNewUrl, bool bCDDA, const std::string& strDiscLabel );
 
 private:
   static CCriticalSection m_muReadingMedia;
 
   static int m_DriveState;
-  static time_t m_LastPoll;
   static CDetectDVDMedia* m_pInstance;
 
   static CCdInfo* m_pCdInfo;
@@ -80,9 +80,9 @@ private:
   DWORD m_dwTrayCount;
   DWORD m_dwLastTrayState;
 
-  static CStdString m_diskLabel;
-  static CStdString m_diskPath;
-  
+  static std::string m_diskLabel;
+  static std::string m_diskPath;
+
   boost::shared_ptr<CLibcdio> m_cdio;
 };
 }

@@ -1,37 +1,19 @@
-#ifndef _ENCODER_H
-#define _ENCODER_H
-
 /*
- *      Copyright (C) 2005-2013 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include "utils/StdString.h"
+#pragma once
 
-#define ENC_ARTIST  11
-#define ENC_TITLE   12
-#define ENC_ALBUM   13
-#define ENC_YEAR    14
-#define ENC_COMMENT 15
-#define ENC_TRACK   16
-#define ENC_GENRE   17
+#include "IEncoder.h"
 
-#define WRITEBUFFER_SIZE 131072 // 128k buffer
+#include <boost/move/unique_ptr.hpp>
+#include <stdint.h>
+#include <stdio.h>
+#include <string>
 
 enum CDDARipEncoder
 {
@@ -49,56 +31,55 @@ enum CDDARipQuality
   CDDARIP_QUALITY_EXTREME
 };
 
-namespace XFILE { class CFile; }
+namespace XFILE
+{
+class CFile;
+}
 
-class CEncoder
+namespace KODI
+{
+namespace CDRIP
+{
+
+const size_t WRITEBUFFER_SIZE = 131072; // 128k buffer
+
+class CEncoder : public IEncoder
 {
 public:
   CEncoder();
   virtual ~CEncoder();
-  virtual bool Init(const char* strFile, int iInChannels, int iInRate, int iInBits) = 0;
-  virtual int Encode(int nNumBytesRead, BYTE* pbtStream) = 0;
-  virtual bool Close() = 0;
 
-  void SetComment(const CStdString& str) { m_strComment = str; }
-  void SetArtist(const CStdString& str) { m_strArtist = str; }
-  void SetTitle(const CStdString& str) { m_strTitle = str; }
-  void SetAlbum(const CStdString& str) { m_strAlbum = str; }
-  void SetAlbumArtist(const CStdString& str) { m_strAlbumArtist = str; }
-  void SetGenre(const CStdString& str) { m_strGenre = str; }
-  void SetTrack(const CStdString& str) { m_strTrack = str; }
+  bool EncoderInit(const std::string& strFile, int iInChannels, int iInRate, int iInBits);
+  ssize_t EncoderEncode(uint8_t* pbtStream, size_t nNumBytesRead);
+  bool EncoderClose();
+
+  void SetComment(const std::string& str) { m_strComment = str; }
+  void SetArtist(const std::string& str) { m_strArtist = str; }
+  void SetTitle(const std::string& str) { m_strTitle = str; }
+  void SetAlbum(const std::string& str) { m_strAlbum = str; }
+  void SetAlbumArtist(const std::string& str) { m_strAlbumArtist = str; }
+  void SetGenre(const std::string& str) { m_strGenre = str; }
+  void SetTrack(const std::string& str) { m_strTrack = str; }
   void SetTrackLength(int length) { m_iTrackLength = length; }
-  void SetYear(const CStdString& str) { m_strYear = str; }
+  void SetYear(const std::string& str) { m_strYear = str; }
 
 protected:
-  bool FileCreate(const char* filename);
+  virtual ssize_t Write(const uint8_t* pBuffer, size_t iBytes);
+  virtual ssize_t Seek(ssize_t iFilePosition, int iWhence);
+  virtual int64_t GetLength(); // CEncoderFlac
+  virtual bool CloseFile(); // CEncoderLame, CEncoderVorbis
+
+private:
+  bool FileCreate(const std::string& filename);
   bool FileClose();
-  int FileWrite(LPCVOID pBuffer, DWORD iBytes);
+  ssize_t FileWrite(const uint8_t* pBuffer, size_t iBytes);
+  ssize_t FlushStream();
 
-  int WriteStream(LPCVOID pBuffer, DWORD iBytes);
-  int FlushStream();
+  boost::movelib::unique_ptr<XFILE::CFile> m_file;
 
-  // tag info
-  CStdString m_strComment;
-  CStdString m_strArtist;
-  CStdString m_strAlbumArtist;
-  CStdString m_strTitle;
-  CStdString m_strAlbum;
-  CStdString m_strGenre;
-  CStdString m_strTrack;
-  CStdString m_strYear;
-  int m_iTrackLength;
-
-  CStdString m_strFile;
-
-  XFILE::CFile *m_file;
-  int m_iInChannels;
-  int m_iInSampleRate;
-  int m_iInBitsPerSample;
-
-  BYTE m_btWriteBuffer[WRITEBUFFER_SIZE]; // 128k buffer for writing to disc
-  DWORD m_dwWriteBufferPointer;
+  uint8_t m_btWriteBuffer[WRITEBUFFER_SIZE]; // 128k buffer for writing to disc
+  size_t m_dwWriteBufferPointer;
 };
 
-#endif // _ENCODER_H
-
+} /* namespace CDRIP */
+} /* namespace KODI */

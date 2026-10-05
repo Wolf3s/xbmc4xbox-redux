@@ -21,23 +21,54 @@
 #include "Picture.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "FileItem.h"
 #include "filesystem/File.h"
 #include "filesystem/CurlFile.h"
+#include "filesystem/SpecialProtocol.h"
 #include "DllImageLib.h"
 #include "utils/JpegIO.h"
 #include "utils/Crc32.h"
 #include "utils/log.h"
 #include "utils/URIUtils.h"
+#include "utils/StringUtils.h"
 #include "cores/dvdplayer/Codecs/DllSwScale.h"
 #include "guilib/Texture.h"
-#include "guilib/GraphicContext.h"
+#include "windowing/GraphicContext.h"
 #include "TextureManager.h"
 #include "XBTF.h"
 
+#include <boost/move/make_unique.hpp>
+
 using namespace XFILE;
 
-bool CPicture::CreateThumbnailFromSurface(const unsigned char *buffer, int width, int height, int stride, const CStdString &thumbFile)
+bool CPicture::GetThumbnailFromSurface(const unsigned char* buffer, int width, int height, int stride, const std::string &thumbFile, uint8_t* &result, size_t& result_size)
+{
+  result = NULL;
+  result_size = 0;
+
+  struct TemporaryThumbnail
+  {
+    explicit TemporaryThumbnail(const std::string& filename) : path(filename) {}
+    ~TemporaryThumbnail() { CFile::Delete(path); }
+    std::string path;
+  } thumbnail(CSpecialProtocol::TranslatePath("special://temp/" + StringUtils::CreateUUID() + URIUtils::GetExtension(thumbFile)));
+
+  if (!CreateThumbnailFromSurface(buffer, width, height, stride, thumbnail.path))
+    return false;
+
+  CFile file;
+  std::vector<uint8_t> encoded;
+  if (file.LoadFile(thumbnail.path, encoded) <= 0)
+    return false;
+
+  result = new uint8_t[encoded.size()];
+  memcpy(result, &encoded[0], encoded.size());
+  result_size = encoded.size();
+  return true;
+}
+
+bool CPicture::CreateThumbnailFromSurface(const unsigned char *buffer, int width, int height, int stride, const std::string &thumbFile)
 {
   CLog::Log(LOGDEBUG, "cached image '%s' size %dx%d", thumbFile.c_str(), width, height);
   if (URIUtils::HasExtension(thumbFile, ".jpg"))
@@ -51,7 +82,82 @@ bool CPicture::CreateThumbnailFromSurface(const unsigned char *buffer, int width
   return dll.CreateThumbnailFromSurface((BYTE *)buffer, width, height, stride, thumbFile.c_str());
 }
 
-bool CPicture::CacheTexture(CBaseTexture *texture, uint32_t &dest_width, uint32_t &dest_height, const std::string &dest)
+bool CPicture::ResizeTexture(const std::string& image,
+                             CTexture* texture,
+                             uint32_t& dest_width,
+                             uint32_t& dest_height,
+                             uint8_t*& result,
+                             size_t& result_size)
+{
+  if (image.empty() || texture == NULL)
+    return false;
+
+  return ResizeTexture(image, texture->GetPixels(), texture->GetWidth(), texture->GetHeight(), texture->GetPitch(),
+                       dest_width, dest_height, result, result_size);
+}
+
+bool CPicture::ResizeTexture(const std::string &image, uint8_t *pixels, uint32_t width, uint32_t height, uint32_t pitch,
+  uint32_t &dest_width, uint32_t &dest_height, uint8_t* &result, size_t& result_size)
+{
+  if (image.empty() || pixels == NULL)
+    return false;
+
+  dest_width = std::min(width, dest_width);
+  dest_height = std::min(height, dest_height);
+
+  // if no max width or height is specified, don't resize
+  if (dest_width == 0 && dest_height == 0)
+  {
+    dest_width = width;
+    dest_height = height;
+  }
+  else if (dest_width == 0)
+  {
+    double factor = (double)dest_height / (double)height;
+    dest_width = (uint32_t)(width * factor);
+  }
+  else if (dest_height == 0)
+  {
+    double factor = (double)dest_width / (double)width;
+    dest_height = (uint32_t)(height * factor);
+  }
+
+  // nothing special to do if the dimensions already match
+  if (dest_width >= width || dest_height >= height)
+    return GetThumbnailFromSurface(pixels, dest_width, dest_height, pitch, image, result, result_size);
+
+  // create a buffer large enough for the resulting image
+  GetScale(width, height, dest_width, dest_height);
+
+  // Let's align so that stride is always divisible by 16, and then add some 32 bytes more on top
+  // See: https://github.com/FFmpeg/FFmpeg/blob/75638fe9402f70645bdde4d95672fa640a327300/libswscale/tests/swscale.c#L157
+  uint32_t dest_width_aligned = ((dest_width + 15) & ~0x0f);
+  uint32_t stride = dest_width_aligned * sizeof(uint32_t);
+
+  uint32_t* buffer = new uint32_t[dest_width_aligned * dest_height + 4];
+  if (!ScaleImage(pixels, width, height, pitch, (uint8_t*)buffer, dest_width,
+                  dest_height, dest_width * 4))
+  {
+    delete[] buffer;
+    result = NULL;
+    result_size = 0;
+    return false;
+  }
+
+  bool success = GetThumbnailFromSurface((unsigned char*)buffer, dest_width, dest_height, stride,
+                                         image, result, result_size);
+  delete[] buffer;
+
+  if (!success)
+  {
+    result = NULL;
+    result_size = 0;
+  }
+
+  return success;
+}
+
+bool CPicture::CacheTexture(CTexture *texture, uint32_t &dest_width, uint32_t &dest_height, const std::string &dest)
 {
   return CacheTexture(texture->GetPixels(), texture->GetWidth(), texture->GetHeight(), texture->GetPitch(),
                       texture->GetOrientation(), dest_width, dest_height, dest);
@@ -65,12 +171,12 @@ bool CPicture::CacheTexture(uint8_t *pixels, uint32_t width, uint32_t height, ui
   if (dest_height == 0)
     dest_height = height;
 
-  uint32_t max_height = g_advancedSettings.m_imageRes;
-  if (g_advancedSettings.m_fanartRes > g_advancedSettings.m_imageRes)
+  uint32_t max_height = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_imageRes;
+  if (CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_fanartRes > CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_imageRes)
   { // a separate fanart resolution is specified - check if the image is exactly equal to this res
-    if (width == g_advancedSettings.m_fanartRes * 16/9 && height == g_advancedSettings.m_fanartRes)
+    if (width == CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_fanartRes * 16/9 && height == CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_fanartRes)
     { // special case for fanart res
-      max_height = g_advancedSettings.m_fanartRes;
+      max_height = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_fanartRes;
     }
   }
   uint32_t max_width = max_height * 16/9;
@@ -110,6 +216,76 @@ bool CPicture::CacheTexture(uint8_t *pixels, uint32_t width, uint32_t height, ui
   return false;
 }
 
+boost::movelib::unique_ptr<CTexture> CPicture::CreateTiledThumb(const std::vector<std::string>& files)
+{
+  if (!files.size())
+    return boost::movelib::unique_ptr<CTexture>();
+
+  unsigned int num_across =
+      static_cast<unsigned int>(std::ceil(std::sqrt(static_cast<float>(files.size()))));
+  unsigned int num_down = (files.size() + num_across - 1) / num_across;
+
+  unsigned int imageRes = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_imageRes;
+
+  unsigned int tile_width = imageRes / num_across;
+  unsigned int tile_height = imageRes / num_down;
+  unsigned int tile_gap = 1;
+  bool success = false; // Flag that we at least had one successful image processed
+
+  // create a buffer for the resulting thumb
+  boost::movelib::unique_ptr<uint32_t[]> buffer = boost::movelib::make_unique<uint32_t[]>(imageRes * imageRes);
+  if (!buffer)
+    return boost::movelib::unique_ptr<CTexture>();
+  std::string strMimeType("image/jpeg");
+  for (unsigned int i = 0; i < files.size(); ++i)
+  {
+    if (strMimeType == "image/jpeg" && !URIUtils::HasExtension(files[i], ".jpg|.jpeg"))
+      strMimeType = "image/" + URIUtils::GetExtension(files[i]).substr(1);
+
+    int x = i % num_across;
+    int y = i / num_across;
+    // load in the image
+    unsigned int width = tile_width - 2 * tile_gap, height = tile_height - 2 * tile_gap;
+    boost::movelib::unique_ptr<CTexture> texture = CTexture::LoadFromFile(files[i], width, height, true);
+    if (texture && texture->GetWidth() && texture->GetHeight())
+    {
+      GetScale(texture->GetWidth(), texture->GetHeight(), width, height);
+
+      // scale appropriately
+      boost::movelib::unique_ptr<uint32_t[]> scaled = boost::movelib::make_unique<uint32_t[]>(width * height);
+      if (ScaleImage(texture->GetPixels(), texture->GetWidth(), texture->GetHeight(),
+                     texture->GetPitch(), reinterpret_cast<uint8_t*>(scaled.get()),
+                     width, height, width * 4))
+      {
+        uint32_t* scaledL = scaled.get();
+        if (!texture->GetOrientation() ||
+            OrientateImage(scaledL, width, height, texture->GetOrientation()))
+        {
+          success = true;
+          // drop into the texture
+          unsigned int posX = x * tile_width + (tile_width - width) / 2;
+          unsigned int posY = y * tile_height + (tile_height - height) / 2;
+          uint32_t* dest = buffer.get() + posX + posY * imageRes;
+          const uint32_t* src = scaled.get();
+          for (unsigned int y = 0; y < height; ++y)
+          {
+            memcpy(dest, src, width * 4);
+            dest += imageRes;
+            src += width;
+          }
+        }
+      }
+    }
+  }
+
+  boost::movelib::unique_ptr<CTexture> result = boost::movelib::make_unique<CTexture>();
+  if (success)
+    result->LoadFromFileInMemory(reinterpret_cast<unsigned char*>(buffer.get()), imageRes * imageRes,
+                           strMimeType, imageRes, imageRes);
+
+  return boost::move(result);
+}
+
 bool CPicture::CreateTiledThumb(const std::vector<std::string> &files, const std::string &thumb)
 {
   if (!files.size())
@@ -118,19 +294,22 @@ bool CPicture::CreateTiledThumb(const std::vector<std::string> &files, const std
   unsigned int num_across = (unsigned int)ceil(sqrt((float)files.size()));
   unsigned int num_down = (files.size() + num_across - 1) / num_across;
 
-  unsigned int tile_width = g_advancedSettings.GetThumbSize() / num_across;
-  unsigned int tile_height = g_advancedSettings.GetThumbSize() / num_down;
+  unsigned int imageRes = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_imageRes;
+
+  unsigned int tile_width = imageRes / num_across;
+  unsigned int tile_height = imageRes / num_down;
   unsigned int tile_gap = 1;
+  bool success = false;
 
   // create a buffer for the resulting thumb
-  uint32_t *buffer = (uint32_t *)calloc(g_advancedSettings.GetThumbSize() * g_advancedSettings.GetThumbSize(), 4);
+  uint32_t *buffer = (uint32_t *)calloc(imageRes * imageRes, 4);
   for (unsigned int i = 0; i < files.size(); ++i)
   {
     int x = i % num_across;
     int y = i / num_across;
     // load in the image
     unsigned int width = tile_width - 2*tile_gap, height = tile_height - 2*tile_gap;
-    CBaseTexture *texture = CTexture::LoadFromFile(files[i], width, height, CSettings::GetInstance().GetBool("pictures.useexifrotation"));
+    boost::movelib::unique_ptr<CTexture> texture = CTexture::LoadFromFile(files[i], width, height, CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool("pictures.useexifrotation"));
     if (texture && texture->GetWidth() && texture->GetHeight())
     {
       GetScale(texture->GetWidth(), texture->GetHeight(), width, height);
@@ -142,27 +321,28 @@ bool CPicture::CreateTiledThumb(const std::vector<std::string> &files, const std
       {
         if (!texture->GetOrientation() || OrientateImage(scaled, width, height, texture->GetOrientation()))
         {
+          success = true; // Flag that we at least had one successful image processed
           // drop into the texture
           unsigned int posX = x*tile_width + (tile_width - width)/2;
           unsigned int posY = y*tile_height + (tile_height - height)/2;
-          uint32_t *dest = buffer + posX + posY*g_advancedSettings.GetThumbSize();
+          uint32_t *dest = buffer + posX + posY * imageRes;
           for (unsigned int y = 0; y < height; ++y)
           {
             memcpy(dest, scaled, width*4);
-            dest += g_advancedSettings.GetThumbSize();
+            dest += imageRes;
             scaled += width;
           }
         }
       }
       delete[] scaled;
-      delete texture;
     }
   }
   // now save to a file
-  bool ret = CreateThumbnailFromSurface((uint8_t *)buffer, g_advancedSettings.GetThumbSize(), g_advancedSettings.GetThumbSize(),
-                                        g_advancedSettings.GetThumbSize() * 4, thumb);
+  if (success)
+    success = CreateThumbnailFromSurface((uint8_t *)buffer, imageRes, imageRes,
+                                        imageRes * 4, thumb);
   free(buffer);
-  return ret;
+  return success;
 }
 
 void CPicture::GetScale(unsigned int width, unsigned int height, unsigned int &out_width, unsigned int &out_height)

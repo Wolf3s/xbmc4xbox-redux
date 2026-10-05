@@ -69,10 +69,10 @@ public:
 
     inline bool GetDeinterlace() { return m_bDeinterlace; };
     inline void SetDeinterlace(bool mDeint) { m_bDeinterlace = mDeint; };
-      
+
     const std::string& GetSubtitleCharset() { return m_subcp; };
     void SetSubtitleCharset(const std::string& subcp) { m_subcp = subcp; };
-      
+
     const std::string GetChannelMapping() const;
     void SetChannelMapping(const std::string& strMapping);
     void SetSpeed(float fSpeed);
@@ -138,23 +138,23 @@ public:
   virtual bool CloseFile();
   virtual bool IsPlaying() const;
   virtual void Pause();
-  virtual bool IsPaused() const;  
+  virtual bool IsPaused() const;
   virtual void Unload();
   virtual bool HasVideo() const;
   virtual bool HasAudio() const;
 
   virtual void Seek(bool bPlus = true, bool bLargeStep = false, bool bChapterOverride = false);
   virtual bool SeekScene(bool bPlus = true);
-  virtual void SetVolume(long nVolume);
+  virtual void SetVolume(float volume);
   virtual void SetDynamicRangeCompression(long drc);
-  virtual void GetAudioInfo( CStdString& strAudioInfo);
-  virtual void GetVideoInfo( CStdString& strVideoInfo);
-  virtual void GetGeneralInfo( CStdString& strVideoInfo);
+  virtual void GetAudioInfo( std::string& strAudioInfo);
+  virtual void GetVideoInfo( std::string& strVideoInfo);
+  virtual void GetGeneralInfo( std::string& strVideoInfo);
   virtual void Update(bool bPauseDrawing = false);
   virtual void GetVideoRect(RECT& SrcRect, RECT& DestRect);
   virtual void GetVideoAspectRatio(float& fAR);
   virtual void SeekPercentage(float fPercent = 0);
-  virtual float GetPercentage();
+  virtual float GetPercentage() const;
   virtual void SetAVDelay(float fValue = 0.0f);
   virtual float GetAVDelay();
   virtual float GetActualFPS();
@@ -164,8 +164,8 @@ public:
 
   virtual int GetSubtitleCount();
   virtual int GetSubtitle();
-  virtual int AddSubtitle(const CStdString& strFileName);
-  virtual void GetSubtitleName(int iStream, CStdString &strStreamName);
+  virtual int AddSubtitle(const std::string& strFileName);
+  virtual void GetSubtitleName(int iStream, std::string &strStreamName);
   virtual void SetSubtitle(int iStream);
   virtual bool GetSubtitleVisible();
   virtual void SetSubtitleVisible(bool bVisible);
@@ -173,26 +173,26 @@ public:
 
   virtual int GetAudioStreamCount();
   virtual int GetAudioStream();
-  virtual void GetAudioStreamName(int iStream, CStdString& strStreamName);
+  virtual void GetAudioStreamName(int iStream, std::string& strStreamName);
   virtual void SetAudioStream(int iStream);
 
-  virtual bool CanSeek();
+  virtual bool CanSeek() const;
   virtual void SeekTime(__int64 iTime = 0);
-  virtual int64_t GetTotalTime();
-  virtual __int64 GetTime();
+  virtual int64_t GetTotalTime() const;
+  virtual __int64 GetTime() const;
   virtual void ToFFRW(int iSpeed = 0);
   virtual void DoAudioWork();
 
   virtual bool IsCaching() const {return m_bCaching;};
   virtual int GetCacheLevel() const {return m_CacheLevel;};
 
-  virtual bool GetCurrentSubtitle(CStdString& strSubtitle);
+  virtual bool GetCurrentSubtitle(std::string& strSubtitle);
   virtual bool OnAction(const CAction &action);
 
-  CStdString _SubtitleExtension;
+  std::string _SubtitleExtension;
 protected:
   int GetCacheSize(bool bFileOnHD, bool bFileOnISO, bool bFileOnUDF, bool bFileOnInternet, bool bFileOnLAN, bool bIsVideo, bool bIsAudio, bool bIsDVD);
-  CStdString GetDVDArgument(const CStdString& strFile);
+  std::string GetDVDArgument(const std::string& strFile);
   void WaitOnCommand();
   bool load();
   virtual void OnStartup();

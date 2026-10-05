@@ -13,11 +13,14 @@
 #include "dialogs/GUIDialogKaiToast.h"
 #include "dialogs/GUIDialogYesNo.h"
 #include "filesystem/CurlFile.h"
+#include "guilib/GUIComponent.h"
 #include "guilib/LocalizeStrings.h"
 #include "messaging/ApplicationMessenger.h"
 #include "utils/log.h"
-#include "xbox/custom_launch_params.h"
 
+#include "platform/xbox/custom_launch_params.h"
+
+#define VERSION_STRING SVN_APP_VERSION_SHORT"-"SVN_REV
 
 CUpdaterJob::CUpdaterJob(bool notify /* = false */, bool install /* = false */)
   : CJob(),
@@ -32,7 +35,7 @@ bool CUpdaterJob::DoWork()
   std::string strRevision = split[1];
   std::string strUpdateChannel = split[2] == "py2" ? "nightly" : "nightly-python3";
 
-  if (!g_infoManager.EvaluateBool("Skin.HasSetting(updateavailable)"))
+  if (!CServiceBroker::GetGUI()->GetInfoManager().EvaluateBool("Skin.HasSetting(updateavailable)", INFO::DEFAULT_CONTEXT))
   {
     if (strRevision.empty() || StringUtils::StartsWithNoCase(strRevision, "dev"))
       return true;
@@ -53,7 +56,7 @@ bool CUpdaterJob::DoWork()
 
     bool updateAvailable = !strLastRevision.empty() && strLastRevision != strRevision;
     if (updateAvailable)
-      KODI::MESSAGING::CApplicationMessenger::Get().PostMsg(TMSG_EXECUTE_BUILT_IN, -1, -1, nullptr, "Skin.SetBool(updateavailable)");
+      CServiceBroker::GetAppMessenger()->PostMsg(TMSG_EXECUTE_BUILT_IN, -1, -1, nullptr, "Skin.SetBool(updateavailable)");
 
     m_notify &= updateAvailable;
     m_install &= updateAvailable;
@@ -86,7 +89,7 @@ void CUpdaterJob::DoInstall(const std::string& strCurrentVersion, const std::str
     strcpy(data.reserved, StringUtils::Format("version=%s&revision=%s&channel=%s", strCurrentVersion.c_str(), strCurrentRevision.c_str(), strUpdateChannel.c_str()).c_str());
     data.executionType = 0;
 
-    KODI::MESSAGING::CApplicationMessenger::Get().SendMsg(TMSG_EXECUTE_BUILT_IN, -1, -1, nullptr, "Skin.ToggleSetting(updateavailable)");
+    CServiceBroker::GetAppMessenger()->SendMsg(TMSG_EXECUTE_BUILT_IN, -1, -1, nullptr, "Skin.ToggleSetting(updateavailable)");
     CUtil::RunXBE("Q:\\updater.xbe", NULL, VIDEO_NULL, COUNTRY_NULL, &data);
   }
 }

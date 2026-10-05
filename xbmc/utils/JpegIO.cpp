@@ -20,13 +20,15 @@
 *
 */
 
-#include "include.h"
+#include "ServiceBroker.h"
 #include "libexif/libexif.h"
 #include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "settings/AdvancedSettings.h"
 #include "filesystem/File.h"
 #include "JpegIO.h"
 #include "XBTF.h"
+#include "utils/StringUtils.h"
 #include "utils/log.h"
 
 #include <setjmp.h>
@@ -46,8 +48,6 @@ CJpegIO::CJpegIO()
   m_originalwidth = 0;
   m_originalheight = 0;
   m_orientation = 0;
-  m_inputBuffSize = 0;
-  m_inputBuff = NULL;
   m_texturePath = "";
 }
 
@@ -58,26 +58,20 @@ CJpegIO::~CJpegIO()
 
 void CJpegIO::Close()
 {
-  free(m_inputBuff);
-  m_inputBuff = NULL;
-  m_inputBuffSize = 0;
+  m_inputBuff.clear();
 }
 
-bool CJpegIO::Open(const CStdString &texturePath, unsigned int minx, unsigned int miny, bool read)
+bool CJpegIO::Open(const std::string &texturePath, unsigned int minx, unsigned int miny, bool read)
 {
   Close();
 
   m_texturePath = texturePath;
 
   XFILE::CFile file;
-  XFILE::auto_buffer buf;
-  if (file.LoadFile(texturePath, buf) <= 0)
+  if (file.LoadFile(texturePath, m_inputBuff) <= 0)
     return false;
 
-  m_inputBuffSize = buf.size();
-  m_inputBuff = (unsigned char*)buf.detach();
-
-  return Read(m_inputBuff, m_inputBuffSize, minx, miny);
+  return Read(reinterpret_cast<unsigned char*>(&m_inputBuff[0]), m_inputBuff.size(), minx, miny);
 }
 
 bool CJpegIO::Read(unsigned char* buffer, unsigned int bufSize, unsigned int minx, unsigned int miny)
@@ -106,7 +100,7 @@ bool CJpegIO::Read(unsigned char* buffer, unsigned int bufSize, unsigned int min
       m_orientation = GetExifOrientation(m_cinfo.marker_list->data, m_cinfo.marker_list->data_length);
 
     // fail on images with orientation (fall back to cximage)
-    if (CSettings::GetInstance().GetBool("pictures.useexifrotation") && m_orientation > 1 )
+    if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool("pictures.useexifrotation") && m_orientation > 1 )
     {
       CLog::Log(LOGDEBUG, "JpegIO::Read - Exif orientation > 1 so falling back to CXImage");
       return false;
@@ -124,19 +118,19 @@ bool CJpegIO::Read(unsigned char* buffer, unsigned int bufSize, unsigned int min
     the gpu can hold, use the previous one.*/
     if (minx == 0 || miny == 0)
     {
-      miny = g_advancedSettings.m_imageRes;
-      if (g_advancedSettings.m_fanartRes > g_advancedSettings.m_imageRes)
+      miny = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_imageRes;
+      if (CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_fanartRes > CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_imageRes)
       { // a separate fanart resolution is specified - check if the image is exactly equal to this res
-        if (m_cinfo.image_width == (unsigned int)g_advancedSettings.m_fanartRes * 16/9 &&
-            m_cinfo.image_height == (unsigned int)g_advancedSettings.m_fanartRes)
+        if (m_cinfo.image_width == (unsigned int)CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_fanartRes * 16/9 &&
+            m_cinfo.image_height == (unsigned int)CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_fanartRes)
         { // special case for fanart res
-          miny = g_advancedSettings.m_fanartRes;
+          miny = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_fanartRes;
         }
       }
       minx = miny * 16/9;
     }
 
-    /* override minx/miny values based on image aspect and area of requested minx/miny 
+    /* override minx/miny values based on image aspect and area of requested minx/miny
     so that tall/wide images come out larger (geometric mean) */
     unsigned int rminx = minx;
     unsigned int rminy = miny;
@@ -226,16 +220,16 @@ bool CJpegIO::Decode(const unsigned char *pixels, unsigned int pitch, unsigned i
   return true;
 }
 
-bool CJpegIO::CreateThumbnail(const CStdString& sourceFile, const CStdString& destFile, int minx, int miny)
+bool CJpegIO::CreateThumbnail(const std::string& sourceFile, const std::string& destFile, int minx, int miny)
 {
   //Copy sourceFile to buffer, pass to CreateThumbnailFromMemory for decode+re-encode
   if (!Open(sourceFile, minx, miny, false))
     return false;
 
-  return CreateThumbnailFromMemory(m_inputBuff, m_inputBuffSize, destFile, minx, miny);
+  return CreateThumbnailFromMemory(reinterpret_cast<unsigned char*>(&m_inputBuff[0]), m_inputBuff.size(), destFile, minx, miny);
 }
 
-bool CJpegIO::CreateThumbnailFromMemory(unsigned char* buffer, unsigned int bufSize, const CStdString& destFile, unsigned int minx, unsigned int miny)
+bool CJpegIO::CreateThumbnailFromMemory(unsigned char* buffer, unsigned int bufSize, const std::string& destFile, unsigned int minx, unsigned int miny)
 {
   //Decode a jpeg residing in buffer, pass to CreateThumbnailFromSurface for re-encode
   unsigned int pitch = 0;
@@ -260,7 +254,7 @@ bool CJpegIO::CreateThumbnailFromMemory(unsigned char* buffer, unsigned int bufS
   return true;
 }
 
-bool CJpegIO::CreateThumbnailFromSurface(unsigned char* buffer, unsigned int width, unsigned int height, unsigned int format, unsigned int pitch, const CStdString& destFile)
+bool CJpegIO::CreateThumbnailFromSurface(unsigned char* buffer, unsigned int width, unsigned int height, unsigned int format, unsigned int pitch, const std::string& destFile)
 {
   //Encode raw data from buffer, save to destFile
   struct jpeg_compress_struct cinfo;
@@ -360,8 +354,8 @@ bool CJpegIO::CreateThumbnailFromSurface(unsigned char* buffer, unsigned int wid
 // override libjpeg's error function to avoid an exit() call
 void CJpegIO::jpeg_error_exit(j_common_ptr cinfo)
 {
-  CStdString msg;
-  msg.Format("Error %i: %s",cinfo->err->msg_code, cinfo->err->jpeg_message_table[cinfo->err->msg_code]);
+  std::string msg;
+  msg = StringUtils::Format("Error %i: %s",cinfo->err->msg_code, cinfo->err->jpeg_message_table[cinfo->err->msg_code]);
   CLog::Log(LOGWARNING, "JpegIO: %s", msg.c_str());
 
   my_error_mgr *myerr = (my_error_mgr*)cinfo->err;

@@ -18,12 +18,19 @@
  *
  */
 
-#include "include.h"
 #include "GUISound.h"
-#include "AudioContext.h"
-#include "Application.h"
-#include "settings/AdvancedSettings.h"
+
+#include "ServiceBroker.h"
+#include "application/ApplicationComponents.h"
+#include "application/ApplicationVolumeHandling.h"
+#include "cores/AudioEngine/Engines/IDirectSoundRenderer.h"
 #include "filesystem/File.h"
+#include "settings/AdvancedSettings.h"
+#include "settings/SettingsComponent.h"
+#include "threads/SingleLock.h"
+#include "utils/log.h"
+
+#include "AudioContext.h"
 
 typedef struct
 {
@@ -38,9 +45,10 @@ typedef struct
   char rifftype[4];
 } WAVE_RIFFHEADER;
 
-CGUISound::CGUISound()
+CGUISound::CGUISound(const std::string& strFile)
 {
-  m_soundBuffer=NULL;
+  m_strFile = strFile;
+  m_soundBuffer = NULL;
 }
 
 CGUISound::~CGUISound()
@@ -49,12 +57,12 @@ CGUISound::~CGUISound()
 }
 
 // \brief Loads a wav file by filename
-bool CGUISound::Load(const CStdString& strFile)
+bool CGUISound::Load()
 {
   LPBYTE pbData=NULL;
   WAVEFORMATEX wfx;
   int size=0;
-  if (!LoadWav(strFile, &wfx, &pbData, &size))
+  if (!LoadWav(m_strFile, &wfx, &pbData, &size))
     return false;
 
   bool bReady=(CreateBuffer(&wfx, size) && FillBuffer(pbData, size));
@@ -67,15 +75,18 @@ bool CGUISound::Load(const CStdString& strFile)
   return bReady;
 }
 
+bool CGUISound::LoadOnDemand()
+{
+  if (m_soundBuffer == NULL)
+    return Load();
+  return true;
+}
+
 // \brief Starts playback of the sound
 void CGUISound::Play()
 {
   if (m_soundBuffer)
-#ifdef HAS_XBOX_AUDIO
     m_soundBuffer->Play(0, 0, DSBPLAY_FROMSTART);
-#else
-    m_soundBuffer->Play(0, 0, 0);
-#endif
 }
 
 // \brief returns true if the sound is playing
@@ -96,26 +107,21 @@ void CGUISound::Stop()
 {
   if (m_soundBuffer)
   {
-#ifdef HAS_XBOX_AUDIO
     m_soundBuffer->StopEx( 0, DSBSTOPEX_IMMEDIATE );
-#else
-    m_soundBuffer->Stop();
-#endif
 
     while(IsPlaying()) {}
   }
 }
 
 // \brief Sets the volume of the sound
-void CGUISound::SetVolume(int level)
+void CGUISound::SetVolume(float level)
 {
   if (m_soundBuffer)
-    m_soundBuffer->SetVolume(level);
+    m_soundBuffer->SetVolume(IDirectSoundRenderer::ConvertVolumeToDSVolume(level));
 }
 
 bool CGUISound::CreateBuffer(LPWAVEFORMATEX wfx, int iLength)
 {
-#ifdef HAS_XBOX_AUDIO
   //  Use a volume pair preset
   DSMIXBINVOLUMEPAIR vp[2] = { DSMIXBINVOLUMEPAIRS_DEFAULT_STEREO };
 
@@ -123,19 +129,13 @@ bool CGUISound::CreateBuffer(LPWAVEFORMATEX wfx, int iLength)
   DSMIXBINS mixbins;
   mixbins.dwMixBinCount=2;
   mixbins.lpMixBinVolumePairs=vp;
-#endif
 
   //  Set up DSBUFFERDESC structure
   DSBUFFERDESC dsbdesc;
   memset(&dsbdesc, 0, sizeof(DSBUFFERDESC));
   dsbdesc.dwSize=sizeof(DSBUFFERDESC);
-#ifdef HAS_XBOX_AUDIO
   dsbdesc.dwFlags=0;
   dsbdesc.lpMixBins=&mixbins;
-#else
-  // directsound requires ctrlvolume to be set
-  dsbdesc.dwFlags = DSBCAPS_CTRLVOLUME;
-#endif
   dsbdesc.dwBufferBytes=iLength;
   dsbdesc.lpwfxFormat=wfx;
 
@@ -152,14 +152,14 @@ bool CGUISound::CreateBuffer(LPWAVEFORMATEX wfx, int iLength)
   }
 
   //  Make effects as loud as possible
-  m_soundBuffer->SetVolume(g_application.GetVolume(false));
-#ifdef HAS_XBOX_AUDIO
+  const CApplicationComponents &components = CServiceBroker::GetAppComponents();
+  const boost::shared_ptr<const CApplicationVolumeHandling> appVolume = components.GetComponent<CApplicationVolumeHandling>();
+  m_soundBuffer->SetVolume(IDirectSoundRenderer::ConvertVolumeToDSVolume(appVolume->GetVolumeRatio()));
   m_soundBuffer->SetHeadroom(0);
 
   // Set the default mixbins headroom to appropriate level as set in the settings file (to allow the maximum volume)
   for (DWORD i = 0; i < mixbins.dwMixBinCount;i++)
-    directSound->SetMixBinHeadroom(i, DWORD(g_advancedSettings.m_audioHeadRoom / 6));
-#endif
+    directSound->SetMixBinHeadroom(i, DWORD(CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_audioHeadRoom / 6));
 
   return true;
 }
@@ -192,7 +192,7 @@ void CGUISound::FreeBuffer()
   SAFE_RELEASE(m_soundBuffer);
 }
 
-bool CGUISound::LoadWav(const CStdString& strFile, WAVEFORMATEX* wfx, LPBYTE* ppWavData, int* pDataSize)
+bool CGUISound::LoadWav(const std::string& strFile, WAVEFORMATEX* wfx, LPBYTE* ppWavData, int* pDataSize)
 {
   XFILE::CFile file;
   if (!file.Open(strFile))

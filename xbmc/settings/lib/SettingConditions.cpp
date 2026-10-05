@@ -1,24 +1,13 @@
 /*
- *      Copyright (C) 2013 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2013-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "SettingConditions.h"
+
 #include "SettingDefinitions.h"
 #include "SettingsManager.h"
 #include "utils/StringUtils.h"
@@ -57,13 +46,12 @@ bool CSettingConditionItem::Check() const
 bool CSettingConditionCombination::Check() const
 {
   bool ok = false;
-  for (CBooleanLogicOperations::const_iterator operation = m_operations.begin();
-       operation != m_operations.end(); ++operation)
+  for (CBooleanLogicOperations::const_iterator operation = m_operations.begin(); operation != m_operations.end(); ++operation)
   {
     if (*operation == NULL)
       continue;
 
-    CSettingConditionCombination *combination = static_cast<CSettingConditionCombination*>((*operation).get());
+    const boost::shared_ptr<const CSettingConditionCombination> combination = boost::static_pointer_cast<const CSettingConditionCombination>(*operation);
     if (combination == NULL)
       continue;
 
@@ -73,13 +61,12 @@ bool CSettingConditionCombination::Check() const
       return false;
   }
 
-  for (CBooleanLogicValues::const_iterator value = m_values.begin();
-       value != m_values.end(); ++value)
+  for (CBooleanLogicValues::const_iterator value = m_values.begin(); value != m_values.end(); ++value)
   {
     if (*value == NULL)
       continue;
 
-    CSettingConditionItem *condition = static_cast<CSettingConditionItem*>((*value).get());
+    const boost::shared_ptr<const CSettingConditionItem> condition = boost::static_pointer_cast<const CSettingConditionItem>(*value);
     if (condition == NULL)
       continue;
 
@@ -100,45 +87,57 @@ CSettingCondition::CSettingCondition(CSettingsManager *settingsManager /* = NULL
 
 bool CSettingCondition::Check() const
 {
-  CSettingConditionCombination *combination = static_cast<CSettingConditionCombination*>(m_operation.get());
+  boost::shared_ptr<CSettingConditionCombination> combination = boost::static_pointer_cast<CSettingConditionCombination>(m_operation);
   if (combination == NULL)
     return false;
 
   return combination->Check();
 }
 
-void CSettingConditionsManager::AddCondition(const std::string &condition)
+void CSettingConditionsManager::AddCondition(std::string condition)
 {
   if (condition.empty())
     return;
 
-  std::string tmpCondition = condition;
-  StringUtils::ToLower(tmpCondition);
+  StringUtils::ToLower(condition);
 
-  m_defines.insert(tmpCondition);
+  m_defines.insert(condition);
 }
 
-void CSettingConditionsManager::AddCondition(const std::string &identifier, SettingConditionCheck condition, void *data /*= NULL*/)
+void CSettingConditionsManager::AddDynamicCondition(std::string identifier, SettingConditionCheck condition, void *data /*= NULL*/)
 {
   if (identifier.empty() || condition == NULL)
     return;
 
-  std::string tmpIdentifier = identifier;
-  StringUtils::ToLower(tmpIdentifier);
+  StringUtils::ToLower(identifier);
 
-  m_conditions.insert(SettingConditionPair(tmpIdentifier, std::make_pair(condition, data)));
+  m_conditions.insert(std::make_pair(identifier, std::make_pair(condition, data)));
 }
 
-bool CSettingConditionsManager::Check(const std::string &condition, const std::string &value /* = "" */, const CSetting *setting /* = NULL */) const
+void CSettingConditionsManager::RemoveDynamicCondition(std::string identifier)
+{
+  if (identifier.empty())
+    return;
+
+  StringUtils::ToLower(identifier);
+
+  CSettingConditionsManager::SettingConditionMap::iterator it = m_conditions.find(identifier);
+  if (it != m_conditions.end())
+    m_conditions.erase(it);
+}
+
+bool CSettingConditionsManager::Check(
+    std::string condition,
+    const std::string& value /* = "" */,
+    const boost::shared_ptr<const CSetting>& setting /* = NULL */) const
 {
   if (condition.empty())
     return false;
 
-  std::string tmpCondition = condition;
-  StringUtils::ToLower(tmpCondition);
+  StringUtils::ToLower(condition);
 
   // special handling of "isdefined" conditions
-  if (tmpCondition == "isdefined")
+  if (condition == "isdefined")
   {
     std::string tmpValue = value;
     StringUtils::ToLower(tmpValue);
@@ -146,18 +145,9 @@ bool CSettingConditionsManager::Check(const std::string &condition, const std::s
     return m_defines.find(tmpValue) != m_defines.end();
   }
 
-  SettingConditionMap::const_iterator conditionIt = m_conditions.find(tmpCondition);
+  CSettingConditionsManager::SettingConditionMap::const_iterator conditionIt = m_conditions.find(condition);
   if (conditionIt == m_conditions.end())
     return false;
 
-  return conditionIt->second.first(tmpCondition, value, setting, conditionIt->second.second);
-}
-
-CSettingConditionsManager::CSettingConditionsManager()
-{ }
-
-CSettingConditionsManager::~CSettingConditionsManager()
-{
-  m_conditions.clear();
-  m_defines.clear();
+  return conditionIt->second.first(condition, value, setting, conditionIt->second.second);
 }

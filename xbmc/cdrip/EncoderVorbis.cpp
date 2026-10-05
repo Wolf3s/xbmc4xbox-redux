@@ -20,25 +20,28 @@
 
 #include "utils/log.h"
 #include "EncoderVorbis.h"
+#include "ServiceBroker.h"
 #include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
+
+#include <ctime>
+
+using namespace KODI::CDRIP;
 
 CEncoderVorbis::CEncoderVorbis()
 {
   m_pBuffer = NULL;
 }
 
-bool CEncoderVorbis::Init(const char* strFile, int iInChannels, int iInRate, int iInBits)
+bool CEncoderVorbis::Init()
 {
   // we only accept 2 / 44100 / 16 atm
-  if (iInChannels != 2 || iInRate != 44100 || iInBits != 16) return false;
-
-  // set input stream information and open the file
-  if (!CEncoder::Init(strFile, iInChannels, iInRate, iInBits)) return false;
+  if (m_iInChannels != 2 || m_iInSampleRate != 44100 || m_iInBitsPerSample != 16) return false;
 
   float fQuality = 0.5f;
-  if (CSettings::GetInstance().GetInt("audiocds.quality") == CDDARIP_QUALITY_MEDIUM) fQuality = 0.4f;
-  if (CSettings::GetInstance().GetInt("audiocds.quality") == CDDARIP_QUALITY_STANDARD) fQuality = 0.5f;
-  if (CSettings::GetInstance().GetInt("audiocds.quality") == CDDARIP_QUALITY_EXTREME) fQuality = 0.7f;
+  if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("audiocds.quality") == CDDARIP_QUALITY_MEDIUM) fQuality = 0.4f;
+  if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("audiocds.quality") == CDDARIP_QUALITY_STANDARD) fQuality = 0.5f;
+  if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("audiocds.quality") == CDDARIP_QUALITY_EXTREME) fQuality = 0.7f;
 
   if (!m_VorbisEncDll.Load() || !m_OggDll.Load() || !m_VorbisDll.Load())
   {
@@ -48,10 +51,10 @@ bool CEncoderVorbis::Init(const char* strFile, int iInChannels, int iInRate, int
   }
 
   m_VorbisDll.vorbis_info_init(&m_sVorbisInfo);
-  if (CSettings::GetInstance().GetInt("audiocds.quality") == CDDARIP_QUALITY_CBR)
+  if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("audiocds.quality") == CDDARIP_QUALITY_CBR)
   {
     // not realy cbr, but abr in this case
-    int iBitRate = CSettings::GetInstance().GetInt("audiocds.bitrate") * 1000;
+    int iBitRate = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("audiocds.bitrate") * 1000;
     m_VorbisEncDll.vorbis_encode_init(&m_sVorbisInfo, m_iInChannels, m_iInSampleRate, -1, iBitRate, -1);
   }
   else
@@ -100,8 +103,8 @@ bool CEncoderVorbis::Init(const char* strFile, int iInChannels, int iInRate, int
     {
       int result = m_OggDll.ogg_stream_flush(&m_sOggStreamState, &m_sOggPage);
       if (result == 0)break;
-      FileWrite(m_sOggPage.header, m_sOggPage.header_len);
-      FileWrite(m_sOggPage.body, m_sOggPage.body_len);
+      CEncoder::Write(m_sOggPage.header, m_sOggPage.header_len);
+      CEncoder::Write(m_sOggPage.body, m_sOggPage.body_len);
     }
   }
   m_pBuffer = new BYTE[4096];
@@ -109,7 +112,7 @@ bool CEncoderVorbis::Init(const char* strFile, int iInChannels, int iInRate, int
   return true;
 }
 
-int CEncoderVorbis::Encode(int nNumBytesRead, BYTE* pbtStream)
+ssize_t CEncoderVorbis::Encode(uint8_t* pbtStream, size_t nNumBytesRead)
 {
   int eos = 0;
 
@@ -163,8 +166,8 @@ int CEncoderVorbis::Encode(int nNumBytesRead, BYTE* pbtStream)
         {
           int result = m_OggDll.ogg_stream_pageout(&m_sOggStreamState, &m_sOggPage);
           if (result == 0)break;
-          WriteStream(m_sOggPage.header, m_sOggPage.header_len);
-          WriteStream(m_sOggPage.body, m_sOggPage.body_len);
+          CEncoder::Write(m_sOggPage.header, m_sOggPage.header_len);
+          CEncoder::Write(m_sOggPage.body, m_sOggPage.body_len);
 
           /* this could be set above, but for illustrative purposes, I do
           it here (to show that vorbis does know where the stream ends) */
@@ -198,8 +201,8 @@ bool CEncoderVorbis::Close()
       {
         int result = m_OggDll.ogg_stream_pageout(&m_sOggStreamState, &m_sOggPage);
         if (result == 0)break;
-        WriteStream(m_sOggPage.header, m_sOggPage.header_len);
-        WriteStream(m_sOggPage.body, m_sOggPage.body_len);
+        CEncoder::Write(m_sOggPage.header, m_sOggPage.header_len);
+        CEncoder::Write(m_sOggPage.body, m_sOggPage.body_len);
 
         /* this could be set above, but for illustrative purposes, I do
         it here (to show that vorbis does know where the stream ends) */
@@ -217,8 +220,7 @@ bool CEncoderVorbis::Close()
 
   /* ogg_page and ogg_packet structs always point to storage in
      libvorbis.  They're never freed or manipulated directly */
-  FlushStream();
-  FileClose();
+  CEncoder::CloseFile();
 
   delete []m_pBuffer;
   m_pBuffer = NULL;

@@ -21,7 +21,7 @@
 
 
 #include "IDirectory.h"
-#include "MemoryUnits/IFileSystem.h"
+#include "platform/xbox/filesystem/IFileSystem.h"
 
 namespace XFILE
 {
@@ -35,6 +35,6 @@ namespace XFILE
     virtual bool Exists(const CURL& url);
     virtual bool Remove(const CURL& url);
   protected:
-    IFileSystem *GetFileSystem(const CStdString &path);
+    IFileSystem *GetFileSystem(const std::string &path);
   };
 };

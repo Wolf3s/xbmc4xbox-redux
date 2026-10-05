@@ -6,37 +6,37 @@
  *  See LICENSES/README.md for more information.
  */
 
+// clang-format off
 // python.h should always be included first before any other includes
 #include <Python.h>
-#include <iterator>
-#include <osdefs.h>
+// clang-format on
 
-#include "system.h"
 #include "PythonInvoker.h"
-#include "Application.h"
+
 #include "ServiceBroker.h"
-#include "messaging/ApplicationMessenger.h"
 #include "addons/AddonManager.h"
+#include "addons/addoninfo/AddonInfo.h"
+#include "addons/addoninfo/AddonType.h"
 #include "dialogs/GUIDialogKaiToast.h"
 #include "filesystem/File.h"
 #include "filesystem/SpecialProtocol.h"
-#include "guilib/GraphicContext.h"
+#include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
 #include "guilib/LocalizeStrings.h"
 #include "interfaces/python/PyContext.h"
 #include "interfaces/python/pythreadstate.h"
 #include "interfaces/python/swig.h"
-#include "interfaces/python/XBPython.h"
+#include "messaging/ApplicationMessenger.h"
 #include "threads/SingleLock.h"
-#if defined(TARGET_WINDOWS)
+#include "threads/SystemClock.h"
 #include "utils/CharsetConverter.h"
-#endif // defined(TARGET_WINDOWS)
-#include "utils/log.h"
+#include "utils/FileUtils.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
-#ifdef TARGET_POSIX
-#include "platform/posix/XTimeUtils.h"
-#endif
+#include "utils/log.h"
+#include "windowing/GraphicContext.h"
+
+#include <osdefs.h>
 
 #ifdef TARGET_WINDOWS
 extern "C" FILE *fopen_utf8(const char *_Filename, const char *_Mode);
@@ -211,7 +211,7 @@ bool CPythonInvoker::execute(const std::string &script, const std::vector<std::s
         "modules installed to python path as fallback. This behaviour will be removed in future "
         "version.", GetId());
       ADDON::VECADDONS addons;
-      CServiceBroker::GetAddonMgr().GetAddons(addons, ADDON::ADDON_SCRIPT_MODULE);
+      CServiceBroker::GetAddonMgr().GetAddons(addons, ADDON::AddonType::SCRIPT_MODULE);
       for (unsigned int i = 0; i < addons.size(); ++i)
         addPath(CSpecialProtocol::TranslatePath(addons[i]->LibPath()));
     }
@@ -451,7 +451,7 @@ bool CPythonInvoker::stop(bool abort)
       if (m_addon)
       {
         CLog::Log(LOGDEBUG, "CPythonInvoker(%d, %s): trigger Monitor abort request", GetId(), m_sourceFile.c_str());
-        onAbortRequested();
+        AbortNotification();
       }
 
       PyObject *m;
@@ -478,9 +478,9 @@ bool CPythonInvoker::stop(bool abort)
       // We can't empty-spin in the main thread and expect scripts to be able to
       // dismantle themselves. Python dialogs aren't normal XBMC dialogs, they rely
       // on TMSG_GUI_PYTHON_DIALOG messages, so pump the message loop.
-      if (g_application.IsCurrentThread())
+      if (CServiceBroker::GetAppMessenger()->IsProcessThread())
       {
-        CApplicationMessenger::Get().ProcessMessages();
+        CServiceBroker::GetAppMessenger()->ProcessMessages();
       }
     }
 
@@ -620,7 +620,7 @@ void CPythonInvoker::onPythonModuleInitialization(void* moduleDict)
   PyObject *pyaddonid = PyString_FromString(m_addon->ID().c_str());
   PyDict_SetItemString(moduleDictionary, "__xbmcaddonid__", pyaddonid);
 
-  ADDON::AddonVersion version = m_addon->GetDependencyVersion("xbmc.python");
+  ADDON::CAddonVersion version = m_addon->GetDependencyVersion("xbmc.python");
   PyObject *pyxbmcapiversion = PyString_FromString(version.asString().c_str());
   PyDict_SetItemString(moduleDictionary, "__xbmcapiversion__", pyxbmcapiversion);
 
@@ -639,9 +639,9 @@ void CPythonInvoker::onDeinitialization()
 void CPythonInvoker::onError(const std::string &exceptionType /* = "" */, const std::string &exceptionValue /* = "" */, const std::string &exceptionTraceback /* = "" */)
 {
   CPyThreadState releaseGil;
-  CSingleLock gc(g_graphicsContext);
+  CSingleLock gc(CServiceBroker::GetWinSystem()->GetGfxContext());
 
-  CGUIDialogKaiToast *pDlgToast = dynamic_cast<CGUIDialogKaiToast*>(g_windowManager.GetWindow(WINDOW_DIALOG_KAI_TOAST));
+  CGUIDialogKaiToast *pDlgToast = dynamic_cast<CGUIDialogKaiToast*>(CServiceBroker::GetGUI()->GetWindowManager().GetWindow(WINDOW_DIALOG_KAI_TOAST));
   if (pDlgToast != NULL)
   {
     std::string message;
@@ -681,12 +681,13 @@ bool CPythonInvoker::initializeModule(PythonModuleInitialization module)
 
 void CPythonInvoker::getAddonModuleDeps(const ADDON::AddonPtr& addon, std::set<std::string>& paths)
 {
-  ADDON::ADDONDEPS deps = addon->GetDeps();
-  for (ADDON::ADDONDEPS::const_iterator it = deps.begin(); it != deps.end(); ++it)
+  const std::vector<ADDON::DependencyInfo> &deps = addon->GetDependencies();
+  for (std::vector<ADDON::DependencyInfo>::const_iterator it = deps.begin(); it != deps.end(); ++it)
   {
     //Check if dependency is a module addon
     ADDON::AddonPtr dependency;
-    if (CServiceBroker::GetAddonMgr().GetAddon(it->first, dependency, ADDON::ADDON_SCRIPT_MODULE))
+    if (CServiceBroker::GetAddonMgr().GetAddon(it->id, dependency, ADDON::AddonType::SCRIPT_MODULE,
+                                               ADDON::OnlyEnabled::CHOICE_YES))
     {
       std::string path = CSpecialProtocol::TranslatePath(dependency->LibPath());
       if (paths.find(path) == paths.end())

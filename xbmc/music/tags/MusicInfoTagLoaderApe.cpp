@@ -19,8 +19,10 @@
  */
 
 #include "MusicInfoTagLoaderApe.h"
+#include "ServiceBroker.h"
 #include "MusicInfoTag.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/SettingsComponent.h"
 #include "utils/StringUtils.h"
 #include "utils/log.h"
 #include "DllLibapetag.h"
@@ -33,7 +35,7 @@ CMusicInfoTagLoaderApe::CMusicInfoTagLoaderApe(void)
 CMusicInfoTagLoaderApe::~CMusicInfoTagLoaderApe()
 {}
 
-bool CMusicInfoTagLoaderApe::Load(const CStdString& strFileName, CMusicInfoTag& tag, EmbeddedArt *art)
+bool CMusicInfoTagLoaderApe::Load(const std::string& strFileName, CMusicInfoTag& tag, EmbeddedArt *art)
 {
   try
   {
@@ -52,15 +54,12 @@ bool CMusicInfoTagLoaderApe::Load(const CStdString& strFileName, CMusicInfoTag& 
       tag.SetDiscNumber(myTag.GetDiscNum());
       tag.SetComment(myTag.GetComment());
       tag.SetLyrics(myTag.GetLyrics());
-      tag.SetMusicBrainzAlbumArtistID(StringUtils::Split(myTag.GetMusicBrainzAlbumArtistID(), g_advancedSettings.m_musicItemSeparator));
+      tag.SetMusicBrainzAlbumArtistID(StringUtils::Split(myTag.GetMusicBrainzAlbumArtistID(), CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_musicItemSeparator));
       tag.SetMusicBrainzAlbumID(myTag.GetMusicBrainzAlbumID());
-      tag.SetMusicBrainzArtistID(StringUtils::Split(myTag.GetMusicBrainzArtistID(), g_advancedSettings.m_musicItemSeparator));
+      tag.SetMusicBrainzArtistID(StringUtils::Split(myTag.GetMusicBrainzArtistID(), CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_musicItemSeparator));
       tag.SetMusicBrainzTrackID(myTag.GetMusicBrainzTrackID());
-      SYSTEMTIME dateTime;
-      ZeroMemory(&dateTime, sizeof(SYSTEMTIME));
-      dateTime.wYear = atoi(myTag.GetYear());
       tag.SetRating(myTag.GetRating());
-      tag.SetReleaseDate(dateTime);
+      tag.SetYear(atoi(myTag.GetYear().c_str()));
       tag.SetLoaded();
       return true;
     }

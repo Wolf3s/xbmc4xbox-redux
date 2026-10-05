@@ -1,36 +1,31 @@
+/*
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+
+#pragma once
+
 /*!
 \file GUIWindowMusicBase.h
 \brief
 */
-#pragma once
-/*
- *      Copyright (C) 2005-2018 Team Kodi
- *      http://xbmc.org
- *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
- */
+
+#include "music/MusicDatabase.h"
+#include "music/MusicInfoLoader.h"
+#include "music/MusicThumbLoader.h"
+#include "music/infoscanner/MusicInfoScraper.h"
+#include "windows/GUIMediaWindow.h"
 
 #include <vector>
 
-#include "windows/GUIMediaWindow.h"
-#include "music/MusicDatabase.h"
-#include "music/infoscanner/MusicInfoScraper.h"
-#include "PlayListPlayer.h"
-#include "music/MusicInfoLoader.h"
-#include "music/MusicThumbLoader.h"
+enum MusicSelectAction
+{
+    MUSIC_SELECT_ACTION_PLAY,
+    MUSIC_SELECT_ACTION_RESUME,
+};
 
 /*!
  \ingroup windows
@@ -51,10 +46,13 @@ public:
   void DoScan(const std::string &strPath, bool bRescan = false);
   void RefreshContent(const std::string& strContent);
 
-  /*! \brief Prompt the user if he wants to start a scan for this folder
-  \param path the path to assign content for
+  /*! \brief Once a music source is added, store source in library, and prompt
+  the user to scan this folder into the library
+  \param oldName the original music source name
+  \param source details of the music source (just added or edited)
   */
-  static void OnAssignContent(const std::string &path);
+  static void OnAssignContent(const std::string& oldName, const CMediaSource& source);
+
 protected:
   virtual void OnInitWindow();
   /*!
@@ -64,7 +62,7 @@ protected:
   virtual void GetContextButtons(int itemNumber, CContextButtons &buttons);
   void GetNonContextButtons(CContextButtons &buttons);
   virtual bool OnContextButton(int itemNumber, CONTEXT_BUTTON button);
-  bool OnAddMediaSource();
+  virtual bool OnAddMediaSource();
   /*!
   \brief Overwrite to update your gui buttons (visible, enable,...)
   */
@@ -72,8 +70,7 @@ protected:
 
   virtual bool GetDirectory(const std::string &strDirectory, CFileItemList &items);
   virtual void OnRetrieveMusicInfo(CFileItemList& items);
-  virtual void OnPrepareFileItems(CFileItemList &items);
-  void AddItemToPlayList(const CFileItemPtr &pItem, CFileItemList &queuedItems);
+  virtual void OnPrepareFileItems(CFileItemList& items);
   void OnRipCD();
   virtual std::string GetStartFolder(const std::string &dir);
   virtual void OnItemLoaded(CFileItem* pItem) {}
@@ -83,14 +80,16 @@ protected:
   virtual bool CheckFilterAdvanced(CFileItemList &items) const;
   virtual bool CanContainFilter(const std::string &strDirectory) const;
 
+  virtual bool OnSelect(int iItem);
+
   // new methods
   virtual void PlayItem(int iItem);
   virtual bool OnPlayMedia(int iItem, const std::string &player = "");
 
   void RetrieveMusicInfo();
   void OnItemInfo(int iItem);
-  void OnItemInfoAll(const std::string strPath, bool refresh = false);
-  virtual void OnQueueItem(int iItem);
+  void OnItemInfoAll(const std::string& strPath, bool refresh = false);
+  virtual void OnQueueItem(int iItem, bool first = false);
   enum ALLOW_SELECTION { SELECTION_ALLOWED = 0, SELECTION_AUTO, SELECTION_FORCED };
 
   void OnRipTrack(int iItem);

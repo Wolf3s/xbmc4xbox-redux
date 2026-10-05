@@ -1,44 +1,37 @@
 /*
- *      Copyright (C) 2005-2013 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-
 #include "ISO9660Directory.h"
-#include "xbox/IoSupport.h"
-#include "iso9660.h"
+
 #include "FileItem.h"
+#include "URL.h"
 #include "Util.h"
 #include "utils/URIUtils.h"
-#include "URL.h"
+
+#include "iso9660.h"
 
 using namespace XFILE;
 
-CISO9660Directory::CISO9660Directory(void)
-{}
-
-CISO9660Directory::~CISO9660Directory(void)
-{}
-
-bool CISO9660Directory::GetDirectory(const CURL& url, CFileItemList &items)
+bool CISO9660Directory::GetDirectory(const CURL& url, CFileItemList& items)
 {
-  CStdString strRoot = url.Get();
+  CURL url2(url);
+  if (!url2.IsProtocol("iso9660"))
+  {
+    url2.Reset();
+    url2.SetProtocol("iso9660");
+    url2.SetHostName(url.Get());
+  }
+
+  std::string strRoot(url2.Get());
+  std::string strSub(url2.GetFileName());
+
   URIUtils::AddSlashAtEnd(strRoot);
+  URIUtils::AddSlashAtEnd(strSub);
 
   // Scan active disc if not done before
   if (!m_isoReader.IsScanned())
@@ -49,11 +42,10 @@ bool CISO9660Directory::GetDirectory(const CURL& url, CFileItemList &items)
 
   memset(&wfd, 0, sizeof(wfd));
 
-  CStdString strSearchMask;
-  CStdString strDirectory = url.GetFileName();
-  if (strDirectory != "")
+  std::string strSearchMask;
+  if (strSub != "")
   {
-    strSearchMask.Format("\\%s", strDirectory.c_str());
+    strSearchMask = "\\" + strSub;
   }
   else
   {
@@ -74,11 +66,11 @@ bool CISO9660Directory::GetDirectory(const CURL& url, CFileItemList &items)
     {
       if ( (wfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) )
       {
-        CStdString strDir = wfd.cFileName;
+        std::string strDir = wfd.cFileName;
         if (strDir != "." && strDir != "..")
         {
           CFileItemPtr pItem(new CFileItem(wfd.cFileName));
-          CStdString path = strRoot + wfd.cFileName;
+          std::string path = strRoot + wfd.cFileName;
           URIUtils::AddSlashAtEnd(path);
           pItem->SetPath(path);
           pItem->m_bIsFolder = true;
@@ -110,8 +102,21 @@ bool CISO9660Directory::GetDirectory(const CURL& url, CFileItemList &items)
 bool CISO9660Directory::Exists(const CURL& url)
 {
   CFileItemList items;
-  if (GetDirectory(url,items))
-    return true;
+  return GetDirectory(url, items);
+}
 
-  return false;
+bool CISO9660Directory::Resolve(CFileItem& item) const
+{
+  const CURL url(item.GetDynPath());
+  if (url.GetProtocol() != "iso9660" && url.GetFileType() != "iso")
+  {
+    return false;
+  }
+
+  // translate a generic iso9660:// url to the actual disc drive for playback
+  if (!url.GetHostName().empty() && url.GetFileName() == "VIDEO_TS/video_ts.ifo")
+  {
+    item.SetDynPath(url.GetHostName());
+  }
+  return true;
 }

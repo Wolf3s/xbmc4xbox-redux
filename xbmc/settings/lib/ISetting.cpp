@@ -1,37 +1,27 @@
 /*
- *      Copyright (C) 2013 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2013-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include <string>
-
 #include "ISetting.h"
+
 #include "SettingDefinitions.h"
 #include "utils/XBMCTinyXML.h"
 #include "utils/XMLUtils.h"
 
+#include <string>
+
 ISetting::ISetting(const std::string &id, CSettingsManager *settingsManager /* = NULL */)
-  : m_id(id),
-    m_settingsManager(settingsManager),
-    m_visible(true),
-    m_label(-1), m_help(-1),
-    m_meetsRequirements(true),
-    m_requirementCondition(settingsManager)
+  : m_id(id)
+  , m_settingsManager(settingsManager)
+  , m_requirementCondition(settingsManager)
+  , m_visible(true)
+  , m_label(ISetting::DefaultLabel)
+  , m_help(-1)
+  , m_meetsRequirements(true)
 { }
 
 bool ISetting::Deserialize(const TiXmlNode *node, bool update /* = false */)
@@ -60,7 +50,14 @@ bool ISetting::Deserialize(const TiXmlNode *node, bool update /* = false */)
   return m_requirementCondition.Deserialize(requirementNode);
 }
 
-bool ISetting::DeserializeIdentification(const TiXmlNode *node, std::string &identification)
+bool ISetting::DeserializeIdentification(const TiXmlNode* node, std::string& identification)
+{
+  return DeserializeIdentificationFromAttribute(node, SETTING_XML_ATTR_ID, identification);
+}
+
+bool ISetting::DeserializeIdentificationFromAttribute(const TiXmlNode* node,
+                                                      const std::string& attribute,
+                                                      std::string& identification)
 {
   if (node == NULL)
     return false;
@@ -69,11 +66,11 @@ bool ISetting::DeserializeIdentification(const TiXmlNode *node, std::string &ide
   if (element == NULL)
     return false;
 
-  const char *idAttribute = element->Attribute(SETTING_XML_ATTR_ID);
-  if (idAttribute == NULL || strlen(idAttribute) <= 0)
+  const std::string *idAttribute = element->Attribute(attribute);
+  if (idAttribute == NULL || idAttribute->empty())
     return false;
 
-  identification = idAttribute;
+  identification = *idAttribute;
   return true;
 }
 

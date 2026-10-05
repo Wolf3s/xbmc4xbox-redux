@@ -21,10 +21,10 @@
 */
 
 
-#include "xbox/Network.h"
+#include "network/Network.h"
 #include "system.h"
 #include "Util.h"
-#include "Application.h"
+#include "application/Application.h"
 #include "messaging/ApplicationMessenger.h"
 
 #include "UPnP.h"
@@ -34,10 +34,12 @@
 #include "Platinum.h"
 #include "PltSyncMediaBrowser.h"
 #include "URL.h"
-#include "profiles/ProfilesManager.h"
+#include "profiles/ProfileManager.h"
 #include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "FileItem.h"
-#include "GUIWindowManager.h"
+#include "guilib/GUIComponent.h"
+#include "guilib/GUIWindowManager.h"
 #include "GUIUserMessages.h"
 #include "GUIInfoManager.h"
 #include "guiinfo/GUIInfoLabels.h"
@@ -49,8 +51,6 @@
 using namespace std;
 using namespace UPNP;
 using namespace KODI::MESSAGING;
-
-extern CGUIInfoManager g_infoManager;
 
 NPT_SET_LOCAL_LOGGER("xbmc.upnp")
 
@@ -103,11 +103,11 @@ DLNA_ORG_FLAGS_VAL = '01500000000000000000000000000000'
 /*----------------------------------------------------------------------
 |   static initializer
 +---------------------------------------------------------------------*/
-NPT_WinsockSystem::NPT_WinsockSystem() 
+NPT_WinsockSystem::NPT_WinsockSystem()
 {
 }
 
-NPT_WinsockSystem::~NPT_WinsockSystem() 
+NPT_WinsockSystem::~NPT_WinsockSystem()
 {
 }
 
@@ -119,22 +119,22 @@ NPT_WinsockSystem NPT_WinsockSystem::Initializer;
 NPT_Result
 NPT_NetworkInterface::GetNetworkInterfaces(NPT_List<NPT_NetworkInterface*>& interfaces)
 {
-    if (!g_application.getNetwork().IsAvailable(true))
+    if (!CServiceBroker::GetNetwork().IsAvailable(true))
         return NPT_ERROR_NETWORK_DOWN;
 
     NPT_IpAddress primary_address;
-    primary_address.ResolveName(g_application.getNetwork().m_networkinfo.ip);
+    primary_address.ResolveName(CServiceBroker::GetNetwork().m_networkinfo.ip);
 
     NPT_IpAddress netmask;
-    netmask.ResolveName(g_application.getNetwork().m_networkinfo.subnet);
+    netmask.ResolveName(CServiceBroker::GetNetwork().m_networkinfo.subnet);
 
-    NPT_IpAddress broadcast_address;        
+    NPT_IpAddress broadcast_address;
     broadcast_address.ResolveName("255.255.255.255");
 
     NPT_Flags flags = NPT_NETWORK_INTERFACE_FLAG_BROADCAST | NPT_NETWORK_INTERFACE_FLAG_MULTICAST;
 
     NPT_MacAddress mac;
-    //mac.SetAddress(NPT_MacAddress::TYPE_ETHERNET, g_application.getNetwork().m_networkinfo.mac, 6);
+    //mac.SetAddress(NPT_MacAddress::TYPE_ETHERNET, CServiceBroker::GetNetwork().m_networkinfo.mac, 6);
 
     // create an interface object
     char iface_name[5];
@@ -151,10 +151,10 @@ NPT_NetworkInterface::GetNetworkInterfaces(NPT_List<NPT_NetworkInterface*>& inte
         broadcast_address,
         NPT_IpAddress::Any,
         netmask);
-    iface->AddAddress(iface_address);  
+    iface->AddAddress(iface_address);
 
     // add the interface to the list
-    interfaces.Add(iface);  
+    interfaces.Add(iface);
 
     return NPT_SUCCESS;
 }
@@ -163,7 +163,7 @@ NPT_NetworkInterface::GetNetworkInterfaces(NPT_List<NPT_NetworkInterface*>& inte
 /*----------------------------------------------------------------------
 |   NPT_GetEnvironment
 +---------------------------------------------------------------------*/
-NPT_Result 
+NPT_Result
 NPT_GetEnvironment(const char* name, NPT_String& value)
 {
     return NPT_FAILURE;
@@ -188,7 +188,7 @@ CUPnP* CUPnP::upnp = NULL;
 // change to false for XBMC_PC if you want real UPnP functionality
 // otherwise keep to true for xbox as it doesn't support multicast
 // don't change unless you know what you're doing!
-bool CUPnP::broadcast = true; 
+bool CUPnP::broadcast = true;
 
 /*----------------------------------------------------------------------
 |   CDeviceHostReferenceHolder class
@@ -240,7 +240,7 @@ public:
     {
         CGUIMessage message(GUI_MSG_NOTIFY_ALL, 0, 0, GUI_MSG_UPDATE_PATH);
         message.SetStringParam("upnp://");
-        g_windowManager.SendThreadMessage(message);
+        CServiceBroker::GetGUI()->GetWindowManager().SendThreadMessage(message);
 
         return PLT_SyncMediaBrowser::OnMSAdded(device);
     }
@@ -250,7 +250,7 @@ public:
 
         CGUIMessage message(GUI_MSG_NOTIFY_ALL, 0, 0, GUI_MSG_UPDATE_PATH);
         message.SetStringParam("upnp://");
-        g_windowManager.SendThreadMessage(message);
+        CServiceBroker::GetGUI()->GetWindowManager().SendThreadMessage(message);
 
         PLT_SyncMediaBrowser::OnMSRemoved(device);
     }
@@ -262,7 +262,7 @@ public:
     {
         NPT_String path = "upnp://"+device->GetUUID()+"/";
         if (!NPT_StringsEqual(item_id, "0")) {
-            CStdString id = item_id;
+            std::string id = item_id;
             CURL::Encode(id);
             path += id.c_str();
             path += "/";
@@ -270,7 +270,7 @@ public:
 
         CGUIMessage message(GUI_MSG_NOTIFY_ALL, 0, 0, GUI_MSG_UPDATE_PATH);
         message.SetStringParam(path.GetChars());
-        g_windowManager.SendThreadMessage(message);
+        CServiceBroker::GetGUI()->GetWindowManager().SendThreadMessage(message);
     }
 };
 
@@ -290,7 +290,7 @@ CUPnP::CUPnP() :
     m_UPnP = new PLT_UPnP(1900, !broadcast);
 
     // keep main IP around
-    m_IP = g_application.getNetwork().m_networkinfo.ip;
+    m_IP = CServiceBroker::GetNetwork().m_networkinfo.ip;
     NPT_List<NPT_IpAddress> list;
     if (NPT_SUCCEEDED(PLT_UPnPMessageHelper::GetIPAddresses(list))) {
         m_IP = (*(list.GetFirstItem())).ToString();
@@ -421,15 +421,15 @@ CUPnPServer*
 CUPnP::CreateServer(int port /* = 0 */)
 {
     CUPnPServer* device =
-        new CUPnPServer(g_infoManager.GetLabel(SYSTEM_FRIENDLY_NAME).c_str(),
-                        CUPnPSettings::Get().GetServerUUID().length()?CUPnPSettings::Get().GetServerUUID().c_str():NULL,
+        new CUPnPServer(CServiceBroker::GetGUI()->GetInfoManager().GetLabel(SYSTEM_FRIENDLY_NAME, INFO::DEFAULT_CONTEXT).c_str(),
+                        CUPnPSettings::GetInstance().GetServerUUID().length()?CUPnPSettings::GetInstance().GetServerUUID().c_str():NULL,
                         port);
 
     // trying to set optional upnp values for XP UPnP UI Icons to detect us
     // but it doesn't work anyways as it requires multicast for XP to detect us
     device->m_PresentationURL =
-        NPT_HttpUrl(m_IP,
-                    CSettings::GetInstance().GetInt("services.webserverport"),
+        NPT_HttpUrl(m_IP.c_str(),
+                    CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(CSettings::SETTING_SERVICES_WEBSERVERPORT),
                     "/").ToString();
 
     device->m_ModelName        = "XBMC Media Center";
@@ -451,11 +451,11 @@ CUPnP::StartServer()
     if (!m_ServerHolder->m_Device.IsNull()) return false;
 
     // load upnpserver.xml
-    CStdString filename = URIUtils::AddFileToFolder(CProfilesManager::Get().GetUserDataFolder(), "upnpserver.xml");
-    CUPnPSettings::Get().Load(filename);
+    std::string filename = URIUtils::AddFileToFolder(CServiceBroker::GetSettingsComponent()->GetProfileManager()->GetUserDataFolder(), "upnpserver.xml");
+    CUPnPSettings::GetInstance().Load(filename);
 
     // create the server with a XBox compatible friendlyname and UUID from upnpserver.xml if found
-    m_ServerHolder->m_Device = CreateServer(CUPnPSettings::Get().GetServerPort());
+    m_ServerHolder->m_Device = CreateServer(CUPnPSettings::GetInstance().GetServerPort());
 
 #ifdef _XBOX
     // since the xbox doesn't support multicast
@@ -473,7 +473,7 @@ CUPnP::StartServer()
     if (NPT_FAILED(res)) {
         // if the upnp device port was not 0, it could have failed because
         // of port being in used, so restart with a random port
-        if (CUPnPSettings::Get().GetServerPort() > 0) m_ServerHolder->m_Device = CreateServer(0);
+        if (CUPnPSettings::GetInstance().GetServerPort() > 0) m_ServerHolder->m_Device = CreateServer(0);
 
         // tell controller to ignore ourselves from list of upnp servers
         if (!m_CtrlPointHolder->m_CtrlPoint.IsNull()) {
@@ -485,20 +485,20 @@ CUPnP::StartServer()
 
     // save port but don't overwrite saved settings if port was random
     if (NPT_SUCCEEDED(res)) {
-        if (CUPnPSettings::Get().GetServerPort() == 0) {
-            CUPnPSettings::Get().SetServerPort(m_ServerHolder->m_Device->GetPort());
+        if (CUPnPSettings::GetInstance().GetServerPort() == 0) {
+            CUPnPSettings::GetInstance().SetServerPort(m_ServerHolder->m_Device->GetPort());
         }
         CUPnPServer::m_MaxReturnedItems = UPNP_DEFAULT_MAX_RETURNED_ITEMS;
-        if (CUPnPSettings::Get().GetMaximumReturnedItems() > 0) {
+        if (CUPnPSettings::GetInstance().GetMaximumReturnedItems() > 0) {
             // must be > UPNP_DEFAULT_MIN_RETURNED_ITEMS
-            CUPnPServer::m_MaxReturnedItems = max(UPNP_DEFAULT_MIN_RETURNED_ITEMS, CUPnPSettings::Get().GetMaximumReturnedItems());
+            CUPnPServer::m_MaxReturnedItems = max(UPNP_DEFAULT_MIN_RETURNED_ITEMS, CUPnPSettings::GetInstance().GetMaximumReturnedItems());
         }
-        CUPnPSettings::Get().SetMaximumReturnedItems(CUPnPServer::m_MaxReturnedItems);
+        CUPnPSettings::GetInstance().SetMaximumReturnedItems(CUPnPServer::m_MaxReturnedItems);
     }
 
     // save UUID
-    CUPnPSettings::Get().SetServerUUID(m_ServerHolder->m_Device->GetUUID().GetChars());
-    return CUPnPSettings::Get().Save(filename);
+    CUPnPSettings::GetInstance().SetServerUUID(m_ServerHolder->m_Device->GetUUID().GetChars());
+    return CUPnPSettings::GetInstance().Save(filename);
 }
 
 /*----------------------------------------------------------------------
@@ -520,14 +520,14 @@ CUPnPRenderer*
 CUPnP::CreateRenderer(int port /* = 0 */)
 {
     CUPnPRenderer* device =
-        new CUPnPRenderer(g_infoManager.GetLabel(SYSTEM_FRIENDLY_NAME).c_str(),
+        new CUPnPRenderer(CServiceBroker::GetGUI()->GetInfoManager().GetLabel(SYSTEM_FRIENDLY_NAME, INFO::DEFAULT_CONTEXT).c_str(),
                           false,
-                          (CUPnPSettings::Get().GetRendererUUID().length() ? CUPnPSettings::Get().GetRendererUUID().c_str() : NULL),
+                          (CUPnPSettings::GetInstance().GetRendererUUID().length() ? CUPnPSettings::GetInstance().GetRendererUUID().c_str() : NULL),
                           port);
 
     device->m_PresentationURL =
-        NPT_HttpUrl(m_IP,
-                    CSettings::GetInstance().GetInt("services.webserverport"),
+        NPT_HttpUrl(m_IP.c_str(),
+                    CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(CSettings::SETTING_SERVICES_WEBSERVERPORT),
                     "/").ToString();
     device->m_ModelName = "XBMC";
     device->m_ModelNumber = "2.0";
@@ -546,10 +546,10 @@ bool CUPnP::StartRenderer()
 {
     if (!m_RendererHolder->m_Device.IsNull()) return false;
 
-    CStdString filename = URIUtils::AddFileToFolder(CProfilesManager::Get().GetUserDataFolder(), "upnpserver.xml");
-    CUPnPSettings::Get().Load(filename);
+    std::string filename = URIUtils::AddFileToFolder(CServiceBroker::GetSettingsComponent()->GetProfileManager()->GetUserDataFolder(), "upnpserver.xml");
+    CUPnPSettings::GetInstance().Load(filename);
 
-    m_RendererHolder->m_Device = CreateRenderer(CUPnPSettings::Get().GetRendererPort());
+    m_RendererHolder->m_Device = CreateRenderer(CUPnPSettings::GetInstance().GetRendererPort());
 
     // tell controller to ignore ourselves from list of upnp servers
     if (!m_CtrlPointHolder->m_CtrlPoint.IsNull()) {
@@ -563,7 +563,7 @@ bool CUPnP::StartRenderer()
     NPT_Result res = m_UPnP->AddDevice(m_RendererHolder->m_Device);
 
     // failed most likely because port is in use, try again with random port now
-    if (NPT_FAILED(res) && CUPnPSettings::Get().GetRendererPort() != 0) {
+    if (NPT_FAILED(res) && CUPnPSettings::GetInstance().GetRendererPort() != 0) {
         m_RendererHolder->m_Device = CreateRenderer(0);
 
         // tell controller to ignore ourselves from list of upnp servers
@@ -574,13 +574,13 @@ bool CUPnP::StartRenderer()
         res = m_UPnP->AddDevice(m_RendererHolder->m_Device);
     }
 
-    if (NPT_SUCCEEDED(res) && CUPnPSettings::Get().GetRendererPort() == 0) {
-        CUPnPSettings::Get().SetRendererPort(m_RendererHolder->m_Device->GetPort());
+    if (NPT_SUCCEEDED(res) && CUPnPSettings::GetInstance().GetRendererPort() == 0) {
+        CUPnPSettings::GetInstance().SetRendererPort(m_RendererHolder->m_Device->GetPort());
     }
 
     // save UUID
-    CUPnPSettings::Get().SetRendererUUID(m_RendererHolder->m_Device->GetUUID().GetChars());
-    return CUPnPSettings::Get().Save(filename);
+    CUPnPSettings::GetInstance().SetRendererUUID(m_RendererHolder->m_Device->GetUUID().GetChars());
+    return CUPnPSettings::GetInstance().Save(filename);
 }
 
 /*----------------------------------------------------------------------

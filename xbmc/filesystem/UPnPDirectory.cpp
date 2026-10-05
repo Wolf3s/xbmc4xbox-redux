@@ -21,6 +21,7 @@
 */
 
 #include "UPnPDirectory.h"
+#include "ServiceBroker.h"
 #include "URL.h"
 #include "network/upnp/UPnP.h"
 #include "network/upnp/UPnPInternal.h"
@@ -28,6 +29,8 @@
 #include "PltSyncMediaBrowser.h"
 #include "video/VideoInfoTag.h"
 #include "FileItem.h"
+#include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "utils/log.h"
 #include "utils/StringUtils.h"
 
@@ -50,7 +53,7 @@ private:
     NPT_String m_Protocol;
 };
 
-static CStdString GetContentMapping(NPT_String& objectClass)
+static std::string GetContentMapping(NPT_String& objectClass)
 {
     struct SClassMapping
     {
@@ -151,6 +154,9 @@ CUPnPDirectory::GetFriendlyName(const CURL& url)
 +---------------------------------------------------------------------*/
 bool CUPnPDirectory::GetResource(const CURL& path, CFileItem &item)
 {
+    if (!CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_SERVICES_UPNP))
+      return false;
+
     if(!path.IsProtocol("upnp"))
       return false;
 
@@ -158,9 +164,9 @@ bool CUPnPDirectory::GetResource(const CURL& path, CFileItem &item)
     if(!upnp)
         return false;
 
-    CStdString uuid   = path.GetHostName();
-    CStdString object = path.GetFileName();
-    object.TrimRight("/");
+    std::string uuid   = path.GetHostName();
+    std::string object = path.GetFileName();
+    StringUtils::TrimRight(object, "/");
     CURL::Decode(object);
 
     PLT_DeviceDataReference device;
@@ -234,8 +240,8 @@ bool CUPnPDirectory::GetResource(const CURL& path, CFileItem &item)
         {
             if(info.Match(PLT_ProtocolInfo("*", "*", allowed[type], "*")))
             {
-                CStdString prop;
-                prop.Format("upnp:subtitle:%d", ++subs);
+                std::string prop;
+                prop = StringUtils::Format("upnp:subtitle:%d", ++subs);
                 item.SetProperty(prop, (const char*)res.m_Uri);
                 break;
             }
@@ -252,6 +258,9 @@ bool CUPnPDirectory::GetResource(const CURL& path, CFileItem &item)
 bool
 CUPnPDirectory::GetDirectory(const CURL& url, CFileItemList &items)
 {
+    if (!CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_SERVICES_UPNP))
+      return false;
+
     CUPnP* upnp = CUPnP::GetInstance();
 
     /* upnp should never be cached, it has internal cache */
@@ -274,7 +283,7 @@ CUPnPDirectory::GetDirectory(const CURL& url, CFileItemList &items)
             NPT_String uuid = (*device)->GetUUID();
 
             CFileItemPtr pItem(new CFileItem((const char*)name));
-            pItem->SetPath(CStdString((const char*) "upnp://" + uuid + "/"));
+            pItem->SetPath(std::string((const char*) "upnp://" + uuid + "/"));
             pItem->m_bIsFolder = true;
             pItem->SetArt("thumb", (const char*)(*device)->GetIconUrl("image/jpeg"));
 
@@ -292,9 +301,9 @@ CUPnPDirectory::GetDirectory(const CURL& url, CFileItemList &items)
         NPT_String object_id = (next_slash==-1)?"":path.SubString(next_slash+1);
         object_id.TrimRight("/");
         if (object_id.GetLength()) {
-            CStdString tmp = (char*) object_id;
+            std::string tmp = (char*) object_id;
             CURL::Decode(tmp);
-            object_id = tmp;
+            object_id = tmp.c_str();
         }
 
         // try to find the device with wait on startup
@@ -391,13 +400,13 @@ CUPnPDirectory::GetDirectory(const CURL& url, CFileItemList &items)
             classes[(*entry)->m_ObjectClass.type]++;
 
             CFileItemPtr pItem(new CFileItem((const char*)(*entry)->m_Title));
-            pItem->SetLabelPreformated(true);
+            pItem->SetLabelPreformatted(true);
             pItem->m_strTitle = (const char*)(*entry)->m_Title;
             pItem->m_bIsFolder = (*entry)->IsContainer();
 
-            CStdString id = (char*) (*entry)->m_ObjectID;
+            std::string id = (char*) (*entry)->m_ObjectID;
             CURL::Encode(id);
-            pItem->SetPath(CStdString((const char*) "upnp://" + uuid + "/" + id.c_str()));
+            pItem->SetPath(std::string((const char*) "upnp://" + uuid + "/" + id.c_str()));
 
             // if it's a container, format a string as upnp://uuid/object_id
             if (pItem->m_bIsFolder) {
@@ -405,14 +414,14 @@ CUPnPDirectory::GetDirectory(const CURL& url, CFileItemList &items)
 
                 // look for metadata
                 if( ObjectClass.StartsWith("object.container.album.videoalbum") ) {
-                    pItem->SetLabelPreformated(false);
+                    pItem->SetLabelPreformatted(false);
                     UPNP::PopulateTagFromObject(*pItem->GetVideoInfoTag(), *(*entry), NULL);
 
                 } else if( ObjectClass.StartsWith("object.container.album.photoalbum")) {
                   //CPictureInfoTag* tag = pItem->GetPictureInfoTag();
 
                 } else if( ObjectClass.StartsWith("object.container.album") ) {
-                    pItem->SetLabelPreformated(false);
+                    pItem->SetLabelPreformatted(false);
                     UPNP::PopulateTagFromObject(*pItem->GetMusicInfoTag(), *(*entry), NULL);
                 }
 
@@ -436,11 +445,11 @@ CUPnPDirectory::GetDirectory(const CURL& url, CFileItemList &items)
 
                     // look for metadata
                     if( ObjectClass.StartsWith("object.item.videoitem") ) {
-                        pItem->SetLabelPreformated(false);
+                        pItem->SetLabelPreformatted(false);
                         UPNP::PopulateTagFromObject(*pItem->GetVideoInfoTag(), *(*entry), &resource);
 
                     } else if( ObjectClass.StartsWith("object.item.audioitem") ) {
-                        pItem->SetLabelPreformated(false);
+                        pItem->SetLabelPreformatted(false);
                         UPNP::PopulateTagFromObject(*pItem->GetMusicInfoTag(), *(*entry), &resource);
 
                     } else if( ObjectClass.StartsWith("object.item.imageitem") ) {

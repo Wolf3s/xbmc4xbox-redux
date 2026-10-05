@@ -22,6 +22,9 @@
 #include "DVDAudioCodecFFmpeg.h"
 #include "DVDStreamInfo.h"
 #include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
+
+#include <malloc.h>
 
 CDVDAudioCodecFFmpeg::CDVDAudioCodecFFmpeg() : CDVDAudioCodec()
 {
@@ -76,9 +79,9 @@ bool CDVDAudioCodecFFmpeg::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options
 
   if(m_pCodecContext->bits_per_coded_sample == 0)
     m_pCodecContext->bits_per_coded_sample = 16;
- 
+
   /* if we need to downmix, do it in ffmpeg as codecs are smarter then we can ever be */
-  if(CSettings::GetInstance().GetBool("audiooutput.downmixmultichannel"))
+  if(CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool("audiooutput.downmixmultichannel"))
   {
     m_pCodecContext->request_channel_layout = AV_CH_LAYOUT_STEREO;
     m_pCodecContext->request_channels       = 2;
@@ -102,7 +105,7 @@ bool CDVDAudioCodecFFmpeg::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options
     Dispose();
     return false;
   }
-  
+
   m_pFrame1 = m_dllAvCodec.avcodec_alloc_frame();
   m_bOpenedCodec = true;
   m_iSampleFormat = AV_SAMPLE_FMT_NONE;

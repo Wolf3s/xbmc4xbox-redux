@@ -1,30 +1,19 @@
-#pragma once
-
 /*
- *      Copyright (C) 2017 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2017-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include <map>
+#pragma once
 
 #include "addons/Addon.h"
 #include "addons/Scraper.h"
 #include "settings/dialogs/GUIDialogSettingsManualBase.h"
+
+#include <map>
+#include <utility>
 
 class CFileItemList;
 
@@ -42,12 +31,12 @@ public:
   CGUIDialogInfoProviderSettings();
 
   // specialization of CGUIWindow
-  bool HasListItems() const { return true; };
+  virtual bool HasListItems() const { return true; }
 
   const ADDON::ScraperPtr& GetAlbumScraper() const { return m_albumscraper; }
-  void SetAlbumScraper(ADDON::ScraperPtr scraper) { m_albumscraper = scraper; }
+  void SetAlbumScraper(ADDON::ScraperPtr scraper) { m_albumscraper = boost::move(scraper); }
   const ADDON::ScraperPtr& GetArtistScraper() const { return m_artistscraper; }
-  void SetArtistScraper(ADDON::ScraperPtr scraper) { m_artistscraper = scraper; }
+  void SetArtistScraper(ADDON::ScraperPtr scraper) { m_artistscraper = boost::move(scraper); }
 
   /*! \brief Show dialog to change information provider for either artists or albums (not both).
    Has a list to select how settings are to be applied - as system default, to just current item or to all the filtered items on the node.
@@ -65,19 +54,19 @@ public:
 
 protected:
   // specializations of CGUIWindow
-  void OnInitWindow();
+  virtual void OnInitWindow();
 
   // implementations of ISettingCallback
-  void OnSettingChanged(const CSetting *setting);
-  void OnSettingAction(const CSetting *setting);
+  virtual void OnSettingChanged(const boost::shared_ptr<const CSetting>& setting);
+  virtual void OnSettingAction(const boost::shared_ptr<const CSetting>& setting);
 
   // specialization of CGUIDialogSettingsBase
-  bool AllowResettingSettings() const { return false; }
-  void Save();
-  void SetupView();
+  virtual bool AllowResettingSettings() const { return false; }
+  virtual bool Save();
+  virtual void SetupView();
 
   // specialization of CGUIDialogSettingsManualBase
-  void InitializeSettings();
+  virtual void InitializeSettings();
 
 private:
   void SetLabel2(const std::string &settingid, const std::string &label);

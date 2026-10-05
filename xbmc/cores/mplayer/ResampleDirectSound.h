@@ -24,8 +24,7 @@
 
 #pragma once
 
-#include "IDirectSoundRenderer.h"
-#include "IAudioCallback.h"
+#include "cores/AudioEngine/Engines/IDirectSoundRenderer.h"
 #include "cores/ssrc.h"
 
 class CResampleDirectSound : public IDirectSoundRenderer
@@ -50,7 +49,7 @@ public:
   virtual LONG GetMaximumVolume() const;
   virtual LONG GetCurrentVolume() const;
   virtual void Mute(bool bMute);
-  virtual HRESULT SetCurrentVolume(LONG nVolume);
+  virtual HRESULT SetCurrentVolume(float volume);
   virtual int SetPlaySpeed(int iSpeed);
   virtual void WaitCompletion();
   virtual void DoWork();

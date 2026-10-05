@@ -21,6 +21,7 @@
 #include "threads/SystemClock.h"
 #include "FileItem.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/SettingsComponent.h"
 #include "pictures/Picture.h"
 #include "video/VideoInfoTag.h"
 #include "filesystem/StackDirectory.h"
@@ -44,7 +45,7 @@
 #include "utils/URIUtils.h"
 #include "TextureCache.h"
 
-bool CDVDFileInfo::GetFileDuration(const CStdString &path, int& duration)
+bool CDVDFileInfo::GetFileDuration(const std::string &path, int& duration)
 {
   std::auto_ptr<CDVDInputStream> input;
   std::auto_ptr<CDVDDemux> demux;
@@ -68,7 +69,7 @@ bool CDVDFileInfo::GetFileDuration(const CStdString &path, int& duration)
     return false;
 }
 
-bool CDVDFileInfo::ExtractThumb(const CStdString &strPath, CTextureDetails &details, CStreamDetails *pStreamDetails, int pos)
+bool CDVDFileInfo::ExtractThumb(const std::string &strPath, CTextureDetails &details, CStreamDetails *pStreamDetails, int pos)
 {
   unsigned int nTime = XbmcThreads::SystemClockMillis();
   CFileItem item(strPath, false);
@@ -138,10 +139,10 @@ bool CDVDFileInfo::ExtractThumb(const CStdString &strPath, CTextureDetails &deta
     CDVDVideoCodec *pVideoCodec;
 
     CDVDStreamInfo hint(*pDemuxer->GetStream(nVideoStream), true);
-    
+
     if (hint.codec == AV_CODEC_ID_MPEG2VIDEO || hint.codec == AV_CODEC_ID_MPEG1VIDEO)
     {
-      // libmpeg2 is not thread safe so use ffmepg for mpeg2/mpeg1 thumb extraction 
+      // libmpeg2 is not thread safe so use ffmepg for mpeg2/mpeg1 thumb extraction
     CDVDCodecOptions dvdOptions;
       pVideoCodec = CDVDFactoryCodec::OpenCodec(new CDVDVideoCodecFFmpeg(), hint, dvdOptions);
     }
@@ -161,7 +162,7 @@ bool CDVDFileInfo::ExtractThumb(const CStdString &strPath, CTextureDetails &deta
         DemuxPacket* pPacket = NULL;
         int iDecoderState = VC_ERROR;
         DVDVideoPicture picture;
-        
+
         memset(&picture, 0, sizeof(picture));
 
         // num streams * 40 frames, should get a valid frame, if not abort.
@@ -199,9 +200,9 @@ bool CDVDFileInfo::ExtractThumb(const CStdString &strPath, CTextureDetails &deta
         if (iDecoderState & VC_PICTURE && !(picture.iFlags & DVP_FLAG_DROPPED))
         {
           {
-            unsigned int nWidth = g_advancedSettings.GetThumbSize();
+            unsigned int nWidth = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_imageRes;
             double aspect = (double)picture.iWidth / (double)picture.iHeight;
-            unsigned int nHeight = (unsigned int)((double)g_advancedSettings.GetThumbSize() / aspect);
+            unsigned int nHeight = (unsigned int)((double)nWidth / aspect);
 
             DllSwScale dllSwScale;
             dllSwScale.Load();
@@ -255,6 +256,30 @@ bool CDVDFileInfo::ExtractThumb(const CStdString &strPath, CTextureDetails &deta
   return bOk;
 }
 
+bool CDVDFileInfo::CanExtract(const CFileItem& fileItem)
+{
+  if (fileItem.m_bIsFolder)
+    return false;
+
+  if (fileItem.IsLiveTV() ||
+      // plugin path not fully resolved
+      URIUtils::IsPlugin(fileItem.GetDynPath()) || URIUtils::IsUPnP(fileItem.GetPath()) ||
+      fileItem.IsInternetStream() || fileItem.IsDiscStub() || fileItem.IsPlayList())
+    return false;
+
+  // mostly can't extract from discs and files from discs.
+  if (URIUtils::IsBluray(fileItem.GetPath()) || fileItem.IsBDFile() || fileItem.IsDVD() ||
+      fileItem.IsDiscImage() || fileItem.IsDVDFile(false, true))
+    return false;
+
+  // For HTTP/FTP we only allow extraction when on a LAN
+  if (URIUtils::IsRemote(fileItem.GetPath()) && !URIUtils::IsOnLAN(fileItem.GetPath()) &&
+      (URIUtils::IsFTP(fileItem.GetPath()) || URIUtils::IsHTTP(fileItem.GetPath())))
+    return false;
+
+  return true;
+}
+
 /**
  * \brief Open the item pointed to by pItem and extact streamdetails
  * \return true if the stream details have changed
@@ -264,14 +289,14 @@ bool CDVDFileInfo::GetFileStreamDetails(CFileItem *pItem)
   if (!pItem)
     return false;
 
-  CStdString strFileNameAndPath;
+  std::string strFileNameAndPath;
   if (pItem->HasVideoInfoTag())
     strFileNameAndPath = pItem->GetVideoInfoTag()->m_strFileNameAndPath;
 
   if (strFileNameAndPath.empty())
     strFileNameAndPath = pItem->GetPath();
 
-  CStdString playablePath = strFileNameAndPath;
+  std::string playablePath = strFileNameAndPath;
   if (URIUtils::IsStack(playablePath))
     playablePath = XFILE::CStackDirectory::GetFirstStackedFile(playablePath);
 
@@ -302,7 +327,7 @@ bool CDVDFileInfo::GetFileStreamDetails(CFileItem *pItem)
 }
 
 /* returns true if details have been added */
-bool CDVDFileInfo::DemuxerToStreamDetails(CDVDInputStream *pInputStream, CDVDDemux *pDemux, CStreamDetails &details, const CStdString &path)
+bool CDVDFileInfo::DemuxerToStreamDetails(CDVDInputStream *pInputStream, CDVDDemux *pDemux, CStreamDetails &details, const std::string &path)
 {
   bool retVal = false;
   details.Reset();

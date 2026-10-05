@@ -9,17 +9,26 @@
 #include "GUIDialogProgramInfo.h"
 
 #include "FileItem.h"
+#include "ServiceBroker.h"
 #include "filesystem/Directory.h"
 #include "filesystem/File.h"
+#include "guilib/GUIComponent.h"
 #include "guilib/GUIImage.h"
-#include "guilib/Key.h"
+#include "guilib/GUIMessage.h"
+#include "guilib/GUIWindowManager.h"
+#include "guilib/WindowIDs.h"
+#include "input/actions/Action.h"
+#include "input/actions/ActionIDs.h"
 #include "guilib/LocalizeStrings.h"
 #include "messaging/ApplicationMessenger.h"
 #include "programs/ProgramInfoTag.h"
 #include "programs/dialogs/GUIDialogProgramSettings.h"
 #include "programs/launchers/ProgramLauncher.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/SettingsComponent.h"
 #include "utils/URIUtils.h"
+
+#include <boost/make_shared.hpp>
 
 using namespace XFILE;
 using namespace KODI::MESSAGING;
@@ -85,16 +94,16 @@ void CGUIDialogProgramInfo::OnInitWindow()
   CGUIDialog::OnInitWindow();
 }
 
-void CGUIDialogProgramInfo::SetProgram(const CFileItem *item)
+void CGUIDialogProgramInfo::SetProgram(const boost::shared_ptr<CFileItem>& item)
 {
-  *m_programItem = *item;
+  m_programItem = boost::make_shared<CFileItem>(*item);
 
   // setup screenshot list
   ClearScreenshotList();
 
   CFileItemList items;
   std::string strScreenshots = URIUtils::AddFileToFolder(URIUtils::GetParentPath(item->GetPath()), "_resources", "screenshots");
-  CDirectory::GetDirectory(strScreenshots, items, g_advancedSettings.m_pictureExtensions, DIR_FLAG_DEFAULTS);
+  CDirectory::GetDirectory(strScreenshots, items, CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_pictureExtensions, DIR_FLAG_DEFAULTS);
   for (int i = 0; i < items.Size(); i++)
   {
     std::string strLabel = URIUtils::GetFileName(items[i]->GetPath());
@@ -147,7 +156,7 @@ void CGUIDialogProgramInfo::PlayTrailer()
     // Close the dialog.
     Close(true);
 
-    CApplicationMessenger::Get().PostMsg(TMSG_MEDIA_PLAY, 0, 0, static_cast<void*>(new CFileItem(item)));
+    CServiceBroker::GetAppMessenger()->PostMsg(TMSG_MEDIA_PLAY, 0, 0, static_cast<void*>(new CFileItem(item)));
   }
 }
 
@@ -160,5 +169,15 @@ void CGUIDialogProgramInfo::SetLabel(int iControl, const std::string &strLabel)
   else
   {
     SET_CONTROL_LABEL(iControl, strLabel);
+  }
+}
+
+void CGUIDialogProgramInfo::ShowFor(const boost::shared_ptr<CFileItem>& item)
+{
+  CGUIDialogProgramInfo *dialog = CServiceBroker::GetGUI()->GetWindowManager().GetWindow<CGUIDialogProgramInfo>(WINDOW_DIALOG_PROGRAM_INFO);
+  if (dialog)
+  {
+    dialog->SetProgram(item);
+    dialog->Open();
   }
 }

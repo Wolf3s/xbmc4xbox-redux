@@ -41,13 +41,18 @@ typedef struct
 }
 WAVHDR, *PWAVHDR, *LPWAVHDR;
 
+namespace KODI
+{
+namespace CDRIP
+{
+
 class CEncoderWav : public CEncoder
 {
 public:
   CEncoderWav();
   virtual ~CEncoderWav() {}
-  bool Init(const char* strFile, int iInChannels, int iInRate, int iInBits);
-  int Encode(int nNumBytesRead, BYTE* pbtStream);
+  bool Init();
+  ssize_t Encode(uint8_t* pbtStream, size_t nNumBytesRead);
   bool Close();
   void AddTag(int key, const char* value);
 
@@ -56,5 +61,8 @@ private:
 
   int m_iBytesWritten;
 };
+
+} /* namespace CDRIP */
+} /* namespace KODI */
 
 #endif // _ENCODERWAV_H

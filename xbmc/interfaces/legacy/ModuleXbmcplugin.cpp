@@ -19,7 +19,7 @@ namespace XBMCAddon
     bool addDirectoryItem(int handle, const String& url, const xbmcgui::ListItem* listItem,
                           bool isFolder, int totalItems)
     {
-      if (listItem == nullptr)
+      if (listItem == NULL)
         throw new XBMCAddon::WrongTypeException("None not allowed as argument for listitem");
       AddonClass::Ref<xbmcgui::ListItem> pListItem(listItem);
       pListItem->item->SetPath(url);
@@ -34,12 +34,11 @@ namespace XBMCAddon
                            int totalItems)
     {
       CFileItemList fitems;
-      for (std::vector<Tuple<String,const XBMCAddon::xbmcgui::ListItem*,bool> >::const_iterator it = items.begin(); it != items.end(); ++it)
+      for (std::vector<Tuple<String,const XBMCAddon::xbmcgui::ListItem*,bool> >::const_iterator item = items.begin(); item != items.end(); ++item)
       {
-        const XBMCAddon::Tuple<XBMCAddon::String, const XBMCAddon::xbmcgui::ListItem *, bool> &item = *it;
-        const String& url = item.first();
-        const XBMCAddon::xbmcgui::ListItem* pListItem = item.second();
-        bool bIsFolder = item.GetNumValuesSet() > 2 ? item.third() : false;
+        const String& url = item->first();
+        const XBMCAddon::xbmcgui::ListItem* pListItem = item->second();
+        bool bIsFolder = item->GetNumValuesSet() > 2 ? item->third() : false;
         pListItem->item->SetPath(url);
         pListItem->item->m_bIsFolder = bIsFolder;
         fitems.Add(pListItem->item);
@@ -58,20 +57,28 @@ namespace XBMCAddon
 
     void setResolvedUrl(int handle, bool succeeded, const xbmcgui::ListItem* listItem)
     {
-      if (listItem == nullptr)
+      if (listItem == NULL)
         throw new XBMCAddon::WrongTypeException("None not allowed as argument for listitem");
       AddonClass::Ref<xbmcgui::ListItem> pListItem(listItem);
       XFILE::CPluginDirectory::SetResolvedUrl(handle, succeeded, pListItem->item.get());
     }
 
-    void addSortMethod(int handle, int sortMethod, const String& clabel2Mask)
+    void addSortMethod(int handle, int sortMethod, const String& clabelMask, const String& clabel2Mask)
     {
+      String labelMask;
+      if (sortMethod == SORT_METHOD_TRACKNUM)
+        labelMask = (clabelMask.empty() ? "[%N. ]%T" : clabelMask.c_str());
+      else if (sortMethod == SORT_METHOD_EPISODE || sortMethod == SORT_METHOD_PRODUCTIONCODE)
+        labelMask = (clabelMask.empty() ? "%H. %T" : clabelMask.c_str());
+      else
+        labelMask = (clabelMask.empty() ? "%T" : clabelMask.c_str());
+
       String label2Mask;
       label2Mask = (clabel2Mask.empty() ? "%D" : clabel2Mask.c_str());
 
       // call the directory class to add the sort method.
       if (sortMethod >= SORT_METHOD_NONE && sortMethod < SORT_METHOD_MAX)
-        XFILE::CPluginDirectory::AddSortMethod(handle, (SORT_METHOD)sortMethod, label2Mask);
+        XFILE::CPluginDirectory::AddSortMethod(handle, (SORT_METHOD)sortMethod, labelMask, label2Mask);
     }
 
     String getSetting(int handle, const char* id)

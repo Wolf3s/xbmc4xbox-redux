@@ -26,32 +26,46 @@ ADPCMCodec::ADPCMCodec()
   m_CodecName = "ADPCM";
   m_adpcm = 0;
   m_bIsPlaying = false;
-} 
+  m_strFileName = "";
+  m_bInited = false;
+}
 
 ADPCMCodec::~ADPCMCodec()
 {
   DeInit();
 }
 
-bool ADPCMCodec::Init(const CStdString &strFile, unsigned int filecache)
+bool ADPCMCodec::Init(const std::string &strFile, unsigned int filecache)
 {
-  DeInit();
+  // take precaution if Init()ialized earlier
+  if (m_bInited)
+  {
+    // keep things as is if Init() was done with known strFile
+    if (m_strFileName == strFile)
+      return true;
+
+    // got differing filename, so cleanup before starting over
+    DeInit();
+  }
 
   if (!m_dll.Load())
     return false; // error logged previously
-    
+
   m_adpcm = m_dll.LoadXWAV(strFile.c_str());
   if (!m_adpcm)
   {
     CLog::Log(LOGERROR,"ADPCMCodec: error opening file %s!",strFile.c_str());
     return false;
   }
-  
+
   m_Channels = m_dll.GetNumberOfChannels(m_adpcm);
   m_SampleRate = m_dll.GetPlaybackRate(m_adpcm);
   m_BitsPerSample = 16;//m_dll.GetSampleSize(m_adpcm);
   m_TotalTime = m_dll.GetLength(m_adpcm); // fixme?
   m_iDataPos = 0;
+
+  m_strFileName = strFile;
+  m_bInited = true;
 
   return true;
 }
@@ -63,7 +77,9 @@ void ADPCMCodec::DeInit()
 
   m_adpcm = 0;
   m_bIsPlaying = false;
-} 
+  m_strFileName = "";
+  m_bInited = false;
+}
 
 __int64 ADPCMCodec::Seek(__int64 iSeekTime)
 {
@@ -75,13 +91,13 @@ int ADPCMCodec::ReadPCM(BYTE *pBuffer, int size, int *actualsize)
 {
   if (!m_adpcm)
     return READ_ERROR;
-  
+
   *actualsize  = m_dll.FillBuffer(m_adpcm,(char*)pBuffer,size);
 
   if (*actualsize == 0)
     return READ_ERROR;
 
-  return READ_SUCCESS;    
+  return READ_SUCCESS;
 }
 
 bool ADPCMCodec::CanInit()

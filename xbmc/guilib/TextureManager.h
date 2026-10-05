@@ -1,35 +1,27 @@
 /*
- *      Copyright (C) 2005-2013 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-/*!
-\file TextureManager.h
-\brief
-*/
 #pragma once
 
-#include <list>
-#include <vector>
-#include <utility>
-
+#include "system.h" // <xtl.h>
+#include "GUIComponent.h"
 #include "TextureBundle.h"
 #include "threads/CriticalSection.h"
+
+#include <cstddef>
+#include <stdint.h>
+#include <list>
+#include <boost/shared_ptr.hpp>
+#include <string>
+#include <utility>
+#include <vector>
+
+class CTexture;
 
 /************************************************************************/
 /*                                                                      */
@@ -44,12 +36,12 @@ public:
 
   void Reset();
 
-  void Add(CBaseTexture *texture, int delay);
-  void Set(CBaseTexture *texture, int width, int height);
+  void Add(boost::shared_ptr<CTexture> texture, int delay);
+  void Set(boost::shared_ptr<CTexture> texture, int width, int height);
   void Free();
   unsigned int size() const;
 
-  std::vector<CBaseTexture* > m_textures;
+  std::vector<boost::shared_ptr<CTexture> > m_textures;
   std::vector<int> m_delays;
   int m_width;
   int m_height;
@@ -74,7 +66,7 @@ public:
   CTextureMap(const std::string& textureName, int width, int height, int loops);
   virtual ~CTextureMap();
 
-  void Add(CBaseTexture* texture, int delay);
+  void Add(boost::movelib::unique_ptr<CTexture> texture, int delay);
   bool Release();
 
   const std::string& GetName() const;
@@ -122,7 +114,7 @@ public:
   uint32_t GetMemoryUsage() const;
   void Flush();
   std::string GetTexturePath(const std::string& textureName, bool directory = false);
-  void GetBundledTexturesFromPath(const std::string& texturePath, std::vector<std::string> &items);
+  std::vector<std::string> GetBundledTexturesFromPath(const std::string& texturePath);
 
   void AddTexturePath(const std::string &texturePath);    ///< Add a new path to the paths to check when loading media
   void SetTexturePath(const std::string &texturePath);    ///< Set a single path as the path to check when loading media (clear then add)
@@ -132,10 +124,10 @@ public:
   void ReleaseHwTexture(unsigned int texture);
 protected:
   std::vector<CTextureMap*> m_vecTextures;
-  std::list<std::pair<CTextureMap*, unsigned int> > m_unusedTextures;
+  std::list<std::pair<CTextureMap*, unsigned int> >
+      m_unusedTextures;
   std::vector<unsigned int> m_unusedHwTextures;
   typedef std::vector<CTextureMap*>::iterator ivecTextures;
-  typedef std::list<std::pair<CTextureMap*, unsigned int> >::iterator ilistUnused;
   // we have 2 texture bundles (one for the base textures, one for the theme)
   CTextureBundle m_TexBundle[2];
 #ifdef HAS_XBOX_D3D
@@ -147,8 +139,3 @@ protected:
   CCriticalSection m_section;
 };
 
-/*!
- \ingroup textures
- \brief
- */
-extern CGUITextureManager g_TextureManager;

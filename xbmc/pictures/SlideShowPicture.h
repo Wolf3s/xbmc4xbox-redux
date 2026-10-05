@@ -21,12 +21,15 @@
 
 #include "threads/CriticalSection.h"
 #include "guilib/DirtyRegion.h"
-#include "xbox/PlatformDefs.h" // uint32_t
+#include "utils/ColorUtils.h"
+
+#include "platform/xbox/PlatformDefs.h" // uint32_t
+
 #include <string>
 
-typedef uint32_t color_t;
+#include <boost/move/unique_ptr.hpp>
 
-class CBaseTexture;
+class CTexture;
 
 class CSlideShowPic
 {
@@ -44,8 +47,8 @@ public:
   CSlideShowPic();
   ~CSlideShowPic();
 
-  void SetTexture(int iSlideNumber, CBaseTexture* pTexture, DISPLAY_EFFECT dispEffect = EFFECT_RANDOM, TRANSISTION_EFFECT transEffect = FADEIN_FADEOUT);
-  void UpdateTexture(CBaseTexture* pTexture);
+  void SetTexture(int iSlideNumber, boost::movelib::unique_ptr<CTexture> pTexture, DISPLAY_EFFECT dispEffect = EFFECT_RANDOM, TRANSISTION_EFFECT transEffect = FADEIN_FADEOUT);
+  void UpdateTexture(boost::movelib::unique_ptr<CTexture> pTexture);
 
   bool IsLoaded() const { return m_bIsLoaded;};
   void UnLoad() {m_bIsLoaded = false;};
@@ -85,10 +88,10 @@ public:
   bool m_bCanMoveHorizontally;
   bool m_bCanMoveVertically;
 private:
-  void SetTexture_Internal(int iSlideNumber, CBaseTexture* pTexture, DISPLAY_EFFECT dispEffect = EFFECT_RANDOM, TRANSISTION_EFFECT transEffect = FADEIN_FADEOUT);
+  void SetTexture_Internal(int iSlideNumber, boost::movelib::unique_ptr<CTexture> pTexture, DISPLAY_EFFECT dispEffect = EFFECT_RANDOM, TRANSISTION_EFFECT transEffect = FADEIN_FADEOUT);
   void UpdateVertices(float cur_x[4], float cur_y[4], const float new_x[4], const float new_y[4], CDirtyRegionList &dirtyregions);
-  void Render(float *x, float *y, CBaseTexture* pTexture, color_t color, _D3DFILLMODE fillmode = D3DFILL_SOLID );
-  CBaseTexture *m_pImage;
+  void Render(float *x, float *y, CTexture* pTexture, UTILS::COLOR::Color color, _D3DFILLMODE fillmode = D3DFILL_SOLID );
+  boost::movelib::unique_ptr<CTexture> m_pImage;
 
   int m_iOriginalWidth;
   int m_iOriginalHeight;
@@ -100,7 +103,7 @@ private:
   std::string m_strFileName;
   float m_fWidth;
   float m_fHeight;
-  color_t m_alpha;
+  UTILS::COLOR::Color m_alpha;
   // stuff relative to middle position
   float m_fPosX;
   float m_fPosY;

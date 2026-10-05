@@ -1,160 +1,124 @@
 /*
- *      Copyright (C) 2005-2013 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include "system.h"
-#include "windows/GUIWindowScreensaver.h"
-#include "addons/AddonManager.h"
-#include "Application.h"
+#include "GUIWindowScreensaver.h"
+
 #include "GUIPassword.h"
-#include "settings/Settings.h"
-#include "GUIWindowManager.h"
 #include "GUIUserMessages.h"
-#include "threads/SingleLock.h"
+#include "ServiceBroker.h"
+#include "addons/AddonManager.h"
+#include "addons/ScreenSaver.h"
+#include "addons/addoninfo/AddonType.h"
+#include "application/ApplicationComponents.h"
+#include "application/ApplicationPowerHandling.h"
+#include "guilib/GUIComponent.h"
+#include "guilib/GUITexture.h"
+#include "guilib/GUIWindowManager.h"
+#include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 
-using namespace ADDON;
+#include <boost/move/make_unique.hpp>
 
-CGUIWindowScreensaver::CGUIWindowScreensaver(void)
-    : CGUIWindow(WINDOW_SCREENSAVER, "")
+using namespace KODI;
+
+CGUIWindowScreensaver::CGUIWindowScreensaver()
+  : CGUIDialog(WINDOW_SCREENSAVER, "", MODELESS)
 {
+  m_renderOrder = RENDER_ORDER_WINDOW_SCREENSAVER;
+  m_visible = false;
 }
 
-CGUIWindowScreensaver::~CGUIWindowScreensaver(void)
+void CGUIWindowScreensaver::Process(unsigned int currentTime, CDirtyRegionList& regions)
 {
+  MarkDirtyRegion();
+  CGUIWindow::Process(currentTime, regions);
+  const CGraphicContext &context = CServiceBroker::GetWinSystem()->GetGfxContext();
+  m_renderRegion.SetRect(0, 0, static_cast<float>(context.GetWidth()),
+                         static_cast<float>(context.GetHeight()));
 }
 
 void CGUIWindowScreensaver::Render()
 {
-  CSingleLock lock (m_critSection);
-
-#ifdef HAS_SCREENSAVER
   if (m_addon)
   {
-    if (m_bInitialized)
-    {
-      try
-      {
-        //some screensavers seem to be depending on xbmc clearing the screen
-        //       g_graphicsContext.Get3DDevice()->Clear( 0L, NULL, D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER, 0x00010001, 1.0f, 0L );
-        if (m_addon->ID() == "screensaver.cpblobs" || m_addon->ID() == "screensaver.pmblobs" || m_addon->ID() == "screensaver.drempels")
-          g_graphicsContext.ApplyStateBlock();
-        else
-          g_graphicsContext.CaptureStateBlock();
-        m_addon->Render();
-        g_graphicsContext.ApplyStateBlock();
-      }
-      catch (...)
-      {
-        CLog::Log(LOGERROR, "SCREENSAVER: - Exception in Render() - %s", m_addon->Name().c_str());
-      }
-      return ;
-    }
-    else
-    {
-      try
-      {
-        m_addon->Start();
-        m_bInitialized = true;
-      }
-      catch (...)
-      {
-        CLog::Log(LOGERROR, "SCREENSAVER: - Exception in Start() - %s", m_addon->Name().c_str());
-      }
-      return ;
-    }
+    CGraphicContext &context = CServiceBroker::GetWinSystem()->GetGfxContext();
+
+    context.CaptureStateBlock();
+    m_addon->Render();
+    context.ApplyStateBlock();
+    return;
   }
-#endif
-  CGUIWindow::Render();
+
+  CGUIDialog::Render();
 }
 
-bool CGUIWindowScreensaver::OnAction(const CAction &action)
+void CGUIWindowScreensaver::OnInitWindow()
 {
-  // We're just a screen saver, nothing to do here
-  return false;
+  CGUIDialog::OnInitWindow();
+  m_visible = true;
+}
+
+void CGUIWindowScreensaver::UpdateVisibility()
+{
+  CApplicationComponents &components = CServiceBroker::GetAppComponents();
+  const boost::shared_ptr<CApplicationPowerHandling> appPower = components.GetComponent<CApplicationPowerHandling>();
+  if (!appPower->IsInScreenSaver() && m_visible)
+  {
+    m_visible = false;
+    Close();
+  }
 }
 
 bool CGUIWindowScreensaver::OnMessage(CGUIMessage& message)
 {
-  switch ( message.GetMessage() )
+  switch (message.GetMessage())
   {
-  case GUI_MSG_WINDOW_DEINIT:
+    case GUI_MSG_WINDOW_DEINIT:
     {
-      CSingleLock lock (m_critSection);
-#ifdef HAS_SCREENSAVER
       if (m_addon)
       {
         m_addon->Stop();
-        g_graphicsContext.ApplyStateBlock();
-        m_addon->Destroy();
         m_addon.reset();
       }
-#endif
-      m_bInitialized = false;
 
-      // remove z-buffer
-//      RESOLUTION res = g_graphicsContext.GetVideoResolution();
- //     g_graphicsContext.SetVideoResolution(res, FALSE);
-
+      CServiceBroker::GetWinSystem()->GetGfxContext().ApplyStateBlock();
     }
     break;
 
-  case GUI_MSG_WINDOW_INIT:
+    case GUI_MSG_WINDOW_INIT:
     {
       CGUIWindow::OnMessage(message);
-      CSingleLock lock (m_critSection);
 
-#ifdef HAS_SCREENSAVER
-      assert(!m_addon);
-      m_bInitialized = false;
+      CServiceBroker::GetWinSystem()->GetGfxContext().CaptureStateBlock();
 
-      m_addon.reset();
-      // Setup new screensaver instance
-      AddonPtr addon;
-      if (!CServiceBroker::GetAddonMgr().GetAddon(CSettings::GetInstance().GetString("screensaver.mode"), addon, ADDON_SCREENSAVER))
+      const std::string addon = CServiceBroker::GetSettingsComponent()->GetSettings()->GetString(
+          CSettings::SETTING_SCREENSAVER_MODE);
+      const ADDON::AddonInfoPtr addonBase =
+          CServiceBroker::GetAddonMgr().GetAddonInfo(addon, ADDON::AddonType::SCREENSAVER);
+      if (!addonBase)
         return false;
+      m_addon = boost::movelib::make_unique<KODI::ADDONS::CScreenSaver>(addonBase);
+      return m_addon->Start();
+    }
 
-      m_addon = boost::dynamic_pointer_cast<CScreenSaver>(addon);
-
-      if (!m_addon)
+    case GUI_MSG_CHECK_LOCK:
+    {
+      CApplicationComponents &components = CServiceBroker::GetAppComponents();
+      const boost::shared_ptr<CApplicationPowerHandling> appPower = components.GetComponent<CApplicationPowerHandling>();
+      if (!g_passwordManager.IsProfileLockUnlocked())
+      {
+        appPower->SetScreenSaverLockFailed();
         return false;
-
-      if (m_addon->ID() == "screensaver.cpblobs" || m_addon->ID() == "screensaver.pmblobs" || m_addon->ID() == "screensaver.drempels")
-        g_graphicsContext.ApplyStateBlock();
-      else
-        g_graphicsContext.CaptureStateBlock();
-      m_addon->CreateScreenSaver();
-#endif
-      // setup a z-buffer
-//      RESOLUTION res = g_graphicsContext.GetVideoResolution();
-//      g_graphicsContext.SetVideoResolution(res, TRUE);
-
+      }
+      appPower->SetScreenSaverUnlocked();
       return true;
     }
-  case GUI_MSG_CHECK_LOCK:
-    if (!g_passwordManager.IsProfileLockUnlocked())
-    {
-      g_application.m_iScreenSaveLock = -1;
-      return false;
-    }
-    g_application.m_iScreenSaveLock = 1;
-    return true;
   }
+
   return CGUIWindow::OnMessage(message);
 }
-

@@ -1,42 +1,22 @@
-#pragma once
 /*
- *      Copyright (C) 2005-2013 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include <set>
-#include <string>
-#include <vector>
+#pragma once
 
-#include <memory>
-
+#include "settings/ISubSettings.h"
 #include "settings/SettingControl.h"
 #include "settings/SettingCreator.h"
-#include "settings/lib/ISettingCallback.h"
-#include "threads/CriticalSection.h"
+#include "settings/SettingsBase.h"
 
-class CSetting;
+#include <string>
+
 class CSettingList;
-class CSettingSection;
-class CSettingsManager;
-class TiXmlElement;
 class TiXmlNode;
-class CVariant;
 
 /*!
  \brief Wrapper around CSettingsManager responsible for properly setting up
@@ -44,40 +24,347 @@ class CVariant;
  setting types.
  \sa CSettingsManager
  */
-class CSettings : public CSettingCreator, public CSettingControlCreator
+class CSettings : public CSettingsBase, public CSettingCreator, public CSettingControlCreator
+                , private ISubSettings
 {
 public:
+  static const char* SETTING_LOOKANDFEEL_SKIN;
+  static const char* SETTING_LOOKANDFEEL_SKINSETTINGS;
+  static const char* SETTING_LOOKANDFEEL_SKINTHEME;
+  static const char* SETTING_LOOKANDFEEL_SKINCOLORS;
+  static const char* SETTING_LOOKANDFEEL_FONT;
+  static const char* SETTING_LOOKANDFEEL_SKINZOOM;
+  static const char* SETTING_LOOKANDFEEL_STARTUPWINDOW;
+  static const char* SETTING_LOOKANDFEEL_SOUNDSKIN;
+  static const char* SETTING_LOOKANDFEEL_ENABLERSSFEEDS;
+  static const char* SETTING_LOOKANDFEEL_RSSEDIT;
+  static const char* SETTING_LOCALE_LANGUAGE;
+  static const char* SETTING_LOCALE_COUNTRY;
+  static const char* SETTING_LOCALE_CHARSET;
+  static const char* SETTING_LOCALE_KEYBOARDLAYOUTS;
+  static const char* SETTING_LOCALE_ACTIVEKEYBOARDLAYOUT;
+  static const char* SETTING_LOCALE_TIMEZONE;
+  static const char* SETTING_LOCALE_SHORTDATEFORMAT;
+  static const char* SETTING_LOCALE_LONGDATEFORMAT;
+  static const char* SETTING_LOCALE_TIMEFORMAT;
+  static const char* SETTING_LOCALE_USE24HOURCLOCK;
+  static const char* SETTING_LOCALE_TEMPERATUREUNIT;
+  static const char* SETTING_LOCALE_SPEEDUNIT;
+  static const char* SETTING_LOCALE_USE_DST;
+  static const char* SETTING_FILELISTS_SHOWPARENTDIRITEMS;
+  static const char* SETTING_FILELISTS_SHOWEXTENSIONS;
+  static const char* SETTING_FILELISTS_IGNORETHEWHENSORTING;
+  static const char* SETTING_FILELISTS_ALLOWFILEDELETION;
+  static const char* SETTING_FILELISTS_SHOWADDSOURCEBUTTONS;
+  static const char* SETTING_FILELISTS_SHOWHIDDEN;
+  static const char* SETTING_SCREENSAVER_MODE;
+  static const char* SETTING_SCREENSAVER_SETTINGS;
+  static const char* SETTING_SCREENSAVER_PREVIEW;
+  static const char* SETTING_SCREENSAVER_TIME;
+  static const char* SETTING_SCREENSAVER_DISABLEFORAUDIO;
+  static const char* SETTING_SCREENSAVER_USEDIMONPAUSE;
+  static const char* SETTING_VIDEOLIBRARY_SHOWUNWATCHEDPLOTS;
+  static const char* SETTING_VIDEOLIBRARY_ACTORTHUMBS;
+  static const char* SETTING_MYVIDEOS_FLATTEN;
+  static const char* SETTING_VIDEOLIBRARY_FLATTENTVSHOWS;
+  static const char* SETTING_VIDEOLIBRARY_TVSHOWSSELECTFIRSTUNWATCHEDITEM;
+  static const char* SETTING_VIDEOLIBRARY_TVSHOWSINCLUDEALLSEASONSANDSPECIALS;
+  static const char* SETTING_VIDEOLIBRARY_SHOWALLITEMS;
+  static const char* SETTING_VIDEOLIBRARY_GROUPMOVIESETS;
+  static const char* SETTING_VIDEOLIBRARY_GROUPSINGLEITEMSETS;
+  static const char* SETTING_VIDEOLIBRARY_UPDATEONSTARTUP;
+  static const char* SETTING_VIDEOLIBRARY_BACKGROUNDUPDATE;
+  static const char* SETTING_VIDEOLIBRARY_CLEANUP;
+  static const char* SETTING_VIDEOLIBRARY_EXPORT;
+  static const char* SETTING_VIDEOLIBRARY_IMPORT;
+  static const char* SETTING_VIDEOLIBRARY_SHOWEMPTYTVSHOWS;
+  static const char* SETTING_VIDEOLIBRARY_MOVIESETSFOLDER;
+  static const char* SETTING_VIDEOLIBRARY_ARTWORK_LEVEL;
+  static const char* SETTING_VIDEOLIBRARY_MOVIEART_WHITELIST;
+  static const char* SETTING_VIDEOLIBRARY_TVSHOWART_WHITELIST;
+  static const char* SETTING_VIDEOLIBRARY_EPISODEART_WHITELIST;
+  static const char* SETTING_VIDEOLIBRARY_MUSICVIDEOART_WHITELIST;
+  static const char* SETTING_VIDEOLIBRARY_SHOWPERFORMERS;
+  static const char* SETTING_VIDEOLIBRARY_IGNOREVIDEOVERSIONS;
+  static const char* SETTING_VIDEOLIBRARY_IGNOREVIDEOEXTRAS;
+  static const char* SETTING_VIDEOLIBRARY_SHOWVIDEOVERSIONSASFOLDER;
+  static const char* SETTING_LOCALE_AUDIOLANGUAGE;
+  static const char* SETTING_VIDEOPLAYER_PREFERDEFAULTFLAG;
+  static const char* SETTING_VIDEOPLAYER_AUTOPLAYNEXTITEM;
+  static const char* SETTING_VIDEOPLAYER_SEEKSTEPS;
+  static const char* SETTING_VIDEOPLAYER_SEEKDELAY;
+  static const char* SETTING_VIDEOPLAYER_ERRORINASPECT;
+  static const char* SETTING_VIDEOPLAYER_RENDERMETHOD;
+  static const char* SETTING_VIDEOPLAYER_DEFAULTPLAYER;
+  static const char* SETTING_VIDEOPLAYER_SOFTEN;
+  static const char* SETTING_VIDEOPLAYER_FLICKER;
+  static const char* SETTING_MYVIDEOS_SELECTACTION;
+  static const char* SETTING_MYVIDEOS_SELECTDEFAULTVERSION;
+  static const char* SETTING_MYVIDEOS_PLAYACTION;
+  static const char* SETTING_MYVIDEOS_USETAGS;
+  static const char* SETTING_MYVIDEOS_EXTRACTFLAGS;
+  static const char* SETTING_MYVIDEOS_EXTRACTCHAPTERTHUMBS;
+  static const char* SETTING_MYVIDEOS_REPLACELABELS;
+  static const char* SETTING_MYVIDEOS_EXTRACTTHUMB;
+  static const char* SETTING_MYVIDEOS_STACKVIDEOS;
+  static const char* SETTING_LOCALE_SUBTITLELANGUAGE;
+  static const char* SETTING_SUBTITLES_FONT;
+  static const char* SETTING_SUBTITLES_FONTSIZE;
+  static const char* SETTING_SUBTITLES_STYLE;
+  static const char* SETTING_SUBTITLES_COLOR;
+  static const char* SETTING_SUBTITLES_CHARSET;
+  static const char* SETTING_SUBTITLES_LANGUAGES;
+  static const char* SETTING_SUBTITLES_STORAGEMODE;
+  static const char* SETTING_SUBTITLES_CUSTOMPATH;
+  static const char* SETTING_SUBTITLES_PAUSEONSEARCH;
+  static const char* SETTING_SUBTITLES_DOWNLOADFIRST;
+  static const char* SETTING_SUBTITLES_TV;
+  static const char* SETTING_SUBTITLES_MOVIE;
+  static const char* SETTING_DVDS_PLAYERREGION;
+  static const char* SETTING_DVDS_AUTOMENU;
+  static const char* SETTING_SCRAPERS_MOVIESDEFAULT;
+  static const char* SETTING_SCRAPERS_TVSHOWSDEFAULT;
+  static const char* SETTING_SCRAPERS_MUSICVIDEOSDEFAULT;
+  static const char* SETTING_MUSICLIBRARY_SHOWCOMPILATIONARTISTS;
+  static const char* SETTING_MUSICLIBRARY_SHOWDISCS;
+  static const char* SETTING_MUSICLIBRARY_USEORIGINALDATE;
+  static const char* SETTING_MUSICLIBRARY_USEARTISTSORTNAME;
+  static const char* SETTING_MUSICLIBRARY_DOWNLOADINFO;
+  static const char* SETTING_MUSICLIBRARY_ARTISTSFOLDER;
+  static const char* SETTING_MUSICLIBRARY_PREFERONLINEALBUMART;
+  static const char* SETTING_MUSICLIBRARY_ARTWORKLEVEL;
+  static const char* SETTING_MUSICLIBRARY_USEALLLOCALART;
+  static const char* SETTING_MUSICLIBRARY_USEALLREMOTEART;
+  static const char* SETTING_MUSICLIBRARY_ARTISTART_WHITELIST;
+  static const char* SETTING_MUSICLIBRARY_ALBUMART_WHITELIST;
+  static const char* SETTING_MUSICLIBRARY_MUSICTHUMBS;
+  static const char* SETTING_MUSICLIBRARY_ALBUMSSCRAPER;
+  static const char* SETTING_MUSICLIBRARY_ARTISTSSCRAPER;
+  static const char* SETTING_MUSICLIBRARY_OVERRIDETAGS;
+  static const char* SETTING_MUSICLIBRARY_SHOWALLITEMS;
+  static const char* SETTING_MUSICLIBRARY_UPDATEONSTARTUP;
+  static const char* SETTING_MUSICLIBRARY_BACKGROUNDUPDATE;
+  static const char* SETTING_MUSICLIBRARY_CLEANUP;
+  static const char* SETTING_MUSICLIBRARY_EXPORT;
+  static const char* SETTING_MUSICLIBRARY_EXPORT_FILETYPE;
+  static const char* SETTING_MUSICLIBRARY_EXPORT_FOLDER;
+  static const char* SETTING_MUSICLIBRARY_EXPORT_ITEMS;
+  static const char* SETTING_MUSICLIBRARY_EXPORT_UNSCRAPED;
+  static const char* SETTING_MUSICLIBRARY_EXPORT_OVERWRITE;
+  static const char* SETTING_MUSICLIBRARY_EXPORT_ARTWORK;
+  static const char* SETTING_MUSICLIBRARY_EXPORT_SKIPNFO;
+  static const char* SETTING_MUSICLIBRARY_IMPORT;
+  static const char* SETTING_MUSICPLAYER_AUTOPLAYNEXTITEM;
+  static const char* SETTING_MUSICPLAYER_QUEUEBYDEFAULT;
+  static const char* SETTING_MUSICPLAYER_SEEKSTEPS;
+  static const char* SETTING_MUSICPLAYER_SEEKDELAY;
+  static const char* SETTING_MUSICPLAYER_REPLAYGAINTYPE;
+  static const char* SETTING_MUSICPLAYER_REPLAYGAINPREAMP;
+  static const char* SETTING_MUSICPLAYER_REPLAYGAINNOGAINPREAMP;
+  static const char* SETTING_MUSICPLAYER_REPLAYGAINAVOIDCLIPPING;
+  static const char* SETTING_MUSICPLAYER_CROSSFADE;
+  static const char* SETTING_MUSICPLAYER_CROSSFADEALBUMTRACKS;
+  static const char* SETTING_MUSICPLAYER_VISUALISATION;
+  static const char* SETTING_MUSICPLAYER_DEFAULTPLAYER;
+  static const char* SETTING_MUSICPLAYER_OUTPUT_TO_ALL_SPEAKERS;
+  static const char* SETTING_MUSICFILES_SELECTACTION;
+  static const char* SETTING_MUSICFILES_USETAGS;
+  static const char* SETTING_MUSICFILES_TRACKFORMAT;
+  static const char* SETTING_MUSICFILES_NOWPLAYINGTRACKFORMAT;
+  static const char* SETTING_MUSICFILES_LIBRARYTRACKFORMAT;
+  static const char* SETTING_MUSICFILES_FINDREMOTETHUMBS;
+  static const char* SETTING_AUDIOCDS_AUTOACTION;
+  static const char* SETTING_AUDIOCDS_USECDDB;
+  static const char* SETTING_AUDIOCDS_RECORDINGPATH;
+  static const char* SETTING_AUDIOCDS_TRACKPATHFORMAT;
+  static const char* SETTING_AUDIOCDS_ENCODER;
+  static const char* SETTING_AUDIOCDS_SETTINGS;
+  static const char* SETTING_AUDIOCDS_EJECTONRIP;
+  static const char* SETTING_MYMUSIC_SONGTHUMBINVIS;
+  static const char* SETTING_MYMUSIC_DEFAULTLIBVIEW;
+  static const char* SETTING_PICTURES_USETAGS;
+  static const char* SETTING_PICTURES_GENERATETHUMBS;
+  static const char* SETTING_PICTURES_SHOWVIDEOS;
+  static const char* SETTING_PICTURES_DISPLAYRESOLUTION;
+  static const char* SETTING_SLIDESHOW_STAYTIME;
+  static const char* SETTING_SLIDESHOW_DISPLAYEFFECTS;
+  static const char* SETTING_SLIDESHOW_SHUFFLE;
+  static const char* SETTING_WEATHER_CURRENTLOCATION;
+  static const char* SETTING_WEATHER_ADDON;
+  static const char* SETTING_WEATHER_ADDONSETTINGS;
+  static const char* SETTING_SERVICES_DEVICENAME;
+  static const char* SETTING_SERVICES_UPNP;
+  static const char* SETTING_SERVICES_UPNPSERVER;
+  static const char* SETTING_SERVICES_UPNPRENDERER;
+  static const char* SETTING_SERVICES_WEBSERVER;
+  static const char* SETTING_SERVICES_WEBSERVERPORT;
+  static const char* SETTING_SERVICES_WEBSERVERAUTHENTICATION;
+  static const char* SETTING_SERVICES_WEBSERVERUSERNAME;
+  static const char* SETTING_SERVICES_WEBSERVERPASSWORD;
+  static const char* SETTING_SERVICES_WEBSKIN;
+  static const char* SETTING_SERVICES_ESENABLED;
+  static const char* SETTING_SERVICES_ESPORT;
+  static const char* SETTING_SERVICES_ESPORTRANGE;
+  static const char* SETTING_SERVICES_ESMAXCLIENTS;
+  static const char* SETTING_SERVICES_ESALLINTERFACES;
+  static const char* SETTING_SERVICES_ESINITIALDELAY;
+  static const char* SETTING_SERVICES_ESCONTINUOUSDELAY;
+  static const char* SETTING_SERVICES_FTPSERVER;
+  static const char* SETTING_SERVICES_FTPSERVER_USER;
+  static const char* SETTING_SERVICES_FTPSERVER_PASSWORD;
+  static const char* SETTING_SERVICES_TIMESERVER;
+  static const char* SETTING_SERVICES_TIMESERVER_ADDRESS;
+  static const char* SETTING_SMB_WINSSERVER;
+  static const char* SETTING_SMB_WORKGROUP;
+  static const char* SETTING_VIDEOSCREEN_RESOLUTION;
+  static const char* SETTING_VIDEOSCREEN_GUICALIBRATION;
+  static const char* SETTING_VIDEOSCREEN_FLICKERFILTER;
+  static const char* SETTING_VIDEOSCREEN_SOFTEN;
+  static const char* SETTING_VIDEOSCREEN_ASPECT;
+  static const char* SETTING_VIDEOSCREEN_HD480p;
+  static const char* SETTING_VIDEOSCREEN_HD720p;
+  static const char* SETTING_VIDEOSCREEN_HD1080i;
+  static const char* SETTING_AUDIOOUTPUT_GUISOUNDVOLUME;
+  static const char* SETTING_AUDIOOUTPUT_PASSTHROUGH;
+  static const char* SETTING_AUDIOOUTPUT_AACPASSTHROUGH;
+  static const char* SETTING_AUDIOOUTPUT_AC3PASSTHROUGH;
+  static const char* SETTING_AUDIOOUTPUT_DTSPASSTHROUGH;
+  static const char* SETTING_AUDIOOUTPUT_MP1PASSTHROUGH;
+  static const char* SETTING_AUDIOOUTPUT_MP2PASSTHROUGH;
+  static const char* SETTING_AUDIOOUTPUT_MP3PASSTHROUGH;
+  static const char* SETTING_NETWORK_USEHTTPPROXY;
+  static const char* SETTING_NETWORK_HTTPPROXYTYPE;
+  static const char* SETTING_NETWORK_HTTPPROXYSERVER;
+  static const char* SETTING_NETWORK_HTTPPROXYPORT;
+  static const char* SETTING_NETWORK_HTTPPROXYUSERNAME;
+  static const char* SETTING_NETWORK_HTTPPROXYPASSWORD;
+  static const char* SETTING_NETWORK_BANDWIDTH;
+  static const char* SETTING_POWERMANAGEMENT_SHUTDOWNTIME;
+  static const char* SETTING_DEBUG_SHOWLOGINFO;
+  static const char* SETTING_DEBUG_SCREENSHOTPATH;
+  static const char* SETTING_MASTERLOCK_LOCKCODE;
+  static const char* SETTING_MASTERLOCK_STARTUPLOCK;
+  static const char* SETTING_MASTERLOCK_MAXRETRIES;
+  static const char* SETTING_CACHE_HARDDISK;
+  static const char* SETTING_CACHEVIDEO_DVDROM;
+  static const char* SETTING_CACHEVIDEO_LAN;
+  static const char* SETTING_CACHEVIDEO_INTERNET;
+  static const char* SETTING_CACHEAUDIO_DVDROM;
+  static const char* SETTING_CACHEAUDIO_LAN;
+  static const char* SETTING_CACHEAUDIO_INTERNET;
+  static const char* SETTING_CACHEDVD_DVDROM;
+  static const char* SETTING_CACHEDVD_LAN;
+  static const char* SETTING_CACHEUNKNOWN_INTERNET;
+  static const char* SETTING_SYSTEM_PLAYLISTSPATH;
+  static const char* SETTING_ADDONS_AUTOUPDATES;
+  static const char* SETTING_ADDONS_NOTIFICATIONS;
+  static const char* SETTING_ADDONS_SHOW_RUNNING;
+  static const char* SETTING_ADDONS_ALLOW_UNKNOWN_SOURCES;
+  static const char* SETTING_ADDONS_UPDATEMODE;
+  static const char* SETTING_ADDONS_MANAGE_DEPENDENCIES;
+  static const char* SETTING_ADDONS_REMOVE_ORPHANED_DEPENDENCIES;
+  static const char* SETTING_GENERAL_ADDONFOREIGNFILTER;
+  static const char* SETTING_GENERAL_ADDONBROKENFILTER;
+  static const char* SETTING_SOURCE_VIDEOS;
+  static const char* SETTING_SOURCE_MUSIC;
+  static const char* SETTING_SOURCE_PICTURES;
+  static const char* SETTING_FILECACHE_BUFFERMODE;
+  static const char* SETTING_FILECACHE_MEMORYSIZE;
+  static const char* SETTING_FILECACHE_READFACTOR;
+  static const char* SETTING_FILECACHE_CHUNKSIZE;
+  static const char* SETTING_HDD_REMOTE_PLAY_SPINDOWN;
+  static const char* SETTING_HDD_REMOTE_PLAY_SPINDOWN_DURATION;
+  static const char* SETTING_HDD_REMOTE_PLAY_SPINDOWN_DELAY;
+  static const char* SETTING_HDD_SPINDOWN_TIME;
+  static const char* SETTING_KARAOKE_ENABLED;
+  static const char* SETTING_KARAOKE_CHARSET;
+  static const char* SETTING_KARAOKE_EXPORT;
+  static const char* SETTING_KARAOKE_IMPORT;
+  static const char* SETTING_KARAOKE_PORT_ONE_VOICEMASK;
+  static const char* SETTING_KARAOKE_PORT_TWO_VOICEMASK;
+  static const char* SETTING_KARAOKE_PORT_THREE_VOICEMASK;
+  static const char* SETTING_KARAOKE_PORT_FOUR_VOICEMASK;
+  static const char* SETTING_HARDDISK_AAMLEVEL;
+  static const char* SETTING_HARDDISK_APMLEVEL;
+  static const char* SETTING_LCD_BACKLIGHT;
+  static const char* SETTING_LCD_CONTRAST;
+  static const char* SETTING_LCD_MODCHIP;
+  static const char* SETTING_LCD_TYPE;
+  static const char* SETTING_LCD_DISABLE_ON_PLAYBACK;
+  static const char* SETTING_TRAINER_SCAN;
+  static const char* SETTING_NETWORK_ASSIGNMENT;
+  static const char* SETTING_NETWORK_IPADDRESS;
+  static const char* SETTING_NETWORK_SUBNET;
+  static const char* SETTING_NETWORK_GATEWAY;
+  static const char* SETTING_NETWORK_DNS;
+  static const char* SETTING_NETWORK_DNS2;
+  static const char* SETTING_UPDATER_CHECK;
+  static const char* SETTING_XBOX_LED_COLOUR;
+  static const char* SETTING_XBOX_LED_DISABLE_ON_PLAYBACK;
+  static const char* SETTING_XBOX_AUTO_TEMPERATURE;
+  static const char* SETTING_XBOX_FANSPEED_CONTROL;
+  static const char* SETTING_XBOX_FANSPEED;
+  static const char* SETTING_XBOX_MIN_FANSPEED;
+  static const char* SETTING_XBOX_TARGET_TEMPERATURE;
+
+  // values for SETTING_VIDEOLIBRARY_SHOWUNWATCHEDPLOTS
+  static const int VIDEOLIBRARY_PLOTS_SHOW_UNWATCHED_MOVIES = 0;
+  static const int VIDEOLIBRARY_PLOTS_SHOW_UNWATCHED_TVSHOWEPISODES = 1;
+  static const int VIDEOLIBRARY_THUMB_SHOW_UNWATCHED_EPISODE = 2;
+  // values for SETTING_VIDEOLIBRARY_ARTWORK_LEVEL
+  static const int VIDEOLIBRARY_ARTWORK_LEVEL_ALL = 0;
+  static const int VIDEOLIBRARY_ARTWORK_LEVEL_BASIC = 1;
+  static const int VIDEOLIBRARY_ARTWORK_LEVEL_CUSTOM = 2;
+  static const int VIDEOLIBRARY_ARTWORK_LEVEL_NONE = 3;
+
+  // values for SETTING_MUSICLIBRARY_ARTWORKLEVEL
+  static const int MUSICLIBRARY_ARTWORK_LEVEL_ALL = 0;
+  static const int MUSICLIBRARY_ARTWORK_LEVEL_BASIC = 1;
+  static const int MUSICLIBRARY_ARTWORK_LEVEL_CUSTOM = 2;
+  static const int MUSICLIBRARY_ARTWORK_LEVEL_NONE = 3;
+
+  // values for SETTING_VIDEOPLAYER_AUTOPLAYNEXTITEM
+  static const int SETTING_AUTOPLAYNEXT_MUSICVIDEOS = 0;
+  static const int SETTING_AUTOPLAYNEXT_TVSHOWS = 1;
+  static const int SETTING_AUTOPLAYNEXT_EPISODES = 2;
+  static const int SETTING_AUTOPLAYNEXT_MOVIES = 3;
+  static const int SETTING_AUTOPLAYNEXT_UNCATEGORIZED = 4;
+
+  // values for SETTING_VIDEOPLAYER_ALLOWEDHDRFORMATS
+  static const int VIDEOPLAYER_ALLOWED_HDR_TYPE_DOLBY_VISION = 0;
+  static const int VIDEOPLAYER_ALLOWED_HDR_TYPE_HDR10PLUS = 1;
+
   /*!
    \brief Creates a new settings wrapper around a new settings manager.
 
    For access to the "global" settings wrapper the static GetInstance() method should
    be used.
    */
-  CSettings();
-  virtual ~CSettings();
-
-  /*!
-   \brief Returns a "global" settings wrapper which can be used from anywhere.
-
-   \return "global" settings wrapper
-   */
-  static CSettings& GetInstance();
+  CSettings() {}
+  virtual ~CSettings() {}
 
   CSettingsManager* GetSettingsManager() const { return m_settingsManager; }
 
-  /*!
-   \brief Initializes the setting system with the generic
-   settings definition and platform specific setting definitions.
+  // specialization of CSettingsBase
+  virtual bool Initialize();
 
-   \return True if the initialization was successful, false otherwise
-   */
-  bool Initialize();
   /*!
-   \brief Loads the setting values.
+   \brief Registers the given ISubSettings implementation.
 
-   \return True if the setting values are successfully loaded, false otherwise
+   \param subSettings ISubSettings implementation
    */
-  bool Load();
+  void RegisterSubSettings(ISubSettings* subSettings);
+  /*!
+   \brief Unregisters the given ISubSettings implementation.
+
+   \param subSettings ISubSettings implementation
+   */
+  void UnregisterSubSettings(ISubSettings* subSettings);
+
+  // implementations of CSettingsBase
+  virtual bool Load();
+  virtual bool Save();
+
   /*!
    \brief Loads setting values from the given (XML) file.
 
@@ -86,27 +373,21 @@ public:
    */
   bool Load(const std::string &file);
   /*!
+  \brief Loads setting values from the given XML element.
+
+  \param root XML element containing setting values
+  \return True if the setting values were successfully loaded, false otherwise
+  */
+  bool Load(const TiXmlElement* root);
+  /*!
    \brief Loads setting values from the given XML element.
 
    \param root XML element containing setting values
    \param hide Whether to hide the loaded settings or not
    \return True if the setting values were successfully loaded, false otherwise
    */
-  bool Load(const TiXmlElement *root, bool hide = false);
-  /*!
-   \brief Tells the settings system that all setting values
-   have been loaded.
+  bool LoadHidden(const TiXmlElement *root) { return CSettingsBase::LoadHiddenValuesFromXml(root); }
 
-   This manual trigger is necessary to enable the ISettingCallback methods
-   being executed.
-   */
-  void SetLoaded();
-  /*!
-   \brief Saves the setting values.
-
-   \return True if the setting values were successfully saved, false otherwise
-   */
-  bool Save();
   /*!
    \brief Saves the setting values to the given (XML) file.
 
@@ -115,138 +396,12 @@ public:
    */
   bool Save(const std::string &file);
   /*!
-   \brief Unloads the previously loaded setting values.
+   \brief Saves the setting values to the given XML node.
 
-   The values of all the settings are reset to their default values.
+   \param root XML node
+   \return True if the setting values were successfully saved, false otherwise
    */
-  void Unload();
-  /*!
-   \brief Uninitializes the settings system.
-
-   Unregisters all previously registered callbacks and destroys all setting
-   objects.
-   */
-  void Uninitialize();
-
-  /*!
-   \brief Registers the given ISettingCallback implementation for the given
-   set of settings.
-
-   \param callback ISettingCallback implementation
-   \param settingList List of setting identifiers for which the given callback shall be triggered
-   */
-  void RegisterCallback(ISettingCallback *callback, const std::set<std::string> &settingList);
-  /*!
-   \brief Unregisters the given ISettingCallback implementation.
-
-   \param callback ISettingCallback implementation
-   */
-  void UnregisterCallback(ISettingCallback *callback);
-
-  /*!
-   \brief Gets the setting with the given identifier.
-
-   \param id Setting identifier
-   \return Setting object with the given identifier or NULL if the identifier is unknown
-   */
-  CSetting* GetSetting(const std::string &id) const;
-  /*!
-   \brief Gets the full list of setting sections.
-
-   \return List of setting sections
-   */
-  std::vector<CSettingSection*> GetSections() const;
-  /*!
-   \brief Gets the setting section with the given identifier.
-
-   \param section Setting section identifier
-   \return Setting section with the given identifier or NULL if the identifier is unknown
-   */
-  CSettingSection* GetSection(const std::string &section) const;
-
-  /*!
-   \brief Gets the boolean value of the setting with the given identifier.
-
-   \param id Setting identifier
-   \return Boolean value of the setting with the given identifier
-   */
-  bool GetBool(const std::string &id) const;
-  /*!
-   \brief Gets the integer value of the setting with the given identifier.
-
-   \param id Setting identifier
-   \return Integer value of the setting with the given identifier
-   */
-  int GetInt(const std::string &id) const;
-  /*!
-   \brief Gets the real number value of the setting with the given identifier.
-
-   \param id Setting identifier
-   \return Real number value of the setting with the given identifier
-   */
-  double GetNumber(const std::string &id) const;
-  /*!
-   \brief Gets the string value of the setting with the given identifier.
-
-   \param id Setting identifier
-   \return String value of the setting with the given identifier
-   */
-  std::string GetString(const std::string &id) const;
-  /*!
-   \brief Gets the values of the list setting with the given identifier.
-
-   \param id Setting identifier
-   \return List of values of the setting with the given identifier
-   */
-  std::vector<CVariant> GetList(const std::string &id) const;
-
-  /*!
-   \brief Sets the boolean value of the setting with the given identifier.
-
-   \param id Setting identifier
-   \param value Boolean value to set
-   \return True if setting the value was successful, false otherwise
-   */
-  bool SetBool(const std::string &id, bool value);
-  /*!
-   \brief Toggles the boolean value of the setting with the given identifier.
-
-   \param id Setting identifier
-   \return True if toggling the boolean value was successful, false otherwise
-   */
-  bool ToggleBool(const std::string &id);
-  /*!
-   \brief Sets the integer value of the setting with the given identifier.
-
-   \param id Setting identifier
-   \param value Integer value to set
-   \return True if setting the value was successful, false otherwise
-   */
-  bool SetInt(const std::string &id, int value);
-  /*!
-   \brief Sets the real number value of the setting with the given identifier.
-
-   \param id Setting identifier
-   \param value Real number value to set
-   \return True if setting the value was successful, false otherwise
-   */
-  bool SetNumber(const std::string &id, double value);
-  /*!
-   \brief Sets the string value of the setting with the given identifier.
-
-   \param id Setting identifier
-   \param value String value to set
-   \return True if setting the value was successful, false otherwise
-   */
-  bool SetString(const std::string &id, const std::string &value);
-  /*!
-   \brief Sets the values of the list setting with the given identifier.
-
-   \param id Setting identifier
-   \param value Values to set
-   \return True if setting the values was successful, false otherwise
-   */
-  bool SetList(const std::string &id, const std::vector<CVariant> &value);
+  virtual bool Save(TiXmlNode* root) const;
 
   /*!
    \brief Loads the setting being represented by the given XML node with the
@@ -258,36 +413,78 @@ public:
    */
   bool LoadSetting(const TiXmlNode *node, const std::string &settingId);
 
-#ifdef _XBOX
-  bool LoadAvpackXML();
-  bool SaveAvpackXML() const;
-  bool SaveNewAvpackXML() const;
-  bool SaveAvpackSettings(TiXmlNode *io_pRoot) const;
+  /*!
+   \brief Clears the complete settings.
 
-  std::string GetFFmpegDllFolder() const;
-  std::string GetPlayerName(const int& player) const;
-  std::string GetDefaultVideoPlayerName() const;
-  std::string GetDefaultAudioPlayerName() const;
-  std::string GetAvpackSettingsFile() const;
+   This removes all initialized settings, groups, categories and sections and
+   returns to the uninitialized state. Any registered callbacks or
+   implementations stay registered.
+   */
+  virtual void Clear();
+
+#ifdef _XBOX
+  inline std::string GetPlayerName(const int& player) const
+  {
+    if (player == 0)
+      return "MPlayer";
+    if (player == 1)
+      return "VideoPlayer";
+    if (player == 2)
+      return "PAPlayer";
+
+    return "";
+  }
+
+  inline std::string GetFFmpegDllFolder() const
+  {
+    std::string folder = "Q:\\system\\players\\dvdplayer\\";
+    if (GetBool("videoplayer.allcodecs"))
+      folder += "full\\";
+    return folder;
+  }
+
+  inline std::string GetDefaultVideoPlayerName() const
+  {
+    return GetPlayerName(GetInt(CSettings::SETTING_VIDEOPLAYER_DEFAULTPLAYER));
+  }
+
+  inline std::string GetDefaultAudioPlayerName() const
+  {
+    return GetPlayerName(GetInt(CSettings::SETTING_MUSICPLAYER_DEFAULTPLAYER));
+  }
 #endif
+
+protected:
+  // specializations of CSettingsBase
+  virtual void InitializeSettingTypes();
+  virtual void InitializeControls();
+  virtual void InitializeOptionFillers();
+  virtual void UninitializeOptionFillers();
+  virtual void InitializeConditions();
+  virtual void UninitializeConditions();
+  virtual void InitializeVisibility();
+  virtual void InitializeDefaults();
+  virtual void InitializeISettingsHandlers();
+  virtual void UninitializeISettingsHandlers();
+  virtual void InitializeISubSettings();
+  virtual void UninitializeISubSettings();
+  virtual void InitializeISettingCallbacks();
+  virtual void UninitializeISettingCallbacks();
+
+  // implementation of CSettingsBase
+  virtual bool InitializeDefinitions();
+
 private:
   CSettings(const CSettings&);
   CSettings const& operator=(CSettings const&);
 
+  bool Load(const TiXmlElement* root, bool& updated);
+
+  // implementation of ISubSettings
+  virtual bool Load(const TiXmlNode* settings);
+
   bool Initialize(const std::string &file);
-  bool InitializeDefinitions();
-  void InitializeSettingTypes();
-  void InitializeControls();
-  void InitializeVisibility();
-  void InitializeDefaults();
-  void InitializeOptionFillers();
-  void InitializeConditions();
-  void InitializeISettingsHandlers();
-  void InitializeISubSettings();
-  void InitializeISettingCallbacks();
   bool Reset();
 
-  bool m_initialized;
-  CSettingsManager *m_settingsManager;
-  CCriticalSection m_critical;
+  std::set<ISubSettings*> m_subSettings;
 };

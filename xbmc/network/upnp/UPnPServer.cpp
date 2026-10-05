@@ -2,6 +2,7 @@
 #include "UPnPInternal.h"
 #include "Platinum.h"
 #include "ThumbLoader.h"
+#include "URL.h"
 #include "filesystem/Directory.h"
 #include "filesystem/MusicDatabaseDirectory.h"
 #include "filesystem/VideoDatabaseDirectory.h"
@@ -27,23 +28,23 @@ NPT_String CUPnPServer::BuildSafeResourceUri(const char* host,
                                              const char* file_path)
 {
     CURL url(file_path);
-    CStdString md5;
+    std::string md5;
     XBMC::XBMC_MD5 md5state;
 
     // determine the filename to provide context to md5'd urls
-    CStdString filename;
+    std::string filename;
     if (url.IsProtocol("image"))
       filename = URIUtils::GetFileName(url.GetHostName());
     else
       filename = URIUtils::GetFileName(file_path);
 
     md5state.append(file_path);
-    md5state.getDigest(md5);
+    md5 = md5state.getDigest();
     md5 += "/" + filename;
     { NPT_AutoLock lock(m_FileMutex);
       NPT_CHECK(m_FileMap.Put(md5.c_str(), file_path));
     }
-    return PLT_FileMediaServer::BuildSafeResourceUri(m_FileBaseUri, host, md5);
+    return PLT_FileMediaServer::BuildSafeResourceUri(m_FileBaseUri, host, md5.c_str());
 }
 
 /*----------------------------------------------------------------------
@@ -95,7 +96,7 @@ CUPnPServer::Build(CFileItemPtr                  item,
         if (path.StartsWith("musicdb://")) {
             if (path == "musicdb://" ) {
                 item->SetLabel("Music Library");
-                item->SetLabelPreformated(true);
+                item->SetLabelPreformatted(true);
             } else {
                 if (!item->HasMusicInfoTag()) {
                     MUSICDATABASEDIRECTORY::CQueryParams params;
@@ -126,17 +127,17 @@ CUPnPServer::Build(CFileItemPtr                  item,
 
                 if (item->GetLabel().empty()) {
                     /* if no label try to grab it from node type */
-                    CStdString label;
+                    std::string label;
                     if (CMusicDatabaseDirectory::GetLabel((const char*)path, label)) {
                         item->SetLabel(label);
-                        item->SetLabelPreformated(true);
+                        item->SetLabelPreformatted(true);
                     }
                 }
             }
         } else if (file_path.StartsWith("library://") || file_path.StartsWith("videodb://")) {
             if (path == "library://video" ) {
                 item->SetLabel("Video Library");
-                item->SetLabelPreformated(true);
+                item->SetLabelPreformatted(true);
             } else {
                 if (!item->HasVideoInfoTag()) {
                     VIDEODATABASEDIRECTORY::CQueryParams params;
@@ -156,15 +157,15 @@ CUPnPServer::Build(CFileItemPtr                  item,
                 // try to grab title from tag
                 if (item->HasVideoInfoTag() && !item->GetVideoInfoTag()->m_strTitle.empty()) {
                     item->SetLabel(item->GetVideoInfoTag()->m_strTitle);
-                    item->SetLabelPreformated(true);
+                    item->SetLabelPreformatted(true);
                 }
 
                 // try to grab it from the folder
                 if (item->GetLabel().empty()) {
-                    CStdString label;
+                    std::string label;
                     if (CVideoDatabaseDirectory::GetLabel((const char*)path, label)) {
                         item->SetLabel(label);
-                        item->SetLabelPreformated(true);
+                        item->SetLabelPreformatted(true);
                     }
                 }
 
@@ -243,7 +244,7 @@ CUPnPServer::OnBrowseMetadata(PLT_ActionReference&          action,
     NPT_String                     didl;
     NPT_Reference<PLT_MediaObject> object;
     NPT_String                     id = TranslateWMPObjectId(object_id);
-    vector<CStdString>             paths;
+    vector<std::string>             paths;
     CFileItemPtr                   item;
 
     CLog::Log(LOGINFO, "Received UPnP Browse Metadata request for object '%s'", (const char*)object_id);
@@ -254,7 +255,7 @@ CUPnPServer::OnBrowseMetadata(PLT_ActionReference&          action,
             id += "/";
             item.reset(new CFileItem((const char*)id, true));
             item->SetLabel("Root");
-            item->SetLabelPreformated(true);
+            item->SetLabelPreformatted(true);
             object = Build(item, true, context);
         } else {
             return NPT_FAILURE;
@@ -265,7 +266,7 @@ CUPnPServer::OnBrowseMetadata(PLT_ActionReference&          action,
 
         // determine parent id for shared paths only
         // otherwise let db find out
-        CStdString parent;
+        std::string parent;
         if (!URIUtils::GetParentPath((const char*)id, parent)) parent = "0";
 
 //#ifdef WMP_ID_MAPPING
@@ -319,7 +320,7 @@ CUPnPServer::OnBrowseDirectChildren(PLT_ActionReference&          action,
 
     CLog::Log(LOGINFO, "Received UPnP Browse DirectChildren request for object '%s'", (const char*)object_id);
 
-    items.SetPath(CStdString(parent_id));
+    items.SetPath(std::string(parent_id));
     if (!items.Load()) {
         // cache anything that takes more than a second to retrieve
         unsigned int time = XbmcThreads::SystemClockMillis();
@@ -330,15 +331,15 @@ CUPnPServer::OnBrowseDirectChildren(PLT_ActionReference&          action,
             // music library
             item.reset(new CFileItem("musicdb://", true));
             item->SetLabel("Music Library");
-            item->SetLabelPreformated(true);
+            item->SetLabelPreformatted(true);
             items.Add(item);
 
             // video library
             item.reset(new CFileItem("library://video", true));
             item->SetLabel("Video Library");
-            item->SetLabelPreformated(true);
+            item->SetLabelPreformatted(true);
             items.Add(item);
-          
+
         } else {
             CDirectory::GetDirectory((const char*)parent_id, items, "", DIR_FLAG_DEFAULTS);
         }
@@ -356,8 +357,8 @@ CUPnPServer::OnBrowseDirectChildren(PLT_ActionReference&          action,
     // passed
     NPT_String action_name = action->GetActionDesc().GetName();
     return BuildResponse(
-        action, 
-        items, 
+        action,
+        items,
         filter,
         starting_index,
         requested_count,
@@ -460,7 +461,7 @@ CUPnPServer::OnSearchContainer(PLT_ActionReference&          action,
                                const NPT_List<NPT_String>&   sort_criteria,
                                const PLT_HttpRequestContext& context)
 {
-    CLog::Log(LOGDEBUG, "Received Search request for object '%s' with search '%s'", 
+    CLog::Log(LOGDEBUG, "Received Search request for object '%s' with search '%s'",
         (const char*)object_id,
         (const char*)search_criteria);
 
@@ -512,8 +513,8 @@ CUPnPServer::OnSearchContainer(PLT_ActionReference&          action,
 
         if (genre.GetLength() > 0) {
             // all tracks by genre filtered by artist and/or album
-            CStdString strPath;
-            strPath.Format("musicdb://genres/%ld/%ld/%ld/",
+            std::string strPath;
+            strPath = StringUtils::Format("musicdb://genres/%ld/%ld/%ld/",
                 database.GetGenreByName((const char*)genre),
                 database.GetArtistByName((const char*)artist), // will return -1 if no artist
                 database.GetAlbumByName((const char*)album));  // will return -1 if no album
@@ -521,16 +522,16 @@ CUPnPServer::OnSearchContainer(PLT_ActionReference&          action,
             return OnBrowseDirectChildren(action, strPath.c_str(), filter, starting_index, requested_count, sort_criteria, context);
         } else if (artist.GetLength() > 0) {
             // all tracks by artist name filtered by album if passed
-            CStdString strPath;
-            strPath.Format("musicdb://artists/%ld/%ld/",
+            std::string strPath;
+            strPath = StringUtils::Format("musicdb://artists/%ld/%ld/",
                 database.GetArtistByName((const char*)artist),
                 database.GetAlbumByName((const char*)album)); // will return -1 if no album
 
             return OnBrowseDirectChildren(action, strPath.c_str(), filter, starting_index, requested_count, sort_criteria, context);
         } else if (album.GetLength() > 0) {
             // all tracks by album name
-            CStdString strPath;
-            strPath.Format("musicdb://albums/%ld/",
+            std::string strPath;
+            strPath = StringUtils::Format("musicdb://albums/%ld/",
                 database.GetAlbumByName((const char*)album));
 
             return OnBrowseDirectChildren(action, strPath.c_str(), filter, starting_index, requested_count, sort_criteria, context);
@@ -553,14 +554,14 @@ CUPnPServer::OnSearchContainer(PLT_ActionReference&          action,
         database.Open();
 
         if (genre.GetLength() > 0) {
-            CStdString strPath;
-            strPath.Format("musicdb://genres/%ld/%ld/",
+            std::string strPath;
+            strPath = StringUtils::Format("musicdb://genres/%ld/%ld/",
                 database.GetGenreByName((const char*)genre),
                 database.GetArtistByName((const char*)artist)); // no artist should return -1
             return OnBrowseDirectChildren(action, strPath.c_str(), filter, starting_index, requested_count, sort_criteria, context);
         } else if (artist.GetLength() > 0) {
-            CStdString strPath;
-            strPath.Format("musicdb://artists/%ld/",
+            std::string strPath;
+            strPath = StringUtils::Format("musicdb://artists/%ld/",
                 database.GetArtistByName((const char*)artist));
             return OnBrowseDirectChildren(action, strPath.c_str(), filter, starting_index, requested_count, sort_criteria, context);
         }
@@ -573,8 +574,8 @@ CUPnPServer::OnSearchContainer(PLT_ActionReference&          action,
         if (genre.GetLength() > 0) {
             CMusicDatabase database;
             database.Open();
-            CStdString strPath;
-            strPath.Format("musicdb://genres/%ld/", database.GetGenreByName((const char*)genre));
+            std::string strPath;
+            strPath = StringUtils::Format("musicdb://genres/%ld/", database.GetGenreByName((const char*)genre));
             return OnBrowseDirectChildren(action, strPath.c_str(), filter, starting_index, requested_count, sort_criteria, context);
         }
         return OnBrowseDirectChildren(action, "musicdb://artists/", filter, starting_index, requested_count, sort_criteria, context);
@@ -598,7 +599,7 @@ CUPnPServer::OnSearchContainer(PLT_ActionReference&          action,
       itemsall.Append(items);
       items.Clear();
 
-      if (!database.GetEpisodesByWhere("videodb://tvshows/titles/", "", items)) {
+      if (!database.GetEpisodesByWhere("videodb://tvshows/titles/", CDatabase::Filter(), items)) {
         action->SetError(800, "Internal Error");
         return NPT_SUCCESS;
       }
@@ -653,7 +654,7 @@ CUPnPServer::ServeFile(NPT_HttpRequest&              request,
 
         NPT_List<NPT_String>::Iterator url = files.GetFirstItem();
         for (;url;url++) {
-            output += "#EXTINF:-1," + URIUtils::GetFileName((const char*)*url);
+            output += ("#EXTINF:-1," + URIUtils::GetFileName((const char*)*url)).c_str();
             output += "\r\n";
             output += BuildSafeResourceUri(
                           context.GetLocalAddress().GetIpAddress().ToString(),
@@ -669,7 +670,7 @@ CUPnPServer::ServeFile(NPT_HttpRequest&              request,
 
     if(URIUtils::IsURL((const char*)file_path))
     {
-      CStdString disp = "inline; filename=\"" + URIUtils::GetFileName((const char*)file_path) + "\"";
+      std::string disp = "inline; filename=\"" + URIUtils::GetFileName((const char*)file_path) + "\"";
       response.GetHeaders().SetHeader("Content-Disposition", disp.c_str());
     }
 

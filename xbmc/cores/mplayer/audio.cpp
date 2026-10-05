@@ -17,20 +17,17 @@
  *  <http://www.gnu.org/licenses/>.
  *
  */
- 
+
 #include "utils/log.h"
 #include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "audio.h"
-#include "IDirectSoundRenderer.h"
-#include "ASyncDirectSound.h"
-#include "Ac97DirectSound.h"
+#include "cores/AudioEngine/Engines/AsyncDirectSound.h"
+#include "cores/AudioEngine/Engines/Ac97DirectSound.h"
 #include "ResampleDirectSound.h"
-#include "IAudioCallback.h"
 #include "MPlayer.h"
 #include "cores/VideoRenderers/RenderManager.h"
 #include "threads/SingleLock.h"
-
-#include "defs_from_settings.h"
 
 static IDirectSoundRenderer* m_pAudioDecoder = NULL;
 static CCriticalSection m_critAudio;
@@ -68,11 +65,11 @@ extern "C" int mplayer_getVolume()
     }*/
 }
 
-extern "C" void mplayer_setVolume(long nVolume)
+extern "C" void mplayer_setVolume(float volume)
 {
   CSingleLock lock(m_critAudio);
   if (!m_pAudioDecoder) return ;
-  m_pAudioDecoder->SetCurrentVolume(nVolume);
+  m_pAudioDecoder->SetCurrentVolume(volume);
 }
 
 extern "C" void mplayer_setDRC(long drc)
@@ -178,7 +175,7 @@ static int audio_init(int rate, int channels, int format, int flags)
 
   // Check whether we are passing digital output direct through.
   // Anything with 48kHz 2 channel audio can be passed direct.
-  if (CSettings::GetInstance().GetInt("audiooutput.mode") == AUDIO_DIGITAL)
+  if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_AUDIOOUTPUT_PASSTHROUGH))
   {
     // Check that we are allowed to pass through DD or DTS
     if (strstr(strAudioCodec, "SPDIF"))
@@ -192,7 +189,7 @@ static int audio_init(int rate, int channels, int format, int flags)
   }
   else
   { // check if we should resample this audio
-    // currently we don't do this for videos for fear of CPU issues    
+    // currently we don't do this for videos for fear of CPU issues
     bool bResample = false;
     if( !mplayer_HasVideo() && channels <= 2 && rate != 48000 )
       bResample = true;
@@ -298,7 +295,7 @@ static int audio_play(void* data, int len, int flags)
       m_waitvideo = 0;
     }
   }
-    
+
   return playsize;
 }
 
@@ -307,7 +304,7 @@ static int audio_play(void* data, int len, int flags)
 static float audio_get_delay()
 {
   CSingleLock lock(m_critAudio);
-  if (!m_pAudioDecoder) 
+  if (!m_pAudioDecoder)
     return 0.0f;
 
   return m_pAudioDecoder->GetDelay();
@@ -374,20 +371,20 @@ void xbox_audio_unregistercallback()
 void xbox_audio_wait_completion()
 {
   CSingleLock lock(m_critAudio);
-  if (m_pAudioDecoder)    
+  if (m_pAudioDecoder)
     m_pAudioDecoder->WaitCompletion();
 }
 
 void xbox_audio_do_work()
 {
   CSingleLock lock(m_critAudio);
-  if (m_pAudioDecoder)   
+  if (m_pAudioDecoder)
     m_pAudioDecoder->DoWork();
 }
 
 void xbox_audio_switch_channel(int iAudioStream, bool bAudioOnAllSpeakers)
 {
   CSingleLock lock(m_critAudio);
-  if (m_pAudioDecoder)    
+  if (m_pAudioDecoder)
     m_pAudioDecoder->SwitchChannels(iAudioStream, bAudioOnAllSpeakers);
 }

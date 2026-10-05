@@ -86,8 +86,8 @@ bool CGameSavesDirectory::GetDirectory(const CURL& url, CFileItemList &items)
 
     CFileItemPtr item(new CFileItem(strPath, false));
     item->SetLabel(strLabel);
-    item->SetLabelPreformated(true);
-    item->SetIconImage("defaultProgram.png");
+    item->SetLabelPreformatted(true);
+    item->SetArt("icon", "defaultProgram.png");
 
     if (mode == 1)
     {

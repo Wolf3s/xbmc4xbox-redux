@@ -20,23 +20,36 @@
  *
  */
 
+#include <string>
+#include <xtl.h>
+
 class CGUISound
 {
 public:
-  CGUISound();
+  CGUISound(const std::string& strFile);
   virtual ~CGUISound();
 
-  bool        Load(const CStdString& strFile);
+  bool        Load();
+  /*!
+   \brief Load sound if it's not loaded.
+
+   \see See CGUIAudioManager::FreeUnused() for more details.
+   */
+  bool        LoadOnDemand();
+
   void        Play();
   void        Stop();
   bool        IsPlaying();
-  void        SetVolume(int level);
+  void        SetVolume(float level);
+
+  void        FreeBuffer();
 
 private:
-  bool        LoadWav(const CStdString& strFile, WAVEFORMATEX* wfx, LPBYTE* ppWavData, int* pDataSize);
+  bool        LoadWav(const std::string& strFile, WAVEFORMATEX* wfx, LPBYTE* ppWavData, int* pDataSize);
   bool        CreateBuffer(LPWAVEFORMATEX wfx, int iLength);
   bool        FillBuffer(LPBYTE pbData, int iLength);
-  void        FreeBuffer();
+
+  std::string m_strFile;
 
   LPDIRECTSOUNDBUFFER m_soundBuffer;
 };

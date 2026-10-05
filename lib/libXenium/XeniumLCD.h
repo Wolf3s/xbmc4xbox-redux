@@ -1,7 +1,7 @@
 #pragma once
 
 #include "threads/Thread.h"
-#include "utils/LCD.h"
+#include "platform/xbox/lcd/LCD.h"
 #include "Xenium.h"
 
 #define MAX_ROWS 20
@@ -16,8 +16,8 @@ public:
   virtual void SetBackLight(int iLight);
   virtual void SetContrast(int iContrast);
 protected:
-	virtual void		Process();
-  virtual void SetLine(int iLine, const CStdString& strLine);
+    virtual void        Process();
+  virtual void SetLine(int iLine, const std::string& strLine);
   void    DisplayInit();
   void    DisplaySetBacklight(unsigned char level) ;
   void    DisplaySetContrast(unsigned char level);
@@ -29,17 +29,17 @@ protected:
   void    DisplayBuildCustomChars() ;
   void    DisplayOut(unsigned char data, unsigned char command) ;
   void    wait_us(unsigned int value) ;
-  unsigned int m_iColumns;				// display columns for each line
-  unsigned int m_iRows;				// total number of rows
+  unsigned int m_iColumns;                // display columns for each line
+  unsigned int m_iRows;                // total number of rows
   unsigned int m_iRow1adr ;
   unsigned int m_iRow2adr ;
   unsigned int m_iRow3adr ;
   unsigned int m_iRow4adr ;
-  unsigned int m_iActualpos;				// actual cursor possition
+  unsigned int m_iActualpos;                // actual cursor possition
   int          m_iBackLight;
   int          m_iLCDContrast;
   bool         m_bUpdate[MAX_ROWS];
-  CStdString   m_strLine[MAX_ROWS];
+  std::string   m_strLine[MAX_ROWS];
   int          m_iPos[MAX_ROWS];
   DWORD        m_dwSleep[MAX_ROWS];
   CEvent       m_event;

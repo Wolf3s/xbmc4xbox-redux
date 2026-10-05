@@ -13,38 +13,38 @@
 
 CMailMsg::CMailMsg()
 {
-	m_sSubject        = _T("");
-	m_sMessage        = _T("");
-	m_lpCmcLogon      = NULL;
-	m_lpCmcSend       = NULL;
-	m_lpCmcLogoff     = NULL;
-	m_lpMapiLogon     = NULL;
-	m_lpMapiSendMail  = NULL;
-	m_lpMapiLogoff    = NULL;
-	m_bReady          = FALSE;
+    m_sSubject        = _T("");
+    m_sMessage        = _T("");
+    m_lpCmcLogon      = NULL;
+    m_lpCmcSend       = NULL;
+    m_lpCmcLogoff     = NULL;
+    m_lpMapiLogon     = NULL;
+    m_lpMapiSendMail  = NULL;
+    m_lpMapiLogoff    = NULL;
+    m_bReady          = FALSE;
 }
 
 CMailMsg::~CMailMsg()
 {
-	if (m_bReady)
-		Uninitialize();
+    if (m_bReady)
+        Uninitialize();
 }
 
-CMailMsg& CMailMsg::SetFrom(CStdString sAddress, CStdString sName)
+CMailMsg& CMailMsg::SetFrom(std::string sAddress, std::string sName)
 {
-	if (m_bReady || Initialize())
-	{
-		// only one sender allowed
-		if (m_from.size())
-			m_from.empty();
+    if (m_bReady || Initialize())
+    {
+        // only one sender allowed
+        if (m_from.size())
+            m_from.empty();
 
-		m_from[sAddress] = sName;
-	}
+        m_from[sAddress] = sName;
+    }
 
-	return *this;
+    return *this;
 }
 
-CMailMsg& CMailMsg::SetTo(CStdString sAddress, CStdString sName)
+CMailMsg& CMailMsg::SetTo(std::string sAddress, std::string sName)
 {
    if (m_bReady || Initialize())
    {
@@ -58,7 +58,7 @@ CMailMsg& CMailMsg::SetTo(CStdString sAddress, CStdString sName)
    return *this;
 }
 
-CMailMsg& CMailMsg::SetCc(CStdString sAddress, CStdString sName)
+CMailMsg& CMailMsg::SetCc(std::string sAddress, std::string sName)
 {
    if (m_bReady || Initialize())
    {
@@ -68,7 +68,7 @@ CMailMsg& CMailMsg::SetCc(CStdString sAddress, CStdString sName)
    return *this;
 }
 
-CMailMsg& CMailMsg::SetBc(CStdString sAddress, CStdString sName)
+CMailMsg& CMailMsg::SetBc(std::string sAddress, std::string sName)
 {
    if (m_bReady || Initialize())
    {
@@ -78,7 +78,7 @@ CMailMsg& CMailMsg::SetBc(CStdString sAddress, CStdString sName)
    return *this;
 }
 
-CMailMsg& CMailMsg::AddAttachment(CStdString sAttachment, CStdString sTitle)
+CMailMsg& CMailMsg::AddAttachment(std::string sAttachment, std::string sTitle)
 {
    if (m_bReady || Initialize())
    {
@@ -103,124 +103,124 @@ BOOL CMailMsg::Send()
 
 BOOL CMailMsg::MAPISend()
 {
-	TStrStrMap::iterator p;
-	int                  nIndex = 0;
-	int                  nRecipients = 0;
-	MapiRecipDesc*       pRecipients = NULL;
-	int                  nAttachments = 0;
-	MapiFileDesc*        pAttachments = NULL;
-	ULONG                status = 0;
-	MapiMessage          message;
+    TStrStrMap::iterator p;
+    int                  nIndex = 0;
+    int                  nRecipients = 0;
+    MapiRecipDesc*       pRecipients = NULL;
+    int                  nAttachments = 0;
+    MapiFileDesc*        pAttachments = NULL;
+    ULONG                status = 0;
+    MapiMessage          message;
 
-	USES_CONVERSION;
+    USES_CONVERSION;
 
-	if (m_bReady || Initialize())
-	{
-		nRecipients = m_to.size() + m_cc.size() + m_bcc.size() + m_from.size();
-		if (nRecipients)
-			pRecipients = new MapiRecipDesc[nRecipients];
+    if (m_bReady || Initialize())
+    {
+        nRecipients = m_to.size() + m_cc.size() + m_bcc.size() + m_from.size();
+        if (nRecipients)
+            pRecipients = new MapiRecipDesc[nRecipients];
 
-		nAttachments = m_attachments.size();
-		if (nAttachments)
-			pAttachments = new MapiFileDesc[nAttachments];
+        nAttachments = m_attachments.size();
+        if (nAttachments)
+            pAttachments = new MapiFileDesc[nAttachments];
 
-		if (pRecipients)
-		{
-			if (m_from.size())
-			{
-				// set from
-				pRecipients[nIndex].ulReserved                 = 0;
-				pRecipients[nIndex].ulRecipClass               = MAPI_ORIG;
-				pRecipients[nIndex].lpszAddress                = T2A((LPTSTR)(LPCTSTR)m_from.begin()->first);
-				pRecipients[nIndex].lpszName                   = T2A((LPTSTR)(LPCTSTR)m_from.begin()->second);
-				pRecipients[nIndex].ulEIDSize                  = 0;
-				pRecipients[nIndex].lpEntryID                  = NULL;
-				nIndex++;
-			}
+        if (pRecipients)
+        {
+            if (m_from.size())
+            {
+                // set from
+                pRecipients[nIndex].ulReserved                 = 0;
+                pRecipients[nIndex].ulRecipClass               = MAPI_ORIG;
+                pRecipients[nIndex].lpszAddress                = T2A((LPTSTR)(LPCTSTR)m_from.begin()->first.c_str());
+                pRecipients[nIndex].lpszName                   = T2A((LPTSTR)(LPCTSTR)m_from.begin()->second.c_str());
+                pRecipients[nIndex].ulEIDSize                  = 0;
+                pRecipients[nIndex].lpEntryID                  = NULL;
+                nIndex++;
+            }
 
-			if (m_to.size())
-			{
-				// set to
-				pRecipients[nIndex].ulReserved                 = 0;
-				pRecipients[nIndex].ulRecipClass               = MAPI_TO;
-				pRecipients[nIndex].lpszAddress                = T2A((LPTSTR)(LPCTSTR)m_to.begin()->first);
-				pRecipients[nIndex].lpszName                   = T2A((LPTSTR)(LPCTSTR)m_to.begin()->second);
-				pRecipients[nIndex].ulEIDSize                  = 0;
-				pRecipients[nIndex].lpEntryID                  = NULL;
-				nIndex++;
-			}
+            if (m_to.size())
+            {
+                // set to
+                pRecipients[nIndex].ulReserved                 = 0;
+                pRecipients[nIndex].ulRecipClass               = MAPI_TO;
+                pRecipients[nIndex].lpszAddress                = T2A((LPTSTR)(LPCTSTR)m_to.begin()->first.c_str());
+                pRecipients[nIndex].lpszName                   = T2A((LPTSTR)(LPCTSTR)m_to.begin()->second.c_str());
+                pRecipients[nIndex].ulEIDSize                  = 0;
+                pRecipients[nIndex].lpEntryID                  = NULL;
+                nIndex++;
+            }
 
-			if (m_cc.size())
-			{
-				// set cc's
-				for (p = m_cc.begin(); p != m_cc.end(); p++, nIndex++)
-				{
-					pRecipients[nIndex].ulReserved         = 0;
-					pRecipients[nIndex].ulRecipClass       = MAPI_CC;
-					pRecipients[nIndex].lpszAddress        = T2A((LPTSTR)(LPCTSTR)p->first);
-					pRecipients[nIndex].lpszName           = T2A((LPTSTR)(LPCTSTR)p->second);
-					pRecipients[nIndex].ulEIDSize          = 0;
-					pRecipients[nIndex].lpEntryID          = NULL;
-				}
-			}
+            if (m_cc.size())
+            {
+                // set cc's
+                for (p = m_cc.begin(); p != m_cc.end(); p++, nIndex++)
+                {
+                    pRecipients[nIndex].ulReserved         = 0;
+                    pRecipients[nIndex].ulRecipClass       = MAPI_CC;
+                    pRecipients[nIndex].lpszAddress        = T2A((LPTSTR)(LPCTSTR)p->first.c_str());
+                    pRecipients[nIndex].lpszName           = T2A((LPTSTR)(LPCTSTR)p->second.c_str());
+                    pRecipients[nIndex].ulEIDSize          = 0;
+                    pRecipients[nIndex].lpEntryID          = NULL;
+                }
+            }
 
-			if (m_bcc.size())
-			{
-				// set bcc
-				for (p = m_bcc.begin(); p != m_bcc.end(); p++, nIndex++)
-				{
-					pRecipients[nIndex].ulReserved         = 0;
-					pRecipients[nIndex].ulRecipClass       = MAPI_BCC;
-					pRecipients[nIndex].lpszAddress        = T2A((LPTSTR)(LPCTSTR)p->first);
-					pRecipients[nIndex].lpszName           = T2A((LPTSTR)(LPCTSTR)p->second);
-					pRecipients[nIndex].ulEIDSize          = 0;
-					pRecipients[nIndex].lpEntryID          = NULL;
-				}
-			}
-		}
+            if (m_bcc.size())
+            {
+                // set bcc
+                for (p = m_bcc.begin(); p != m_bcc.end(); p++, nIndex++)
+                {
+                    pRecipients[nIndex].ulReserved         = 0;
+                    pRecipients[nIndex].ulRecipClass       = MAPI_BCC;
+                    pRecipients[nIndex].lpszAddress        = T2A((LPTSTR)(LPCTSTR)p->first.c_str());
+                    pRecipients[nIndex].lpszName           = T2A((LPTSTR)(LPCTSTR)p->second.c_str());
+                    pRecipients[nIndex].ulEIDSize          = 0;
+                    pRecipients[nIndex].lpEntryID          = NULL;
+                }
+            }
+        }
 
-		if (pAttachments)
-		{
-			// add attachments
-			for (p = m_attachments.begin(), nIndex = 0;
-			p != m_attachments.end(); p++, nIndex++)
-			{
-				pAttachments[nIndex].ulReserved        = 0;
-				pAttachments[nIndex].flFlags           = 0;
-				pAttachments[nIndex].nPosition         = 0xFFFFFFFF;
-				pAttachments[nIndex].lpszPathName      = T2A((LPTSTR)(LPCTSTR)p->first);
-				pAttachments[nIndex].lpszFileName      = T2A((LPTSTR)(LPCTSTR)p->second);
-				pAttachments[nIndex].lpFileType        = NULL;
-			}
-		}
+        if (pAttachments)
+        {
+            // add attachments
+            for (p = m_attachments.begin(), nIndex = 0;
+            p != m_attachments.end(); p++, nIndex++)
+            {
+                pAttachments[nIndex].ulReserved        = 0;
+                pAttachments[nIndex].flFlags           = 0;
+                pAttachments[nIndex].nPosition         = 0xFFFFFFFF;
+                pAttachments[nIndex].lpszPathName      = T2A((LPTSTR)(LPCTSTR)p->first.c_str());
+                pAttachments[nIndex].lpszFileName      = T2A((LPTSTR)(LPCTSTR)p->second.c_str());
+                pAttachments[nIndex].lpFileType        = NULL;
+            }
+        }
 
-		message.ulReserved                        = 0;
-		message.lpszSubject                       = T2A((LPTSTR)(LPCTSTR)m_sSubject);
-		message.lpszNoteText                      = T2A((LPTSTR)(LPCTSTR)m_sMessage);
-		message.lpszMessageType                   = NULL;
-		message.lpszDateReceived                  = NULL;
-		message.lpszConversationID                = NULL;
-		message.flFlags                           = 0;
-		message.lpOriginator                      = m_from.size() ? pRecipients : NULL;
-		message.nRecipCount                       = nRecipients - m_from.size(); // don't count originator
-		message.lpRecips                          = nRecipients - m_from.size() ? &pRecipients[m_from.size()] : NULL;
-		message.nFileCount                        = nAttachments;
-		message.lpFiles                           = nAttachments ? pAttachments : NULL;
+        message.ulReserved                        = 0;
+        message.lpszSubject                       = T2A((LPTSTR)(LPCTSTR)m_sSubject.c_str());
+        message.lpszNoteText                      = T2A((LPTSTR)(LPCTSTR)m_sMessage.c_str());
+        message.lpszMessageType                   = NULL;
+        message.lpszDateReceived                  = NULL;
+        message.lpszConversationID                = NULL;
+        message.flFlags                           = 0;
+        message.lpOriginator                      = m_from.size() ? pRecipients : NULL;
+        message.nRecipCount                       = nRecipients - m_from.size(); // don't count originator
+        message.lpRecips                          = nRecipients - m_from.size() ? &pRecipients[m_from.size()] : NULL;
+        message.nFileCount                        = nAttachments;
+        message.lpFiles                           = nAttachments ? pAttachments : NULL;
 
 
-		LHANDLE hMapiSession = NULL;
-		m_lpMapiLogon(NULL, NULL, NULL, 0, 0, &hMapiSession);
-		status = m_lpMapiSendMail(hMapiSession, 0, &message, MAPI_DIALOG, 0);
-		m_lpMapiLogoff(hMapiSession, NULL, 0, 0);
+        LHANDLE hMapiSession = NULL;
+        m_lpMapiLogon(NULL, NULL, NULL, 0, 0, &hMapiSession);
+        status = m_lpMapiSendMail(hMapiSession, 0, &message, MAPI_DIALOG, 0);
+        m_lpMapiLogoff(hMapiSession, NULL, 0, 0);
 
-		if (pRecipients)
-			delete [] pRecipients;
+        if (pRecipients)
+            delete [] pRecipients;
 
-		if (nAttachments)
-			delete [] pAttachments;
-	}
+        if (nAttachments)
+            delete [] pAttachments;
+    }
 
-	return (SUCCESS_SUCCESS == status);
+    return (SUCCESS_SUCCESS == status);
 }
 
 BOOL CMailMsg::CMCSend()
@@ -245,9 +245,9 @@ BOOL CMailMsg::CMCSend()
       // set cc's
       for (p = m_cc.begin(); p != m_cc.end(); p++, nIndex++)
       {
-         pRecipients[nIndex].name                = T2A((LPTSTR)(LPCTSTR)p->second);
+         pRecipients[nIndex].name                = T2A((LPTSTR)(LPCTSTR)p->second.c_str());
          pRecipients[nIndex].name_type           = CMC_TYPE_INDIVIDUAL;
-         pRecipients[nIndex].address             = T2A((LPTSTR)(LPCTSTR)p->first);
+         pRecipients[nIndex].address             = T2A((LPTSTR)(LPCTSTR)p->first.c_str());
          pRecipients[nIndex].role                = CMC_ROLE_CC;
          pRecipients[nIndex].recip_flags         = 0;
          pRecipients[nIndex].recip_extensions    = NULL;
@@ -256,26 +256,26 @@ BOOL CMailMsg::CMCSend()
       // set bcc
       for (p = m_bcc.begin(); p != m_bcc.end(); p++, nIndex++)
       {
-         pRecipients[nIndex].name                = T2A((LPTSTR)(LPCTSTR)p->second);
+         pRecipients[nIndex].name                = T2A((LPTSTR)(LPCTSTR)p->second.c_str());
          pRecipients[nIndex].name_type           = CMC_TYPE_INDIVIDUAL;
-         pRecipients[nIndex].address             = T2A((LPTSTR)(LPCTSTR)p->first);
+         pRecipients[nIndex].address             = T2A((LPTSTR)(LPCTSTR)p->first.c_str());
          pRecipients[nIndex].role                = CMC_ROLE_BCC;
          pRecipients[nIndex].recip_flags         = 0;
          pRecipients[nIndex].recip_extensions    = NULL;
       }
 
       // set to
-      pRecipients[nIndex].name                   = T2A((LPTSTR)(LPCTSTR)m_to.begin()->second);
+      pRecipients[nIndex].name                   = T2A((LPTSTR)(LPCTSTR)m_to.begin()->second.c_str());
       pRecipients[nIndex].name_type              = CMC_TYPE_INDIVIDUAL;
-      pRecipients[nIndex].address                = T2A((LPTSTR)(LPCTSTR)m_to.begin()->first);
+      pRecipients[nIndex].address                = T2A((LPTSTR)(LPCTSTR)m_to.begin()->first.c_str());
       pRecipients[nIndex].role                   = CMC_ROLE_TO;
       pRecipients[nIndex].recip_flags            = 0;
       pRecipients[nIndex].recip_extensions       = NULL;
 
       // set from
-      pRecipients[nIndex+1].name                 = T2A((LPTSTR)(LPCTSTR)m_from.begin()->second);
+      pRecipients[nIndex+1].name                 = T2A((LPTSTR)(LPCTSTR)m_from.begin()->second.c_str());
       pRecipients[nIndex+1].name_type            = CMC_TYPE_INDIVIDUAL;
-      pRecipients[nIndex+1].address              = T2A((LPTSTR)(LPCTSTR)m_from.begin()->first);
+      pRecipients[nIndex+1].address              = T2A((LPTSTR)(LPCTSTR)m_from.begin()->first.c_str());
       pRecipients[nIndex+1].role                 = CMC_ROLE_ORIGINATOR;
       pRecipients[nIndex+1].recip_flags          = CMC_RECIP_LAST_ELEMENT;
       pRecipients[nIndex+1].recip_extensions     = NULL;
@@ -284,9 +284,9 @@ BOOL CMailMsg::CMCSend()
       for (p = m_attachments.begin(), nIndex = 0;
            p != m_attachments.end(); p++, nIndex++)
       {
-         pAttachments[nIndex].attach_title       = T2A((LPTSTR)(LPCTSTR)p->second);
+         pAttachments[nIndex].attach_title       = T2A((LPTSTR)(LPCTSTR)p->second.c_str());
          pAttachments[nIndex].attach_type        = NULL;
-         pAttachments[nIndex].attach_filename    = T2A((LPTSTR)(LPCTSTR)p->first);
+         pAttachments[nIndex].attach_filename    = T2A((LPTSTR)(LPCTSTR)p->first.c_str());
          pAttachments[nIndex].attach_flags       = 0;
          pAttachments[nIndex].attach_extensions  = NULL;
       }
@@ -294,9 +294,9 @@ BOOL CMailMsg::CMCSend()
 
       message.message_reference                 = NULL;
       message.message_type                      = NULL;
-      message.subject                           = T2A((LPTSTR)(LPCTSTR)m_sSubject);
+      message.subject                           = T2A((LPTSTR)(LPCTSTR)m_sSubject.c_str());
       message.time_sent                         = t_now;
-      message.text_note                         = T2A((LPTSTR)(LPCTSTR)m_sMessage);
+      message.text_note                         = T2A((LPTSTR)(LPCTSTR)m_sMessage.c_str());
       message.recipients                        = pRecipients;
       message.attachments                       = pAttachments;
       message.message_flags                     = 0;

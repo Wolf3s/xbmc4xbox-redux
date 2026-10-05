@@ -1,52 +1,45 @@
 /*
- *      Copyright (C) 2005-2018 Team Kodi
- *      http://xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "GUIDialogMusicInfo.h"
-#include "Application.h"
+
+#include "FileItem.h"
+#include "GUIPassword.h"
+#include "GUIUserMessages.h"
+#include "ServiceBroker.h"
+#include "TextureCache.h"
+#include "URL.h"
 #include "dialogs/GUIDialogBusy.h"
 #include "dialogs/GUIDialogFileBrowser.h"
 #include "dialogs/GUIDialogProgress.h"
-#include "FileItem.h"
 #include "filesystem/Directory.h"
-#include "filesystem/File.h"
-#include "filesystem/MusicDatabaseDirectory.h"
+#include "filesystem/MusicDatabaseDirectory/QueryParams.h"
+#include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
 #include "guilib/LocalizeStrings.h"
-#include "GUIPassword.h"
-#include "GUIUserMessages.h"
-#include "guilib/Key.h"
-#include "messaging/helpers/DialogHelper.h"
-#include "dialogs/GUIDialogOK.h"
-#include "music/dialogs/GUIDialogSongInfo.h"
-#include "music/infoscanner/MusicInfoScanner.h"
+#include "input/actions/Action.h"
+#include "input/actions/ActionIDs.h"
+#include "messaging/helpers/DialogOKHelper.h"
 #include "music/MusicDatabase.h"
+#include "music/MusicLibraryQueue.h"
 #include "music/MusicThumbLoader.h"
 #include "music/MusicUtils.h"
+#include "music/dialogs/GUIDialogSongInfo.h"
+#include "music/infoscanner/MusicInfoScanner.h"
 #include "music/tags/MusicInfoTag.h"
-#include "music/windows/GUIWindowMusicNav.h"
-#include "profiles/ProfilesManager.h"
+#include "music/windows/GUIWindowMusicBase.h"
+#include "profiles/ProfileManager.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/MediaSourceSettings.h"
 #include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "storage/MediaManager.h"
-#include "TextureCache.h"
+#include "utils/FileUtils.h"
 #include "utils/ProgressJob.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
@@ -58,6 +51,7 @@ using namespace KODI::MESSAGING;
 
 #define CONTROL_BTN_REFRESH      6
 #define CONTROL_USERRATING       7
+#define CONTROL_BTN_PLAY 8
 #define CONTROL_BTN_GET_THUMB   10
 #define CONTROL_ARTISTINFO      12
 
@@ -68,13 +62,13 @@ using namespace KODI::MESSAGING;
 class CGetInfoJob : public CJob
 {
 public:
-  ~CGetInfoJob(void) { };
+  virtual ~CGetInfoJob(void) {}
 
   // Fetch full album/artist information including art types list
-  bool DoWork()
+  virtual bool DoWork()
   {
-    CGUIDialogMusicInfo *dialog = static_cast<CGUIDialogMusicInfo*>(g_windowManager.
-	  GetWindow(WINDOW_DIALOG_MUSIC_INFO));
+    CGUIDialogMusicInfo *dialog = CServiceBroker::GetGUI()->GetWindowManager().
+      GetWindow<CGUIDialogMusicInfo>(WINDOW_DIALOG_MUSIC_INFO);
     if (!dialog)
       return false;
     if (dialog->IsCancelled())
@@ -84,7 +78,7 @@ public:
 
     CMusicDatabase database;
     database.Open();
-    // May only have partially populated item, so fetch all artist or album data from db
+    // May only have partially populated music item, so fetch all artist or album data from db
     if (tag.GetType() == MediaTypeArtist)
     {
       int artistId = tag.GetDatabaseId();
@@ -115,7 +109,7 @@ public:
           artistItemPath = oldartistpath;
         else
           // Fall back further to browse the Artist Info Folder itself
-          artistItemPath = CSettings::GetInstance().GetString("musiclibrary.artistsfolder");
+          artistItemPath = CServiceBroker::GetSettingsComponent()->GetSettings()->GetString(CSettings::SETTING_MUSICLIBRARY_ARTISTSFOLDER);
       }
       m_item->SetPath(artistItemPath);
 
@@ -183,9 +177,9 @@ public:
     iUserrating(userrating)
   { }
 
-  ~CSetUserratingJob(void) { };
+  virtual ~CSetUserratingJob(void) {}
 
-  bool DoWork(void)
+  virtual bool DoWork(void)
   {
     // Asynchronously update userrating in library
     CMusicDatabase db;
@@ -203,20 +197,20 @@ class CRefreshInfoJob : public CProgressJob
 {
 public:
   CRefreshInfoJob(CGUIDialogProgress* progressDialog)
-    : CProgressJob(nullptr)
+    : CProgressJob(NULL)
   {
     if (progressDialog)
-      SetProgressIndicators(nullptr, progressDialog);
+      SetProgressIndicators(NULL, progressDialog);
     SetAutoClose(true);
   }
 
-  ~CRefreshInfoJob(void) { };
+  virtual ~CRefreshInfoJob(void) {}
 
   // Refresh album/artist information including art types list
-  bool DoWork()
+  virtual bool DoWork()
   {
-    CGUIDialogMusicInfo *dialog = static_cast<CGUIDialogMusicInfo*>(g_windowManager.
-	  GetWindow(WINDOW_DIALOG_MUSIC_INFO));
+    CGUIDialogMusicInfo *dialog = CServiceBroker::GetGUI()->GetWindowManager().
+      GetWindow<CGUIDialogMusicInfo>(WINDOW_DIALOG_MUSIC_INFO);
     if (!dialog)
       return false;
     if (dialog->IsCancelled())
@@ -319,22 +313,22 @@ public:
 };
 
 CGUIDialogMusicInfo::CGUIDialogMusicInfo(void)
-    : CGUIDialog(WINDOW_DIALOG_MUSIC_INFO, "DialogMusicInfo.xml")
-    , m_item(new CFileItem)
+  : CGUIDialog(WINDOW_DIALOG_MUSIC_INFO, "DialogMusicInfo.xml"),
+    m_albumSongs(new CFileItemList),
+    m_item(new CFileItem),
+    m_artTypeList(new CFileItemList)
 {
-  m_albumSongs = new CFileItemList;
   m_loadType = KEEP_IN_MEMORY;
   m_startUserrating = -1;
   m_hasUpdatedUserrating = false;
   m_hasRefreshed = false;
   m_bArtistInfo = false;
   m_cancelled = false;
-  m_artTypeList.Clear();
+  m_scraperAddInfo = false;
 }
 
 CGUIDialogMusicInfo::~CGUIDialogMusicInfo(void)
 {
-  delete m_albumSongs;
 }
 
 bool CGUIDialogMusicInfo::OnMessage(CGUIMessage& message)
@@ -343,16 +337,16 @@ bool CGUIDialogMusicInfo::OnMessage(CGUIMessage& message)
   {
   case GUI_MSG_WINDOW_DEINIT:
     {
-      m_artTypeList.Clear();
+      m_artTypeList->Clear();
       // For albums update user rating if it has changed
-      if(!m_bArtistInfo && m_startUserrating != m_item->GetMusicInfoTag()->GetUserrating())
+      if (!m_bArtistInfo && m_startUserrating != m_item->GetMusicInfoTag()->GetUserrating())
       {
         m_hasUpdatedUserrating = true;
 
         // Asynchronously update song userrating in library
         CSetUserratingJob *job = new CSetUserratingJob(m_item->GetMusicInfoTag()->GetAlbumId(),
                                                        m_item->GetMusicInfoTag()->GetUserrating());
-        CJobManager::GetInstance().AddJob(job, NULL);
+        CServiceBroker::GetJobManager()->AddJob(job, NULL);
       }
       if (m_hasRefreshed || m_hasUpdatedUserrating)
       {
@@ -361,7 +355,7 @@ bool CGUIDialogMusicInfo::OnMessage(CGUIMessage& message)
         // The music lib window item is updated to but changes to the rating when it is the sort
         // do not show on screen until refresh() that fetches the list from scratch, sorts etc.
         CGUIMessage msg(GUI_MSG_NOTIFY_ALL, 0, 0, GUI_MSG_UPDATE_ITEM, 0, m_item);
-        g_windowManager.SendMessage(msg);
+        CServiceBroker::GetGUI()->GetWindowManager().SendMessage(msg);
       }
 
       CGUIMessage msg(GUI_MSG_LABEL_RESET, GetID(), CONTROL_LIST);
@@ -409,14 +403,40 @@ bool CGUIDialogMusicInfo::OnMessage(CGUIMessage& message)
         if (m_bArtistInfo && (ACTION_SELECT_ITEM == iAction || ACTION_MOUSE_LEFT_CLICK == iAction))
         {
           CGUIMessage msg(GUI_MSG_ITEM_SELECTED, GetID(), iControl);
-          g_windowManager.SendMessage(msg);
+          CServiceBroker::GetGUI()->GetWindowManager().SendMessage(msg);
           int iItem = msg.GetParam1();
-          if (iItem < 0 || iItem >= static_cast<int>(m_albumSongs->Size()))
-            break;
-          OnAlbumInfo(m_albumSongs->Get(iItem)->GetMusicInfoTag()->GetDatabaseId());
-
+          int id = -1;
+          if (iItem >= 0 && iItem < m_albumSongs->Size())
+              id = m_albumSongs->Get(iItem)->GetMusicInfoTag()->GetDatabaseId();
+          if (id > 0)
+          {
+            OnAlbumInfo(id);
+            return true;
+          }
+        }
+      }
+      else if (iControl == CONTROL_BTN_PLAY)
+      {
+        if (m_album.idAlbum >= 0)
+        {
+          // Play album
+          const std::string path = StringUtils::Format("musicdb://albums/%i", m_album.idAlbum);
+          OnPlayItem(boost::make_shared<CFileItem>(path, m_album));
           return true;
         }
+        else
+        {
+          CGUIMessage msg(GUI_MSG_ITEM_SELECTED, GetID(), iControl);
+          CServiceBroker::GetGUI()->GetWindowManager().SendMessage(msg);
+          const int iItem = msg.GetParam1();
+          if (iItem >= 0 && iItem < m_albumSongs->Size())
+          {
+            // Play selected song
+            OnPlayItem(m_albumSongs->Get(iItem));
+            return true;
+          }
+        }
+        return false;
       }
     }
     break;
@@ -453,13 +473,14 @@ bool CGUIDialogMusicInfo::SetItem(CFileItem* item)
   m_cancelled = false;  // Happens before win_init
 
   // In a separate job fetch info and fill list of art types.
-  int jobid = CJobManager::GetInstance().AddJob(new CGetInfoJob(), nullptr, CJob::PRIORITY_LOW);
+  int jobid =
+      CServiceBroker::GetJobManager()->AddJob(new CGetInfoJob(), NULL, CJob::PRIORITY_LOW);
 
-  // Wait to get all data before show, allowing user to to cancel if fetch is slow
+  // Wait to get all data before show, allowing user to cancel if fetch is slow
   if (!CGUIDialogBusy::WaitOnEvent(m_event, TIME_TO_BUSY_DIALOG))
   {
     // Cancel job still waiting in queue (unlikely)
-    CJobManager::GetInstance().CancelJob(jobid);
+    CServiceBroker::GetJobManager()->CancelJob(jobid);
     // Flag to stop job already in progress
     m_cancelled = true;
     return false;
@@ -509,7 +530,7 @@ void CGUIDialogMusicInfo::SetDiscography(CMusicDatabase& database) const
   CMusicThumbLoader loader;
   for (int i = 0; i < m_albumSongs->Size(); ++i)
   {
-    CFileItemPtr item = m_albumSongs->Get(i);
+    const CFileItemPtr &item =(*m_albumSongs)[i];
     // Load all the album art and related artist(s) art (could be other collaborating artists)
     loader.LoadItem(item.get());
     if (item->GetMusicInfoTag()->GetDatabaseId() == -1)
@@ -524,7 +545,7 @@ void CGUIDialogMusicInfo::Update()
     SET_CONTROL_HIDDEN(CONTROL_ARTISTINFO);
     SET_CONTROL_HIDDEN(CONTROL_USERRATING);
 
-    CGUIMessage message(GUI_MSG_LABEL_BIND, GetID(), CONTROL_LIST, 0, 0, m_albumSongs);
+    CGUIMessage message(GUI_MSG_LABEL_BIND, GetID(), CONTROL_LIST, 0, 0, m_albumSongs.get());
     OnMessage(message);
 
   }
@@ -533,14 +554,16 @@ void CGUIDialogMusicInfo::Update()
     SET_CONTROL_VISIBLE(CONTROL_ARTISTINFO);
     SET_CONTROL_VISIBLE(CONTROL_USERRATING);
 
-    CGUIMessage message(GUI_MSG_LABEL_BIND, GetID(), CONTROL_LIST, 0, 0, m_albumSongs);
+    CGUIMessage message(GUI_MSG_LABEL_BIND, GetID(), CONTROL_LIST, 0, 0, m_albumSongs.get());
     OnMessage(message);
 
   }
 
+  const boost::shared_ptr<CProfileManager> profileManager = CServiceBroker::GetSettingsComponent()->GetProfileManager();
+
   // Disable the Choose Art button if the user isn't allowed it
   CONTROL_ENABLE_ON_CONDITION(CONTROL_BTN_GET_THUMB,
-    CProfilesManager::Get().GetCurrentProfile().canWriteDatabases() || g_passwordManager.bMasterUser);
+    profileManager->GetCurrentProfile().canWriteDatabases() || g_passwordManager.bMasterUser);
 }
 
 void CGUIDialogMusicInfo::SetLabel(int iControl, const std::string& strLabel)
@@ -561,11 +584,13 @@ void CGUIDialogMusicInfo::OnInitWindow()
   SET_CONTROL_LABEL(CONTROL_USERRATING, 38023);
   SET_CONTROL_LABEL(CONTROL_BTN_GET_THUMB, 13511);
   SET_CONTROL_LABEL(CONTROL_ARTISTINFO, 21891);
+  SET_CONTROL_LABEL(CONTROL_BTN_PLAY, 208);
 
   if (m_bArtistInfo)
   {
     SET_CONTROL_HIDDEN(CONTROL_ARTISTINFO);
     SET_CONTROL_HIDDEN(CONTROL_USERRATING);
+    SET_CONTROL_HIDDEN(CONTROL_BTN_PLAY);
   }
   CGUIDialog::OnInitWindow();
 }
@@ -576,22 +601,23 @@ void CGUIDialogMusicInfo::FetchComplete()
   m_event.Set();
 }
 
+
 void CGUIDialogMusicInfo::RefreshInfo()
 {
   // Double check we have permission (button should be hidden when not)
-  const CProfilesManager &profileManager = CProfilesManager::Get();
-  if (!profileManager.GetCurrentProfile().canWriteDatabases() && !g_passwordManager.bMasterUser)
+  const boost::shared_ptr<CProfileManager> profileManager = CServiceBroker::GetSettingsComponent()->GetProfileManager();
+  if (!profileManager->GetCurrentProfile().canWriteDatabases() && !g_passwordManager.bMasterUser)
     return;
 
   // Check if scanning
-  if (g_application.IsMusicScanning())
+  if (CMusicLibraryQueue::GetInstance().IsScanningLibrary())
   {
-    CGUIDialogOK::ShowAndGetInput( 189 ,  14057 );
+    HELPERS::ShowOKDialogText( 189 ,  14057 );
     return;
   }
 
-  CGUIDialogProgress* dlgProgress = static_cast<CGUIDialogProgress*>(g_windowManager.
-    GetWindow(WINDOW_DIALOG_PROGRESS));
+  CGUIDialogProgress* dlgProgress = CServiceBroker::GetGUI()->GetWindowManager().
+    GetWindow<CGUIDialogProgress>(WINDOW_DIALOG_PROGRESS);
   if (!dlgProgress)
     return;
 
@@ -613,7 +639,8 @@ void CGUIDialogMusicInfo::RefreshInfo()
 
   SetScrapedInfo(false);
   // Start separate job to scrape info and fill list of art types.
-  CJobManager::GetInstance().AddJob(new CRefreshInfoJob(dlgProgress), nullptr, CJob::PRIORITY_HIGH);
+  CServiceBroker::GetJobManager()->AddJob(new CRefreshInfoJob(dlgProgress), NULL,
+                                          CJob::PRIORITY_HIGH);
 
   // Wait for refresh to complete or be canceled, but render every 10ms so that the
   // pointer movements works on dialog even when job is reporting progress infrequently
@@ -625,13 +652,13 @@ void CGUIDialogMusicInfo::RefreshInfo()
     return;
   }
 
-  // Show message when scraper was unsuccesfull
+  // Show message when scraper was unsuccessful
   if (!HasScrapedInfo())
   {
     if (m_bArtistInfo)
-      CGUIDialogOK::ShowAndGetInput( 21889 ,  20199 );
+      HELPERS::ShowOKDialogText( 21889 ,  20199 );
     else
-      CGUIDialogOK::ShowAndGetInput( 185 ,  500 );
+      HELPERS::ShowOKDialogText( 185 ,  500 );
     return;
   }
 
@@ -696,7 +723,7 @@ void CGUIDialogMusicInfo::AddItemPathToFileBrowserSources(VECSOURCES &sources, c
     // For artist add Artist Info Folder path to browser sources
     if (item.GetMusicInfoTag()->GetType() == MediaTypeArtist)
     {
-      artistFolder = CSettings::GetInstance().GetString("musiclibrary.artistsfolder");
+      artistFolder = CServiceBroker::GetSettingsComponent()->GetSettings()->GetString(CSettings::SETTING_MUSICLIBRARY_ARTISTSFOLDER);
       if (!artistFolder.empty() && artistFolder.compare(itemDir) == 0)
         itemDir.clear();  // skip *item when artist not have a unique path
     }
@@ -722,8 +749,8 @@ void CGUIDialogMusicInfo::AddItemPathToFileBrowserSources(VECSOURCES &sources, c
 
 void CGUIDialogMusicInfo::SetArtTypeList(CFileItemList& artlist)
 {
-  m_artTypeList.Clear();
-  m_artTypeList.Copy(artlist);
+  m_artTypeList->Clear();
+  m_artTypeList->Copy(artlist);
 }
 
 /*
@@ -737,7 +764,7 @@ For each type of art the options are:
 */
 void CGUIDialogMusicInfo::OnGetArt()
 {
-  std::string type = MUSIC_UTILS::ShowSelectArtTypeDialog(m_artTypeList);
+  std::string type = MUSIC_UTILS::ShowSelectArtTypeDialog(*m_artTypeList);
   if (type.empty())
     return; // Cancelled
 
@@ -759,71 +786,34 @@ void CGUIDialogMusicInfo::OnGetArt()
     // For album it could be a fallback from artist
     CFileItemPtr item(new CFileItem("thumb://Current", false));
     item->SetArt("thumb", m_item->GetArt(type));
-    item->SetIconImage("DefaultPicture.png");
+    item->SetArt("icon", "DefaultPicture.png");
     item->SetLabel(g_localizeStrings.Get(13512));
     items.Add(item);
-  }
-  else if (m_item->HasArt("thumb"))
-  {
-    // For missing art of that type add the thumb (when it exists and not a fallback)
-    CGUIListItem::ArtMap::const_iterator i = primeArt.find("thumb");
-    if (i != primeArt.end())
-    {
-      CFileItemPtr item(new CFileItem("thumb://Thumb", false));
-      item->SetArt("thumb", m_item->GetArt("thumb"));
-      if (m_bArtistInfo)
-        item->SetIconImage("DefaultArtistCover.png");
-      else
-        item->SetIconImage("DefaultAlbumCover.png");
-      item->SetLabel(g_localizeStrings.Get(21371));
-      items.Add(item);
-    }
   }
 
  // Grab the thumbnails of this art type scraped from the web
   std::vector<std::string> remotethumbs;
-  if (type == "fanart" && m_bArtistInfo)
-  {
-    // Scraped artist fanart URLs are held separately from other art types
-    //! @todo Change once scraping all art types is unified
-    for (unsigned int i = 0; i < m_artist.fanart.GetNumFanarts(); i++)
-    {
-      std::string strItemPath;
-      strItemPath = StringUtils::Format("fanart://Remote%i", i);
-      CFileItemPtr item(new CFileItem(strItemPath, false));
-      // Preview "thumb" of fanart image for browsing
-      std::string thumb = m_artist.fanart.GetPreviewURL(i);
-      std::string wrappedthumb = CTextureUtils::GetWrappedThumbURL(thumb);
-      item->SetArt("thumb", wrappedthumb);
-      item->SetIconImage("DefaultPicture.png");
-      item->SetLabel(g_localizeStrings.Get(20441));
-
-      items.Add(item);
-    }
-  }
+  // Art type is encoded into the scraper XML as optional "aspect=" field
+  // Type "thumb" returns URLs for all types of art including those without aspect.
+  // Those URL without aspect are also returned for all other type values.
+  if (m_bArtistInfo)
+    m_artist.thumbURL.GetThumbUrls(remotethumbs, type);
   else
+    m_album.thumbURL.GetThumbUrls(remotethumbs, type);
+
+  for (unsigned int i = 0; i < remotethumbs.size(); ++i)
   {
-    // Art type is encoded into the scraper XML as optional "aspect=" field
-    // Type "thumb" returns URLs for all types of art including those without aspect.
-    // Those URL without aspect are also returned for all other type values.
-    if (m_bArtistInfo)
-      m_artist.thumbURL.GetThumbURLs(remotethumbs, type);
-    else
-      m_album.thumbURL.GetThumbURLs(remotethumbs, type);
+    std::string strItemPath;
+    strItemPath = StringUtils::Format("thumb://Remote%u", i);
+    CFileItemPtr item(new CFileItem(strItemPath, false));
+    item->SetArt("thumb", remotethumbs[i]);
+    item->SetArt("icon", "DefaultPicture.png");
+    item->SetLabel(g_localizeStrings.Get(13513));
 
-    for (unsigned int i = 0; i < remotethumbs.size(); ++i)
-    {
-      std::string strItemPath;
-      strItemPath = StringUtils::Format("thumb://Remote%i", i);
-      CFileItemPtr item(new CFileItem(strItemPath, false));
-      item->SetArt("thumb", remotethumbs[i]);
-      item->SetIconImage("DefaultPicture.png");
-      item->SetLabel(g_localizeStrings.Get(13513));
-
-      items.Add(item);
-    }
+    items.Add(item);
   }
 
+  // Local art
   std::string localArt;
   std::vector<std::string> paths;
   if (m_bArtistInfo)
@@ -836,26 +826,22 @@ void CGUIDialogMusicInfo::OnGetArt()
   else
     // Album folder, when a unique one exists, no fallback
     paths.push_back(m_album.strPath);
-  for (std::vector<std::string>::const_iterator it = paths.begin(); it != paths.end(); ++it)
+  for (std::vector<std::string>::const_iterator path = paths.begin(); path != paths.end(); ++path)
   {
-    const std::string &path = *it;
-    if (!localArt.empty() && CFile::Exists(localArt))
+    if (!localArt.empty() && CFileUtils::Exists(localArt))
       break;
-    if (!path.empty())
+    if (!path->empty())
     {
-      CFileItem item(path, true);
+      CFileItem item(*path, true);
       if (type == "thumb")
         // Local music thumbnail images named by <musicthumbs>
         localArt = item.GetUserMusicThumb(true);
-      else if (type == "fanart")
-        // Local fanart images named by <fanart>
-        localArt = item.GetLocalFanart();
       else
       { // Check case and ext insenitively for local images with type as name
         // e.g. <arttype>.jpg
         CFileItemList items;
-        CDirectory::GetDirectory(path, items,
-            g_advancedSettings.m_pictureExtensions,
+        CDirectory::GetDirectory(*path, items,
+            CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_pictureExtensions,
             DIR_FLAG_NO_FILE_DIRS | DIR_FLAG_READ_CACHE | DIR_FLAG_NO_FILE_INFO);
 
         for (int j = 0; j < items.Size(); j++)
@@ -871,7 +857,7 @@ void CGUIDialogMusicInfo::OnGetArt()
       }
     }
   }
-  if (!localArt.empty() && CFile::Exists(localArt))
+  if (!localArt.empty() && CFileUtils::Exists(localArt))
   {
     CFileItemPtr item(new CFileItem("Local Art: " + localArt, false));
     item->SetArt("thumb", localArt);
@@ -885,9 +871,9 @@ void CGUIDialogMusicInfo::OnGetArt()
     // allow the user to delete it by selecting "no art".
     CFileItemPtr item(new CFileItem("thumb://None", false));
     if (m_bArtistInfo)
-      item->SetIconImage("DefaultArtist.png");
+      item->SetArt("icon", "DefaultArtist.png");
     else
-      item->SetIconImage("DefaultAlbumCover.png");
+      item->SetArt("icon", "DefaultAlbumCover.png");
     item->SetLabel(g_localizeStrings.Get(13515));
     items.Add(item);
   }
@@ -900,8 +886,7 @@ void CGUIDialogMusicInfo::OnGetArt()
   {
     CFileItemPtr &item = items[i];
     // Skip images from remote sources, recache done by refresh (could be slow)
-    if (StringUtils::StartsWith(item->GetPath(), "fanart://Remote") ||
-        StringUtils::StartsWith(item->GetPath(), "thumb://Remote"))
+    if (StringUtils::StartsWith(item->GetPath(), "thumb://Remote"))
       continue;
     std::string thumb(item->GetArt("thumb"));
     if (thumb.empty())
@@ -910,10 +895,10 @@ void CGUIDialogMusicInfo::OnGetArt()
     // Skip images from remote sources (current thumb could be remote)
     if (url.IsProtocol("http") || url.IsProtocol("https"))
       continue;
-    CTextureCache::Get().ClearCachedImage(thumb);
+    CServiceBroker::GetTextureCache()->ClearCachedImage(thumb);
     // Remove any thumbnail of local image too (created when browsing files)
     std::string thumbthumb(CTextureUtils::GetWrappedThumbURL(thumb));
-    CTextureCache::Get().ClearCachedImage(thumbthumb);
+    CServiceBroker::GetTextureCache()->ClearCachedImage(thumbthumb);
   }
 
   // Show list of possible art for user selection
@@ -922,9 +907,9 @@ void CGUIDialogMusicInfo::OnGetArt()
   // never used by Kodi again, but there is no obvious way to clear these
   // thumbs from the cache automatically.
   std::string result;
-  VECSOURCES sources(*CMediaSourceSettings::Get().GetSources("music"));
+  VECSOURCES sources(*CMediaSourceSettings::GetInstance().GetSources("music"));
   CGUIDialogMusicInfo::AddItemPathToFileBrowserSources(sources, *m_item);
-  g_mediaManager.GetLocalDrives(sources);
+  CServiceBroker::GetMediaManager().GetLocalDrives(sources);
   if (CGUIDialogFileBrowser::ShowAndGetImage(items, sources, g_localizeStrings.Get(13511), result) &&
     result != "thumb://Current")
   {
@@ -936,17 +921,11 @@ void CGUIDialogMusicInfo::OnGetArt()
       int number = atoi(result.substr(14).c_str());
       newArt = remotethumbs[number];
     }
-    else if (StringUtils::StartsWith(result, "fanart://Remote"))
-    {
-      int iFanart = atoi(result.substr(15).c_str());
-      m_artist.fanart.SetPrimaryFanart(iFanart);
-      newArt = m_artist.fanart.GetImageURL();
-    }
     else if (result == "thumb://Thumb")
       newArt = m_item->GetArt("thumb");
     else if (StringUtils::StartsWith(result, "Local Art: "))
       newArt = localArt;
-    else if (CFile::Exists(result))
+    else if (CFileUtils::Exists(result))
       newArt = result;
     else // none
       newArt.clear();
@@ -957,9 +936,9 @@ void CGUIDialogMusicInfo::OnGetArt()
 
     // Update local item and art list with current art
     m_item->SetArt(type, newArt);
-    for (int i = 0; i < m_artTypeList.Size(); ++i)
+    for (int i = 0; i < m_artTypeList->Size(); ++i)
     {
-      const CFileItemPtr artitem = m_artTypeList[i];
+      const CFileItemPtr &artitem = (*m_artTypeList)[i];
       if (artitem->GetProperty("artType") == type)
       {
         artitem->SetArt("thumb", newArt);
@@ -971,7 +950,7 @@ void CGUIDialogMusicInfo::OnGetArt()
     // not update artist, album or fallback art for the currently playing song as it
     // is a different item with different ID and media type
     CGUIMessage msg(GUI_MSG_NOTIFY_ALL, 0, 0, GUI_MSG_UPDATE_ITEM, 0, m_item);
-    g_windowManager.SendMessage(msg);
+    CServiceBroker::GetGUI()->GetWindowManager().SendMessage(msg);
   }
 
   // Re-open the art type selection dialog as we come back from
@@ -988,16 +967,17 @@ void CGUIDialogMusicInfo::OnSetUserrating() const
   SetUserrating(userrating);
 }
 
+
 void CGUIDialogMusicInfo::ShowForAlbum(int idAlbum)
 {
-  std::string path = StringUtils::Format("musicdb://albums/%li", idAlbum);
+  std::string path = StringUtils::Format("musicdb://albums/%i", idAlbum);
   CFileItem item(path, true); // An album, but IsAlbum() not set as didn't use SetAlbum()
   ShowFor(&item);
 }
 
 void CGUIDialogMusicInfo::ShowForArtist(int idArtist)
 {
-  std::string path = StringUtils::Format("musicdb://artists/%li", idArtist);
+  std::string path = StringUtils::Format("musicdb://artists/%i", idArtist);
   CFileItem item(path, true);
   ShowFor(&item);
 }
@@ -1014,7 +994,10 @@ void CGUIDialogMusicInfo::ShowFor(CFileItem* pItem)
     return;
   }
 
+  CFileItem musicitem("musicdb://", true);
+
   // We have a folder album/artist info dialog only shown for db items
+  // or for music video with artist/album in music library
   if (pItem->IsMusicDb())
   {
     if (!pItem->HasMusicInfoTag() || pItem->GetMusicInfoTag()->GetDatabaseId() < 1)
@@ -1022,26 +1005,49 @@ void CGUIDialogMusicInfo::ShowFor(CFileItem* pItem)
       // Maybe only path is set, then set MusicInfoTag
       CQueryParams params;
       CDirectoryNode::GetDatabaseInfo(pItem->GetPath(), params);
-      if (params.GetAlbumId() == -1)
+      if (params.GetArtistId() > 0)
         pItem->GetMusicInfoTag()->SetDatabaseId(params.GetArtistId(), MediaTypeArtist);
-      else
+      else if (params.GetAlbumId() > 0)
         pItem->GetMusicInfoTag()->SetDatabaseId(params.GetAlbumId(), MediaTypeAlbum);
+      else
+        return; // nothing to do
     }
-    CGUIDialogMusicInfo *pDlgMusicInfo = static_cast<CGUIDialogMusicInfo*>(g_windowManager.
-	  GetWindow(WINDOW_DIALOG_MUSIC_INFO));
+    musicitem.SetFromMusicInfoTag(*pItem->GetMusicInfoTag());
+  }
+  else if (pItem->HasProperty("artist_musicid"))
+  {
+    musicitem.GetMusicInfoTag()->SetDatabaseId(pItem->GetProperty("artist_musicid").asInteger32(),
+                                               MediaTypeArtist);
+  }
+  else if (pItem->HasProperty("album_musicid"))
+  {
+    musicitem.GetMusicInfoTag()->SetDatabaseId(pItem->GetProperty("album_musicid").asInteger32(),
+                                               MediaTypeAlbum);
+  }
+  else
+    return; // nothing to do
+
+
+  CGUIDialogMusicInfo *pDlgMusicInfo = CServiceBroker::GetGUI()->GetWindowManager().
+      GetWindow<CGUIDialogMusicInfo>(WINDOW_DIALOG_MUSIC_INFO);
     if (pDlgMusicInfo)
     {
-      if (pDlgMusicInfo->SetItem(pItem))
+      if (pDlgMusicInfo->SetItem(&musicitem))
       {
         pDlgMusicInfo->Open();
         if (pItem->GetMusicInfoTag()->GetType() == MediaTypeAlbum &&
           pDlgMusicInfo->HasUpdatedUserrating())
         {
-          CGUIWindowMusicBase *window = static_cast<CGUIWindowMusicBase*>(g_windowManager.GetWindow(WINDOW_MUSIC_NAV));
+          CGUIWindowMusicBase *window = CServiceBroker::GetGUI()->GetWindowManager().GetWindow<CGUIWindowMusicBase>(WINDOW_MUSIC_NAV);
           if (window)
             window->RefreshContent("albums");
         }
       }
     }
-  }
+}
+
+void CGUIDialogMusicInfo::OnPlayItem(const boost::shared_ptr<CFileItem>& item)
+{
+  Close(true);
+  MUSIC_UTILS::PlayItem(item, "");
 }

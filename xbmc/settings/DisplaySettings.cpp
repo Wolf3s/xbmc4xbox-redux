@@ -1,48 +1,43 @@
 /*
- *      Copyright (C) 2013 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2013-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "DisplaySettings.h"
-#include "guilib/GraphicContext.h"
-#include "guilib/gui3d.h"
+
+#include "ServiceBroker.h"
+#include "XBVideoConfig.h"
+#include "dialogs/GUIDialogFileBrowser.h"
+#include "guilib/GUIComponent.h"
 #include "guilib/LocalizeStrings.h"
-#include "messaging/ApplicationMessenger.h"
 #include "messaging/helpers/DialogHelper.h"
 #include "settings/AdvancedSettings.h"
-#include "settings/lib/Setting.h"
 #include "settings/Settings.h"
-#include "threads/SingleLock.h"
-#include "utils/log.h"
+#include "settings/SettingsComponent.h"
+#include "settings/lib/Setting.h"
+#include "settings/lib/SettingDefinitions.h"
+#include "storage/MediaManager.h"
 #include "utils/StringUtils.h"
+#include "utils/Variant.h"
 #include "utils/XMLUtils.h"
-#include "XBVideoConfig.h"
+#include "utils/log.h"
+#include "windowing/GraphicContext.h"
+#include "windowing/WinSystem.h"
 
-#include "defs_from_settings.h"
+#include <algorithm>
+#include <boost/boost/bind.hpp>
+#include <cstdlib>
+#include <float.h>
+#include <string>
+#include <utility>
+#include <vector>
 
 using namespace KODI::MESSAGING;
 
 using namespace KODI::MESSAGING::HELPERS;
-
-// 0.1 second increments
-#define MAX_REFRESH_CHANGE_DELAY 200
-
-using namespace std;
 
 static RESOLUTION_INFO EmptyResolution;
 static RESOLUTION_INFO EmptyModifiableResolution;
@@ -53,12 +48,12 @@ CDisplaySettings::CDisplaySettings()
 
   m_zoomAmount = 1.0f;
   m_pixelRatio = 1.0f;
+  m_resolutionChangeAborted = false;
 }
 
-CDisplaySettings::~CDisplaySettings()
-{ }
+CDisplaySettings::~CDisplaySettings() {}
 
-CDisplaySettings& CDisplaySettings::Get()
+CDisplaySettings& CDisplaySettings::GetInstance()
 {
   static CDisplaySettings sDisplaySettings;
   return sDisplaySettings;
@@ -88,6 +83,11 @@ bool CDisplaySettings::Load(const TiXmlNode *settings)
     XMLUtils::GetString(pResolution, "description", cal.strMode);
     XMLUtils::GetInt(pResolution, "subtitles", cal.iSubtitles);
     XMLUtils::GetFloat(pResolution, "pixelratio", cal.fPixelRatio);
+#ifdef HAVE_X11
+    XMLUtils::GetFloat(pResolution, "refreshrate", cal.fRefreshRate);
+    XMLUtils::GetString(pResolution, "output", cal.strOutput);
+    XMLUtils::GetString(pResolution, "xrandrid", cal.strId);
+#endif
 
     const TiXmlElement *pOverscan = pResolution->FirstChildElement("overscan");
     if (pOverscan)
@@ -106,7 +106,7 @@ bool CDisplaySettings::Load(const TiXmlNode *settings)
     bool found = false;
     for (ResolutionInfos::const_iterator  it = m_calibrations.begin(); it != m_calibrations.end(); ++it)
     {
-      if (it->strMode.Equals(cal.strMode))
+      if (StringUtils::EqualsNoCase(it->strMode, cal.strMode))
       {
         found = true;
         break;
@@ -147,6 +147,11 @@ bool CDisplaySettings::Save(TiXmlNode *settings) const
     XMLUtils::SetString(pNode, "description", it->strMode);
     XMLUtils::SetInt(pNode, "subtitles", it->iSubtitles);
     XMLUtils::SetFloat(pNode, "pixelratio", it->fPixelRatio);
+#ifdef HAVE_X11
+    XMLUtils::SetFloat(pNode, "refreshrate", it->fRefreshRate);
+    XMLUtils::SetString(pNode, "output", it->strOutput);
+    XMLUtils::SetString(pNode, "xrandrid", it->strId);
+#endif
 
     // create the overscan child
     TiXmlElement overscanElement("overscan");
@@ -168,63 +173,50 @@ void CDisplaySettings::Clear()
   CSingleLock lock(m_critical);
   m_calibrations.clear();
   m_resolutions.clear();
+  m_resolutions.insert(m_resolutions.begin(), RES_AUTORES, RESOLUTION_INFO());
 
   m_zoomAmount = 1.0f;
   m_pixelRatio = 1.0f;
 }
 
-bool CDisplaySettings::OnSettingChanging(const CSetting *setting)
+bool CDisplaySettings::OnSettingChanging(const boost::shared_ptr<const CSetting>& setting)
 {
   if (setting == NULL)
     return false;
 
   const std::string &settingId = setting->GetId();
-  if (settingId == "videoscreen.resolution")
+  if (settingId == CSettings::SETTING_VIDEOSCREEN_RESOLUTION)
   {
-    // check if this is the revert call for a failed OnSettingChanging
-    // in which case we don't want to ask the user again
-    if (m_ignoreSettingChanging.find(make_pair(settingId, true)) == m_ignoreSettingChanging.end())
+    RESOLUTION oldRes = GetCurrentResolution();
+    RESOLUTION newRes = (RESOLUTION)boost::static_pointer_cast<const CSettingInt>(setting)->GetValue();
+
+    SetCurrentResolution(newRes, false);
+    CServiceBroker::GetWinSystem()->GetGfxContext().SetVideoResolution(newRes, false);
+
+    // check if the old or the new resolution was/is windowed
+    // in which case we don't show any prompt to the user
+    if (oldRes != newRes)
     {
-      RESOLUTION newRes = RES_AUTORES;
-      if (settingId == "videoscreen.resolution")
-        newRes = (RESOLUTION)((CSettingInt*)setting)->GetValue();
-
-      // We need to change and save videoscreen.resolution which will
-      // trigger another call to this OnSettingChanging() which should not
-      // trigger a user-input dialog which is already triggered by the callback
-      // of the changed setting
-      bool save = settingId != "videoscreen.resolution";
-      if (save)
-        m_ignoreSettingChanging.insert(make_pair("videoscreen.resolution", true));
-      SetCurrentResolution(newRes, save);
-      g_graphicsContext.SetVideoResolution(newRes);
-
-      // check if this setting is temporarily blocked from showing the dialog
-      if (m_ignoreSettingChanging.find(make_pair(settingId, false)) == m_ignoreSettingChanging.end())
+      if (!m_resolutionChangeAborted)
       {
-        if (HELPERS::ShowYesNoDialogText(13110, 13111, "", "", 10000) !=
-          YES)
+        if (HELPERS::ShowYesNoDialogText(13110, 13111, "",
+                                         "", 15000) != CHOICE_YES)
         {
-          // we need to ignore the next OnSettingChanging() call for
-          // the same setting which is executed to broadcast that
-          // changing the setting has failed
-          m_ignoreSettingChanging.insert(make_pair(settingId, false));
+          m_resolutionChangeAborted = true;
           return false;
         }
       }
       else
-        m_ignoreSettingChanging.erase(make_pair(settingId, false));
+        m_resolutionChangeAborted = false;
     }
-    else
-      m_ignoreSettingChanging.erase(make_pair(settingId, true));
   }
-  else if (settingId == "videoscreen.flickerfilter" || settingId == "videoscreen.soften")
-    g_graphicsContext.SetVideoResolution(CDisplaySettings::Get().GetCurrentResolution(), TRUE);
+  else if (settingId == CSettings::SETTING_VIDEOSCREEN_FLICKERFILTER || settingId == CSettings::SETTING_VIDEOSCREEN_SOFTEN)
+    CServiceBroker::GetWinSystem()->GetGfxContext().SetVideoResolution(CDisplaySettings::GetInstance().GetCurrentResolution(), TRUE);
   else if (StringUtils::StartsWith(settingId, "videooutput."))
   {
-    if (settingId == "videooutput.aspect")
+    if (settingId == CSettings::SETTING_VIDEOSCREEN_ASPECT)
     {
-      switch(((CSettingInt*)setting)->GetValue())
+      switch(boost::static_pointer_cast<const CSettingInt>(setting)->GetValue())
       {
       case VIDEO_NORMAL:
         g_videoConfig.SetNormal();
@@ -237,12 +229,12 @@ bool CDisplaySettings::OnSettingChanging(const CSetting *setting)
         break;
       }
     }
-    else if (settingId == "videooutput.hd480p")
-      g_videoConfig.Set480p(((CSettingBool*)setting)->GetValue());
-    else if (settingId == "videooutput.hd720p")
-      g_videoConfig.Set720p(((CSettingBool*)setting)->GetValue());
-    else if (settingId == "videooutput.hd1080i")
-      g_videoConfig.Set1080i(((CSettingBool*)setting)->GetValue());
+    else if (settingId == CSettings::SETTING_VIDEOSCREEN_HD480p)
+      g_videoConfig.Set480p(boost::static_pointer_cast<const CSettingBool>(setting)->GetValue());
+    else if (settingId == CSettings::SETTING_VIDEOSCREEN_HD720p)
+      g_videoConfig.Set720p(boost::static_pointer_cast<const CSettingBool>(setting)->GetValue());
+    else if (settingId == CSettings::SETTING_VIDEOSCREEN_HD1080i)
+      g_videoConfig.Set1080i(boost::static_pointer_cast<const CSettingBool>(setting)->GetValue());
 
     if (g_videoConfig.NeedsSave())
       g_videoConfig.Save();
@@ -251,42 +243,22 @@ bool CDisplaySettings::OnSettingChanging(const CSetting *setting)
   return true;
 }
 
-bool CDisplaySettings::OnSettingUpdate(CSetting* &setting, const char *oldSettingId, const TiXmlNode *oldSettingNode)
-{
-  if (setting == NULL)
-    return false;
-
-  const std::string &settingId = setting->GetId();
-  if (settingId == "videoscreen.resolution")
-  {
-    CSettingString *screenmodeSetting = (CSettingString*)setting;
-    std::string screenmode = screenmodeSetting->GetValue();
-    // in Eden there was no character ("i" or "p") indicating interlaced/progressive
-    // at the end so we just add a "p" and assume progressive
-    if (screenmode.size() == 20)
-      return screenmodeSetting->SetValue(screenmode + "p");
-  }
-
-  return false;
-}
-
 void CDisplaySettings::SetCurrentResolution(RESOLUTION resolution, bool save /* = false */)
 {
-  if (save)
-    CSettings::GetInstance().SetInt("videoscreen.resolution", (int)resolution);
-
   if (resolution == RES_AUTORES)
     m_currentResolution = g_videoConfig.GetBestMode();
   else
     m_currentResolution = resolution;
 
-  // SetChanged() is added in PVR pull request
-  CSettings::GetInstance().Save()/*g_guiSettings.SetChanged()*/;
+  if (save)
+  {
+    CServiceBroker::GetSettingsComponent()->GetSettings()->SetInt(CSettings::SETTING_VIDEOSCREEN_RESOLUTION, static_cast<int>(m_currentResolution));
+  }
 }
 
 RESOLUTION CDisplaySettings::GetDisplayResolution() const
 {
-  return (RESOLUTION)CSettings::GetInstance().GetInt("videoscreen.resolution");
+  return static_cast<RESOLUTION>(CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(CSettings::SETTING_VIDEOSCREEN_RESOLUTION));
 }
 
 const RESOLUTION_INFO& CDisplaySettings::GetResolutionInfo(size_t index) const
@@ -344,7 +316,7 @@ void CDisplaySettings::ApplyCalibrations()
     // find resolutions
     for (size_t res = 0; res < m_resolutions.size(); ++res)
     {
-      if (itCal->strMode.Equals(m_resolutions[res].strMode))
+      if (StringUtils::EqualsNoCase(itCal->strMode, m_resolutions[res].strMode))
       {
         // overscan
         m_resolutions[res].Overscan.left = itCal->Overscan.left;
@@ -372,10 +344,10 @@ void CDisplaySettings::ApplyCalibrations()
           m_resolutions[res].Overscan.bottom = m_resolutions[res].iHeight * 3/2;
 
         m_resolutions[res].iSubtitles = itCal->iSubtitles;
-        if (m_resolutions[res].iSubtitles < m_resolutions[res].iHeight / 2)
-          m_resolutions[res].iSubtitles = m_resolutions[res].iHeight / 2;
-        if (m_resolutions[res].iSubtitles > m_resolutions[res].iHeight* 5/4)
-          m_resolutions[res].iSubtitles = m_resolutions[res].iHeight* 5/4;
+        if (m_resolutions[res].iSubtitles < 0)
+          m_resolutions[res].iSubtitles = 0;
+        if (m_resolutions[res].iSubtitles > m_resolutions[res].iHeight * 3 / 2)
+          m_resolutions[res].iSubtitles = m_resolutions[res].iHeight * 3 / 2;
 
         m_resolutions[res].fPixelRatio = itCal->fPixelRatio;
         if (m_resolutions[res].fPixelRatio < 0.5f)
@@ -388,47 +360,55 @@ void CDisplaySettings::ApplyCalibrations()
   }
 }
 
+static bool ModeEquals(const RESOLUTION_INFO& lhs, const RESOLUTION_INFO& rhs) { return StringUtils::EqualsNoCase(lhs.strMode, rhs.strMode); }
+
 void CDisplaySettings::UpdateCalibrations()
 {
   CSingleLock lock(m_critical);
-  for (size_t res = RES_HDTV_1080i; res < m_resolutions.size(); ++res)
-  {
-    // find calibration
-    bool found = false;
-    for (ResolutionInfos::iterator itCal = m_calibrations.begin(); itCal != m_calibrations.end(); ++itCal)
-    {
-      if (itCal->strMode.Equals(m_resolutions[res].strMode))
-      {
-        // TODO: erase calibrations with default values
-        *itCal = m_resolutions[res];
-        found = true;
-        break;
-      }
-    }
 
-    if (!found)
-      m_calibrations.push_back(m_resolutions[res]);
+  // Add new (unique) resolutions
+  for (ResolutionInfos::const_iterator res = m_resolutions.begin(); res != m_resolutions.end(); ++res)
+    if (std::find_if(m_calibrations.begin(), m_calibrations.end(),
+      boost::bind(&ModeEquals, *res, _1)) == m_calibrations.end())
+        m_calibrations.push_back(*res);
+
+  for (ResolutionInfos::iterator cal = m_calibrations.begin(); cal != m_calibrations.end(); ++cal)
+  {
+    ResolutionInfos::const_iterator res(std::find_if(m_resolutions.begin(), m_resolutions.end(),
+    boost::bind(&ModeEquals, *res, _1)));
+
+    if (res != m_resolutions.end())
+    {
+      //! @todo erase calibrations with default values
+      *cal = *res;
+    }
   }
 }
 
-void CDisplaySettings::SettingOptionsResolutionsFiller(const CSetting *setting, std::vector< std::pair<std::string, int> > &list, int &current, void *data)
+void CDisplaySettings::SettingOptionsResolutionsFiller(const SettingConstPtr& setting,
+                                                       std::vector<IntegerSettingOption>& list,
+                                                       int& current,
+                                                       void* data)
 {
-  list.push_back(make_pair(g_localizeStrings.Get(16316), RES_AUTORES));
+  list.push_back(IntegerSettingOption(g_localizeStrings.Get(16316), RES_AUTORES));
 
   std::vector<RESOLUTION> resolutions;
-  g_graphicsContext.GetAllowedResolutions(resolutions, false);
-  for (std::vector<RESOLUTION>::const_iterator it = resolutions.begin(); it != resolutions.end(); ++it)
+  CServiceBroker::GetWinSystem()->GetGfxContext().GetAllowedResolutions(resolutions, false);
+  for (std::vector<RESOLUTION>::const_iterator resolution = resolutions.begin(); resolution != resolutions.end(); ++resolution)
   {
-    RESOLUTION resolution = *it;
-    RESOLUTION_INFO res2 = CDisplaySettings::Get().GetResolutionInfo(resolution);
-    list.push_back(make_pair(res2.strMode, resolution));
+    RESOLUTION_INFO res2 = CDisplaySettings::GetInstance().GetResolutionInfo(*resolution);
+    list.push_back(IntegerSettingOption(res2.strMode, *resolution));
   }
 }
 
-void CDisplaySettings::SettingOptionsFramerateconversionsFiller(const CSetting *setting, std::vector< std::pair<std::string, int> > &list, int &current, void *data)
+void CDisplaySettings::SettingOptionsFramerateconversionsFiller(const SettingConstPtr& setting,
+                                                                std::vector<IntegerSettingOption>& list,
+                                                                int& current,
+                                                                void* data)
 {
-  list.push_back(make_pair(g_localizeStrings.Get(13340), FRAME_RATE_LEAVE_AS_IS));
-  list.push_back(make_pair(g_videoConfig.HasPAL() ? g_localizeStrings.Get(38716) : g_localizeStrings.Get(38717), FRAME_RATE_CONVERT));
+  list.push_back(IntegerSettingOption(g_localizeStrings.Get(13340), FRAME_RATE_LEAVE_AS_IS));
+  list.push_back(IntegerSettingOption(g_videoConfig.HasPAL() ? g_localizeStrings.Get(38716) : g_localizeStrings.Get(38717), FRAME_RATE_CONVERT));
   if (g_videoConfig.HasPAL() && g_videoConfig.HasPAL60())
-    list.push_back(make_pair(g_localizeStrings.Get(38718), FRAME_RATE_USE_PAL60));
+    list.push_back(IntegerSettingOption(g_localizeStrings.Get(38718), FRAME_RATE_USE_PAL60));
 }
+

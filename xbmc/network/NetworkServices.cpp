@@ -1,367 +1,550 @@
 /*
- *      Copyright (C) 2005-2012 Team XBMC
- *      http://www.xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "NetworkServices.h"
-#include "Application.h"
-#include "messaging/ApplicationMessenger.h"
-#include "messaging/helpers/DialogHelper.h"
-#include "GUIInfoManager.h"
-#include "Util.h"
+
+#include "SectionLoader.h"
+#include "ServiceBroker.h"
 #include "dialogs/GUIDialogKaiToast.h"
 #include "dialogs/GUIDialogOK.h"
+#include "filesystem/File.h"
+#include "filesystem/SpecialProtocol.h"
+#include "guilib/GUIComponent.h"
+#include "guilib/GUIWindowManager.h"
 #include "guilib/LocalizeStrings.h"
-#include "xbox/Network.h"
-#include "xbox/IoSupport.h"
-
-#ifdef HAS_EVENT_SERVER
+#include "interfaces/json-rpc/JSONRPC.h" // On Xbox we initialize JSON-RPC only when we need it
+#include "messaging/ApplicationMessenger.h"
+#include "messaging/helpers/DialogHelper.h"
+#include "messaging/helpers/DialogOKHelper.h"
 #include "network/EventServer.h"
-#endif // HAS_EVENT_SERVER
+#include "network/Network.h"
+#include "network/TCPServer.h"
+#include "profiles/ProfileManager.h"
+#include "settings/AdvancedSettings.h"
+#include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
+#include "settings/lib/Setting.h"
+#include "settings/lib/SettingsManager.h"
+#include "utils/RssManager.h"
+#include "utils/Sntp.h"
+#include "utils/SystemInfo.h"
+#include "utils/Variant.h"
+#include "utils/log.h"
+
+#include <utility>
 
 #ifdef HAS_UPNP
 #include "network/upnp/UPnP.h"
 #endif // HAS_UPNP
 
-using namespace KODI::MESSAGING::HELPERS;
-
 #ifdef HAS_WEB_SERVER
-#include "libGoAhead/WebServer.h"
-#include "libGoAhead/XBMChttp.h"
+#include "network/WebServer.h"
+#include "network/httprequesthandler/HTTPImageHandler.h"
+#include "network/httprequesthandler/HTTPImageTransformationHandler.h"
+#include "network/httprequesthandler/HTTPVfsHandler.h"
+#include "network/httprequesthandler/HTTPJsonRpcHandler.h"
+#ifdef HAS_WEB_INTERFACE
+#ifdef HAS_PYTHON
+#include "network/httprequesthandler/HTTPPythonHandler.h"
+#endif
+#include "network/httprequesthandler/HTTPWebinterfaceHandler.h"
+#include "network/httprequesthandler/HTTPWebinterfaceAddonsHandler.h"
+#endif // HAS_WEB_INTERFACE
 #endif // HAS_WEB_SERVER
 
-#ifdef HAS_FTP_SERVER
 #include "libFileZilla/XBFileZilla.h"
-#endif
-
-#ifdef HAS_TIME_SERVER
-#include "utils/Sntp.h"
-#endif
-
-#include "filesystem/File.h"
-#include "filesystem/SpecialProtocol.h"
-#include "profiles/ProfilesManager.h"
-#include "settings/AdvancedSettings.h"
-#include "settings/lib/Setting.h"
-#include "settings/Settings.h"
-#include "utils/log.h"
-#include "utils/RssManager.h"
-#include "SectionLoader.h"
 
 using namespace KODI::MESSAGING;
-using namespace std;
-#ifdef HAS_EVENT_SERVER
+using namespace JSONRPC;
 using namespace EVENTSERVER;
-#endif // HAS_EVENT_SERVER
 #ifdef HAS_UPNP
 using namespace UPNP;
 #endif // HAS_UPNP
 
 CNetworkServices::CNetworkServices()
-  :
 #ifdef HAS_WEB_SERVER
-  m_webserver(NULL),
+  : m_webserver(*new CWebServer),
+  m_httpImageHandler(*new CHTTPImageHandler),
+  m_httpImageTransformationHandler(*new CHTTPImageTransformationHandler),
+  m_httpVfsHandler(*new CHTTPVfsHandler),
+  m_httpJsonRpcHandler(*new CHTTPJsonRpcHandler)
+#ifdef HAS_WEB_INTERFACE
+#ifdef HAS_PYTHON
+  , m_httpPythonHandler(*new CHTTPPythonHandler)
+#endif
+  , m_httpWebinterfaceHandler(*new CHTTPWebinterfaceHandler)
+  , m_httpWebinterfaceAddonsHandler(*new CHTTPWebinterfaceAddonsHandler)
+#endif // HAS_WEB_INTERFACE
 #endif // HAS_WEB_SERVER
-  m_sntpclient(NULL),
-  m_filezilla(NULL)
+  , m_sntpclient(NULL)
+  , m_filezilla(NULL)
 {
+#ifdef HAS_WEB_SERVER
+  m_webserver.RegisterRequestHandler(&m_httpImageHandler);
+  m_webserver.RegisterRequestHandler(&m_httpImageTransformationHandler);
+  m_webserver.RegisterRequestHandler(&m_httpVfsHandler);
+  m_webserver.RegisterRequestHandler(&m_httpJsonRpcHandler);
+#ifdef HAS_WEB_INTERFACE
+#ifdef HAS_PYTHON
+  m_webserver.RegisterRequestHandler(&m_httpPythonHandler);
+#endif
+  m_webserver.RegisterRequestHandler(&m_httpWebinterfaceAddonsHandler);
+  m_webserver.RegisterRequestHandler(&m_httpWebinterfaceHandler);
+#endif // HAS_WEB_INTERFACE
+#endif // HAS_WEB_SERVER
+  std::set<std::string> settingSet;
+  settingSet.insert(CSettings::SETTING_SERVICES_WEBSERVER);
+  settingSet.insert(CSettings::SETTING_SERVICES_WEBSERVERPORT);
+  settingSet.insert(CSettings::SETTING_SERVICES_WEBSERVERAUTHENTICATION);
+  settingSet.insert(CSettings::SETTING_SERVICES_WEBSERVERUSERNAME);
+  settingSet.insert(CSettings::SETTING_SERVICES_WEBSERVERPASSWORD);
+  settingSet.insert(CSettings::SETTING_SERVICES_UPNP);
+  settingSet.insert(CSettings::SETTING_SERVICES_UPNPSERVER);
+  settingSet.insert(CSettings::SETTING_SERVICES_UPNPRENDERER);
+  settingSet.insert(CSettings::SETTING_SERVICES_ESENABLED);
+  settingSet.insert(CSettings::SETTING_SERVICES_ESPORT);
+  settingSet.insert(CSettings::SETTING_SERVICES_ESALLINTERFACES);
+  settingSet.insert(CSettings::SETTING_SERVICES_ESINITIALDELAY);
+  settingSet.insert(CSettings::SETTING_SERVICES_ESCONTINUOUSDELAY);
+  settingSet.insert(CSettings::SETTING_SERVICES_FTPSERVER);
+  settingSet.insert(CSettings::SETTING_SERVICES_FTPSERVER_USER);
+  settingSet.insert(CSettings::SETTING_SERVICES_FTPSERVER_PASSWORD);
+  settingSet.insert(CSettings::SETTING_SERVICES_TIMESERVER);
+  settingSet.insert(CSettings::SETTING_SERVICES_TIMESERVER_ADDRESS);
+  settingSet.insert(CSettings::SETTING_SMB_WINSSERVER);
+  settingSet.insert(CSettings::SETTING_SMB_WORKGROUP);
+  m_settings = CServiceBroker::GetSettingsComponent()->GetSettings();
+  m_settings->GetSettingsManager()->RegisterCallback(this, settingSet);
 }
 
 CNetworkServices::~CNetworkServices()
 {
-#ifdef HAS_TIME_SERVER
-  delete m_sntpclient;
-#endif
+  m_settings->GetSettingsManager()->UnregisterCallback(this);
 #ifdef HAS_WEB_SERVER
-  delete m_webserver;
-#endif // HAS_WEB_SERVER
-#ifdef HAS_FTP_SERVER
-  delete m_filezilla;
+  m_webserver.UnregisterRequestHandler(&m_httpImageHandler);
+  delete &m_httpImageHandler;
+  m_webserver.UnregisterRequestHandler(&m_httpImageTransformationHandler);
+  delete &m_httpImageTransformationHandler;
+  m_webserver.UnregisterRequestHandler(&m_httpVfsHandler);
+  delete &m_httpVfsHandler;
+  m_webserver.UnregisterRequestHandler(&m_httpJsonRpcHandler);
+  delete &m_httpJsonRpcHandler;
+  CJSONRPC::Cleanup();
+#ifdef HAS_WEB_INTERFACE
+#ifdef HAS_PYTHON
+  m_webserver.UnregisterRequestHandler(&m_httpPythonHandler);
+  delete &m_httpPythonHandler;
 #endif
+  m_webserver.UnregisterRequestHandler(&m_httpWebinterfaceAddonsHandler);
+  delete &m_httpWebinterfaceAddonsHandler;
+  m_webserver.UnregisterRequestHandler(&m_httpWebinterfaceHandler);
+  delete &m_httpWebinterfaceHandler;
+#endif // HAS_WEB_INTERFACE
+  delete &m_webserver;
+#endif // HAS_WEB_SERVER
+  delete m_sntpclient;
+  delete m_filezilla;
 }
 
-CNetworkServices& CNetworkServices::Get()
-{
-  static CNetworkServices sNetworkServices;
-  return sNetworkServices;
-}
-
-bool CNetworkServices::OnSettingChanging(const CSetting *setting)
+bool CNetworkServices::OnSettingChanging(const boost::shared_ptr<const CSetting>& setting)
 {
   if (setting == NULL)
     return false;
 
   const std::string &settingId = setting->GetId();
 #ifdef HAS_WEB_SERVER
-  if (settingId == "services.webserver" ||
-      settingId == "services.webserverport")
+  // Ask user to confirm disabling the authentication requirement, but not when the configuration
+  // would be invalid when authentication was enabled (meaning that the change was triggered
+  // automatically)
+  if (settingId == CSettings::SETTING_SERVICES_WEBSERVERAUTHENTICATION &&
+      !boost::static_pointer_cast<const CSettingBool>(setting)->GetValue() &&
+      (!m_settings->GetBool(CSettings::SETTING_SERVICES_WEBSERVER) ||
+       (m_settings->GetBool(CSettings::SETTING_SERVICES_WEBSERVER) &&
+        !m_settings->GetString(CSettings::SETTING_SERVICES_WEBSERVERPASSWORD).empty())) &&
+      HELPERS::ShowYesNoDialogText(19098, 36634) != HELPERS::CHOICE_YES)
+  {
+    // Leave it as-is
+    return false;
+  }
+
+  if (settingId == CSettings::SETTING_SERVICES_WEBSERVER ||
+      settingId == CSettings::SETTING_SERVICES_WEBSERVERPORT ||
+      settingId == CSettings::SETTING_SERVICES_WEBSERVERAUTHENTICATION ||
+      settingId == CSettings::SETTING_SERVICES_WEBSERVERUSERNAME ||
+      settingId == CSettings::SETTING_SERVICES_WEBSERVERPASSWORD)
   {
     if (IsWebserverRunning() && !StopWebserver())
       return false;
 
-    if (CSettings::GetInstance().GetBool("services.webserver"))
+    if (m_settings->GetBool(CSettings::SETTING_SERVICES_WEBSERVER))
     {
+      // Prevent changing to an invalid configuration
+      if ((settingId == CSettings::SETTING_SERVICES_WEBSERVER ||
+           settingId == CSettings::SETTING_SERVICES_WEBSERVERAUTHENTICATION ||
+           settingId == CSettings::SETTING_SERVICES_WEBSERVERPASSWORD) &&
+          m_settings->GetBool(CSettings::SETTING_SERVICES_WEBSERVERAUTHENTICATION) &&
+          m_settings->GetString(CSettings::SETTING_SERVICES_WEBSERVERPASSWORD).empty())
+      {
+        if (settingId == CSettings::SETTING_SERVICES_WEBSERVERAUTHENTICATION)
+        {
+          HELPERS::ShowOKDialogText(257, 36636);
+        }
+        else
+        {
+          HELPERS::ShowOKDialogText(257, 36635);
+        }
+        return false;
+      }
+
+      // Ask for confirmation when enabling the web server
+      if (settingId == CSettings::SETTING_SERVICES_WEBSERVER &&
+          HELPERS::ShowYesNoDialogText(19098, 36632) != HELPERS::CHOICE_YES)
+      {
+        // Revert change, do not start server
+        return false;
+      }
+
       if (!StartWebserver())
       {
-        CGUIDialogOK::ShowAndGetInput(g_localizeStrings.Get(33101), "", g_localizeStrings.Get(33100), "");
+        HELPERS::ShowOKDialogText(33101, 33100);
         return false;
       }
     }
   }
-  else if (settingId == "services.esport" ||
-           settingId == "services.webserverport")
-    return ValidatePort(((CSettingInt*)setting)->GetValue());
+  else if (settingId == CSettings::SETTING_SERVICES_ESPORT ||
+           settingId == CSettings::SETTING_SERVICES_WEBSERVERPORT)
+    return ValidatePort(boost::static_pointer_cast<const CSettingInt>(setting)->GetValue());
   else
 #endif // HAS_WEB_SERVER
 
-#ifdef HAS_FTP_SERVER
-  if (settingId == "services.ftpserveruser" || settingId == "services.ftpserverpassword")
-    return SetFTPServerUserPass();
-  else
-#endif // HAS_FTP_SERVER
-
 #ifdef HAS_UPNP
-  if (settingId == "services.upnpserver")
+  if (settingId == CSettings::SETTING_SERVICES_UPNP)
   {
-    if (((CSettingBool*)setting)->GetValue())
-      return StartUPnPServer();
+    if (boost::static_pointer_cast<const CSettingBool>(setting)->GetValue())
+    {
+      StartUPnPClient();
+      StartUPnPServer();
+      StartUPnPRenderer();
+    }
+    else
+    {
+      StopUPnPRenderer();
+      StopUPnPServer();
+      StopUPnPClient();
+    }
+  }
+  else if (settingId == CSettings::SETTING_SERVICES_UPNPSERVER)
+  {
+    if (boost::static_pointer_cast<const CSettingBool>(setting)->GetValue())
+    {
+      if (!StartUPnPServer())
+        return false;
+
+      // always stop and restart the client and controller if necessary
+      StopUPnPClient();
+      StartUPnPClient();
+    }
     else
       return StopUPnPServer();
   }
-  else if (settingId == "services.upnprenderer")
+  else if (settingId == CSettings::SETTING_SERVICES_UPNPRENDERER)
   {
-    if (((CSettingBool*)setting)->GetValue())
+    if (boost::static_pointer_cast<const CSettingBool>(setting)->GetValue())
       return StartUPnPRenderer();
     else
       return StopUPnPRenderer();
   }
-  else if (settingId == "services.upnpcontroller")
-  {
-    // always stop and restart
-    StopUPnPClient();
-    if (((CSettingBool*)setting)->GetValue())
-      return StartUPnPClient();
-  }
-  // else
+  else
 #endif // HAS_UPNP
 
-  if (settingId == "services.esenabled")
+  if (settingId == CSettings::SETTING_SERVICES_ESENABLED)
   {
-#ifdef HAS_EVENT_SERVER
-    if (((CSettingBool*)setting)->GetValue())
+    if (boost::static_pointer_cast<const CSettingBool>(setting)->GetValue())
     {
+      bool result = true;
       if (!StartEventServer())
       {
-        CGUIDialogOK::ShowAndGetInput(g_localizeStrings.Get(33102), "", g_localizeStrings.Get(33100), "");
-        return false;
+        HELPERS::ShowOKDialogText(33102, 33100);
+        result = false;
       }
+
+      if (!StartJSONRPCServer())
+      {
+        HELPERS::ShowOKDialogText(33103, 33100);
+        result = false;
+      }
+      return result;
     }
     else
-      return StopEventServer(true, true);
-#endif // HAS_EVENT_SERVER
+    {
+      bool result = true;
+      result = StopEventServer(true, true);
+      result &= StopJSONRPCServer(false);
+      return result;
+    }
   }
-  else if (settingId == "services.esport")
+  else if (settingId == CSettings::SETTING_SERVICES_ESPORT)
   {
-#ifdef HAS_EVENT_SERVER
     // restart eventserver without asking user
     if (!StopEventServer(true, false))
       return false;
 
     if (!StartEventServer())
     {
-      CGUIDialogOK::ShowAndGetInput(g_localizeStrings.Get(33102), "", g_localizeStrings.Get(33100), "");
+      HELPERS::ShowOKDialogText(33102, 33100);
       return false;
     }
-#endif // HAS_EVENT_SERVER
   }
-  else if (settingId == "services.esallinterfaces")
+  else if (settingId == CSettings::SETTING_SERVICES_ESALLINTERFACES)
   {
-#ifdef HAS_EVENT_SERVER
-    if (CSettings::GetInstance().GetBool("services.esenabled"))
+    if (m_settings->GetBool(CSettings::SETTING_SERVICES_ESALLINTERFACES) &&
+        HELPERS::ShowYesNoDialogText(19098, 36633) != HELPERS::CHOICE_YES)
+    {
+      // Revert change, do not start server
+      return false;
+    }
+
+    if (m_settings->GetBool(CSettings::SETTING_SERVICES_ESENABLED))
     {
       if (!StopEventServer(true, true))
         return false;
 
       if (!StartEventServer())
       {
-        CGUIDialogOK::ShowAndGetInput(g_localizeStrings.Get(33102), "", g_localizeStrings.Get(33100), "");
+        HELPERS::ShowOKDialogText(33102, 33100);
         return false;
       }
     }
-#endif // HAS_EVENT_SERVER
+
+    if (m_settings->GetBool(CSettings::SETTING_SERVICES_ESENABLED))
+    {
+      if (!StopJSONRPCServer(true))
+        return false;
+
+      if (!StartJSONRPCServer())
+      {
+        HELPERS::ShowOKDialogText(33103, 33100);
+        return false;
+      }
+    }
   }
 
-#ifdef HAS_EVENT_SERVER
-  else if (settingId == "services.esinitialdelay" ||
-           settingId == "services.escontinuousdelay")
+  else if (settingId == CSettings::SETTING_SERVICES_ESINITIALDELAY ||
+           settingId == CSettings::SETTING_SERVICES_ESCONTINUOUSDELAY)
   {
-    if (CSettings::GetInstance().GetBool("services.esenabled"))
+    if (m_settings->GetBool(CSettings::SETTING_SERVICES_ESENABLED))
       return RefreshEventServer();
   }
-#endif // HAS_EVENT_SERVER
 
-  return true;
-}
-
-void CNetworkServices::OnSettingChanged(const CSetting *setting)
-{
-  if (setting == NULL)
-    return;
-
-  const std::string &settingId = setting->GetId();
-#ifdef HAS_TIME_SERVER
-  if (settingId == "services.timeserver")
+  else if (settingId == CSettings::SETTING_SERVICES_TIMESERVER)
   {
-    if (((CSettingBool*)setting)->GetValue())
+    if (m_settings->GetBool(CSettings::SETTING_SERVICES_TIMESERVER))
       StartTimeServer();
     else
       StopTimeServer();
   }
-  else if (settingId == "services.timeserveraddress")
+  else if (settingId == CSettings::SETTING_SERVICES_TIMESERVER_ADDRESS)
   {
     StopTimeServer();
     StartTimeServer();
   }
-  else
-#endif
-#ifdef HAS_FTP_SERVER
-  if (settingId == "services.ftpserver")
+  else if (settingId == CSettings::SETTING_SERVICES_FTPSERVER_USER ||
+           settingId == CSettings::SETTING_SERVICES_FTPSERVER_PASSWORD)
   {
-    if (((CSettingBool*)setting)->GetValue())
+    return SetFTPServerUserPass();
+  }
+  else if (settingId == CSettings::SETTING_SERVICES_FTPSERVER)
+  {
+    if (m_settings->GetBool(CSettings::SETTING_SERVICES_FTPSERVER))
       StartFtpServer();
     else
       StopFtpServer();
   }
-  else
-#endif
-#ifdef HAS_WEB_SERVER
-  if (settingId == "services.webserverusername" ||
-      settingId == "services.webserverpassword")
-  {
-    if (settingId == "services.webserverusername")
-      m_webserver->SetUserName(((CSettingString*)setting)->GetValue().c_str());
-    else if(settingId == "services.webserverpassword")
-      m_webserver->SetPassword(((CSettingString*)setting)->GetValue().c_str());
-  }
-  else
-#endif // HAS_WEB_SERVER
-  if (settingId == "smb.winsserver" ||
-      settingId == "smb.workgroup")
+
+  return true;
+}
+
+void CNetworkServices::OnSettingChanged(const boost::shared_ptr<const CSetting>& setting)
+{
+  if (setting == NULL)
+    return;
+
+  const std::string& settingId = setting->GetId();
+  if (settingId == CSettings::SETTING_SMB_WINSSERVER ||
+      settingId == CSettings::SETTING_SMB_WORKGROUP)
   {
     // okey we really don't need to restart, only deinit samba, but that could be damn hard if something is playing
-    // TODO - General way of handling setting changes that require restart
-    if (HELPERS::ShowYesNoDialogText(14038, 14039) == YES)
+    //! @todo - General way of handling setting changes that require restart
+    if (HELPERS::ShowYesNoDialogText(14038, 14039) ==
+        HELPERS::CHOICE_YES)
     {
-      CSettings::GetInstance().Save();
-      CApplicationMessenger::Get().PostMsg(TMSG_RESTARTAPP);
+      m_settings->Save();
+      CServiceBroker::GetAppMessenger()->PostMsg(TMSG_RESTARTAPP);
     }
   }
 }
 
+bool CNetworkServices::OnSettingUpdate(const boost::shared_ptr<CSetting>& setting,
+                                       const char* oldSettingId,
+                                       const TiXmlNode* oldSettingNode)
+{
+  if (setting == NULL)
+    return false;
+
+  const std::string &settingId = setting->GetId();
+  if (settingId == CSettings::SETTING_SERVICES_WEBSERVERUSERNAME)
+  {
+    // if webserverusername is xbmc and pw is not empty we treat it as altered
+    // and don't change the username to kodi - part of rebrand
+    if (m_settings->GetString(CSettings::SETTING_SERVICES_WEBSERVERUSERNAME) == "xbmc" &&
+        !m_settings->GetString(CSettings::SETTING_SERVICES_WEBSERVERPASSWORD).empty())
+      return true;
+  }
+  if (settingId == CSettings::SETTING_SERVICES_WEBSERVERPORT)
+  {
+    // if webserverport is default but webserver is activated then treat it as altered
+    // and don't change the port to new value
+    if (m_settings->GetBool(CSettings::SETTING_SERVICES_WEBSERVER))
+      return true;
+  }
+  return false;
+}
+
 void CNetworkServices::Start()
 {
-  StartTimeServer();
-  if (CSettings::GetInstance().GetBool("services.webserver") && !StartWebserver())
-    CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Warning, g_localizeStrings.Get(33101), g_localizeStrings.Get(33100));
-  StartFtpServer();
-  StartUPnP();
-  if (CSettings::GetInstance().GetBool("services.esenabled") && !StartEventServer())
+  if (m_settings->GetBool(CSettings::SETTING_SERVICES_UPNP))
+    StartUPnP();
+  if (m_settings->GetBool(CSettings::SETTING_SERVICES_ESENABLED) && !StartEventServer())
     CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Warning, g_localizeStrings.Get(33102), g_localizeStrings.Get(33100));
+  if (m_settings->GetBool(CSettings::SETTING_SERVICES_ESENABLED) && !StartJSONRPCServer())
+    CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Warning, g_localizeStrings.Get(33103), g_localizeStrings.Get(33100));
+
+#ifdef HAS_WEB_SERVER
+  // Start web server after eventserver and JSON-RPC server, so users can use these interfaces
+  // to confirm the warning message below if it is shown
+  if (m_settings->GetBool(CSettings::SETTING_SERVICES_WEBSERVER))
+  {
+    // services.webserverauthentication setting was added in Kodi v18 and requires a valid password
+    // to be set, but on upgrade the setting will be activated automatically regardless of whether
+    // a password was set before -> this can lead to an invalid configuration
+    if (m_settings->GetBool(CSettings::SETTING_SERVICES_WEBSERVERAUTHENTICATION) &&
+        m_settings->GetString(CSettings::SETTING_SERVICES_WEBSERVERPASSWORD).empty())
+    {
+      // Alert user to new default security settings in new Kodi version
+      HELPERS::ShowOKDialogText(33101, 33104);
+      // Fix settings: Disable web server
+      m_settings->SetBool(CSettings::SETTING_SERVICES_WEBSERVER, false);
+      // Bring user to settings screen where authentication can be configured properly
+      CServiceBroker::GetGUI()->GetWindowManager().ActivateWindow(
+          WINDOW_SETTINGS_SERVICE, std::vector<std::string>(1, "services.webserverauthentication"));
+    }
+    // Only try to start server if configuration is OK
+    else if (!StartWebserver())
+      CGUIDialogKaiToast::QueueNotification(
+          CGUIDialogKaiToast::Warning, g_localizeStrings.Get(33101), g_localizeStrings.Get(33100));
+  }
+#endif // HAS_WEB_SERVER
+
   StartRss();
+  StartTimeServer();
+  StartFtpServer();
 }
 
 void CNetworkServices::Stop(bool bWait)
 {
   if (bWait)
   {
-    StopTimeServer();
+    StopUPnP(bWait);
     StopWebserver();
-    StopFtpServer();
     StopRss();
+    StopTimeServer();
+    StopFtpServer();
   }
 
   StopEventServer(bWait, false);
+  StopJSONRPCServer(bWait);
 }
 
-bool CNetworkServices::StartTimeServer()
+bool CNetworkServices::StartServer(enum ESERVERS server, bool start)
 {
-#ifdef HAS_TIME_SERVER
-  if (!g_application.getNetwork().IsAvailable())
+  boost::shared_ptr<CSettingsComponent> settingsComponent = CServiceBroker::GetSettingsComponent();
+  if (!settingsComponent)
     return false;
 
-  if (!CSettings::GetInstance().GetBool("services.timeserver"))
+  boost::shared_ptr<CSettings> settings = CServiceBroker::GetSettingsComponent()->GetSettings();
+  if (!settings)
     return false;
 
-  if(!IsTimeServerRunning())
+  bool ret = false;
+  switch (server)
   {
-    CSectionLoader::Load("SNTP");
-    CLog::Log(LOGNOTICE, "start timeserver client");
-    m_sntpclient = new CSNTPClient();
-    m_sntpclient->Update();
+    case ES_WEBSERVER:
+      // the callback will take care of starting/stopping webserver
+      ret = settings->SetBool(CSettings::SETTING_SERVICES_WEBSERVER, start);
+      break;
+
+    case ES_JSONRPCSERVER:
+      // the callback will take care of starting/stopping jsonrpc server
+      ret = settings->SetBool(CSettings::SETTING_SERVICES_ESENABLED, start);
+      break;
+
+    case ES_UPNPSERVER:
+      // the callback will take care of starting/stopping upnp server
+      ret = settings->SetBool(CSettings::SETTING_SERVICES_UPNPSERVER, start);
+      break;
+
+    case ES_UPNPRENDERER:
+      // the callback will take care of starting/stopping upnp renderer
+      ret = settings->SetBool(CSettings::SETTING_SERVICES_UPNPRENDERER, start);
+      break;
+
+    case ES_EVENTSERVER:
+      // the callback will take care of starting/stopping event server
+      ret = settings->SetBool(CSettings::SETTING_SERVICES_ESENABLED, start);
+      break;
+
+    case ES_TIMESERVER:
+      // the callback will take care of starting/stopping time server
+      ret = settings->SetBool(CSettings::SETTING_SERVICES_TIMESERVER, start);
+      break;
+
+    case ES_FTPSERVER:
+      // the callback will take care of starting/stopping ftp server
+      ret = settings->SetBool(CSettings::SETTING_SERVICES_FTPSERVER, start);
+      break;
+
+    default:
+      ret = false;
+      break;
   }
+  settings->Save();
 
-  return true;
-#endif
-  return false;
-}
-
-bool CNetworkServices::IsTimeServerRunning()
-{
-#ifdef HAS_TIME_SERVER
-  return m_sntpclient != NULL;
-#endif
-  return false;
-}
-
-bool CNetworkServices::StopTimeServer()
-{
-#ifdef HAS_TIME_SERVER
-  if (m_sntpclient)
-  {
-    CLog::Log(LOGNOTICE, "stop time server client");
-    SAFE_DELETE(m_sntpclient);
-    CSectionLoader::Unload("SNTP");
-  }
-  return true;
-#endif
-  return false;
-}
-
-bool CNetworkServices::IsTimeServerUpdateNeeded()
-{
-  return m_sntpclient->UpdateNeeded();
-}
-
-void CNetworkServices::UpdateTimeServer()
-{
-  m_sntpclient->Update();
+  return ret;
 }
 
 bool CNetworkServices::StartWebserver()
 {
 #ifdef HAS_WEB_SERVER
-  if (!g_application.getNetwork().IsAvailable())
+  if (!CServiceBroker::GetNetwork().IsAvailable())
     return false;
 
-  if (!CSettings::GetInstance().GetBool("services.webserver"))
+  if (!m_settings->GetBool(CSettings::SETTING_SERVICES_WEBSERVER))
     return false;
 
-  int webPort = CSettings::GetInstance().GetInt("services.webserverport");
+  if (m_settings->GetBool(CSettings::SETTING_SERVICES_WEBSERVERAUTHENTICATION) &&
+      m_settings->GetString(CSettings::SETTING_SERVICES_WEBSERVERPASSWORD).empty())
+  {
+    CLog::Log(LOGERROR, "Tried to start webserver with invalid configuration (authentication "
+                        "enabled, but no password set");
+    return false;
+  }
+
+  int webPort = m_settings->GetInt(CSettings::SETTING_SERVICES_WEBSERVERPORT);
   if (!ValidatePort(webPort))
   {
     CLog::Log(LOGERROR, "Cannot start Web Server on port %i", webPort);
@@ -371,23 +554,19 @@ bool CNetworkServices::StartWebserver()
   if (IsWebserverRunning())
     return true;
 
-  CLog::Log(LOGNOTICE, "Webserver: Starting...");
-  CSectionLoader::Load("LIBHTTP");
-  m_webserver = new CWebServer();
-  if(!m_webserver->Start(webPort, false))
+  std::string username;
+  std::string password;
+  if (m_settings->GetBool(CSettings::SETTING_SERVICES_WEBSERVERAUTHENTICATION))
   {
-    delete m_webserver;
-    m_webserver = NULL;
-    return false;
+    username = m_settings->GetString(CSettings::SETTING_SERVICES_WEBSERVERUSERNAME);
+    password = m_settings->GetString(CSettings::SETTING_SERVICES_WEBSERVERPASSWORD);
   }
 
-  if (m_webserver)
-  {
-    m_webserver->SetUserName(CSettings::GetInstance().GetString("services.webserverusername").c_str());
-    m_webserver->SetPassword(CSettings::GetInstance().GetString("services.webserverpassword").c_str());
-  }
-  if (m_webserver && m_pXbmcHttp && CSettings::GetInstance().GetInt("services.httpapibroadcastlevel")>=1)
-    CApplicationMessenger::Get().HttpApi("broadcastlevel; StartUp;1");
+  if (!m_webserver.Start(webPort, username, password))
+    return false;
+
+  CJSONRPC::Initialize();
+
   return true;
 #endif // HAS_WEB_SERVER
   return false;
@@ -396,7 +575,7 @@ bool CNetworkServices::StartWebserver()
 bool CNetworkServices::IsWebserverRunning()
 {
 #ifdef HAS_WEB_SERVER
-  return m_webserver != NULL;
+  return m_webserver.IsStarted();
 #endif // HAS_WEB_SERVER
   return false;
 }
@@ -407,55 +586,365 @@ bool CNetworkServices::StopWebserver()
   if (!IsWebserverRunning())
     return true;
 
-  CLog::Log(LOGNOTICE, "Webserver: Stopping...");
-  m_webserver->Stop();
-  delete m_webserver;
-  m_webserver = NULL;
-  CSectionLoader::Unload("LIBHTTP");
-  CLog::Log(LOGNOTICE, "Webserver: Stopped...");
+  if (!m_webserver.Stop() || m_webserver.IsStarted())
+  {
+    CLog::Log(LOGWARNING, "Webserver: Failed to stop.");
+    return false;
+  }
+
+  if (!IsJSONRPCServerRunning())
+    CJSONRPC::Cleanup();
+
   return true;
 #endif // HAS_WEB_SERVER
   return false;
 }
 
-bool CNetworkServices::StartFtpServer()
+bool CNetworkServices::StartJSONRPCServer()
 {
-#ifdef HAS_FTP_SERVER
-  if (!g_application.getNetwork().IsAvailable())
+  if (!m_settings->GetBool(CSettings::SETTING_SERVICES_ESENABLED))
     return false;
 
-  if (!CSettings::GetInstance().GetBool("services.ftpserver"))
+  if (IsJSONRPCServerRunning())
+    return true;
+
+  if (!CTCPServer::StartServer(CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_jsonTcpPort, m_settings->GetBool(CSettings::SETTING_SERVICES_ESALLINTERFACES)))
+   return false;
+
+  CJSONRPC::Initialize();
+
+  return true;
+}
+
+bool CNetworkServices::IsJSONRPCServerRunning()
+{
+  return CTCPServer::IsRunning();
+}
+
+bool CNetworkServices::StopJSONRPCServer(bool bWait)
+{
+  if (!IsJSONRPCServerRunning())
+    return true;
+
+  CTCPServer::StopServer(bWait);
+
+  if (!IsWebserverRunning())
+    CJSONRPC::Cleanup();
+
+  return true;
+}
+
+bool CNetworkServices::StartEventServer()
+{
+  if (!m_settings->GetBool(CSettings::SETTING_SERVICES_ESENABLED))
     return false;
 
-  CLog::Log(LOGNOTICE, "XBFileZilla: Starting...");
-  if (!IsFtpServerRunning())
+  if (IsEventServerRunning())
+    return true;
+
+  CEventServer* server = CEventServer::GetInstance();
+  if (!server)
   {
-    CStdString xmlpath = "special://xbmc/system/";
-    // if user didn't upgrade properly,
-    // check whether UserData/FileZilla Server.xml exists
-    if (XFILE::CFile::Exists(CProfilesManager::Get().GetUserDataItem("FileZilla Server.xml")))
-      xmlpath = CProfilesManager::Get().GetUserDataFolder();
+    CLog::Log(LOGERROR, "ES: Out of memory");
+    return false;
+  }
 
-    // check file size and presence
-    XFILE::CFile xml;
-    if (xml.Open(xmlpath+"FileZilla Server.xml") && xml.GetLength() > 0)
+  server->StartServer();
+
+  return true;
+}
+
+bool CNetworkServices::IsEventServerRunning()
+{
+  return CEventServer::GetInstance()->Running();
+}
+
+bool CNetworkServices::StopEventServer(bool bWait, bool promptuser)
+{
+  if (!IsEventServerRunning())
+    return true;
+
+  CEventServer* server = CEventServer::GetInstance();
+  if (!server)
+  {
+    CLog::Log(LOGERROR, "ES: Out of memory");
+    return false;
+  }
+
+  if (promptuser)
+  {
+    if (server->GetNumberOfClients() > 0)
     {
-      m_filezilla = new CXBFileZilla(CSpecialProtocol::TranslatePath(xmlpath));
-      m_filezilla->Start(false);
+      if (HELPERS::ShowYesNoDialogText(13140, 13141, "", "",
+                                       10000) != HELPERS::CHOICE_YES)
+      {
+        CLog::Log(LOGINFO, "ES: Not stopping event server");
+        return false;
+      }
     }
-    else
-    {
-      // 'FileZilla Server.xml' does not exist or is corrupt, 
-      // falling back to ftp emergency recovery mode
-      CLog::Log(LOGNOTICE, "XBFileZilla: 'FileZilla Server.xml' is missing or is corrupt!");
-      CLog::Log(LOGNOTICE, "XBFileZilla: Starting ftp emergency recovery mode");
-      StartFtpEmergencyRecoveryMode();
-    }
-    xml.Close();
+    CLog::Log(LOGINFO, "ES: Stopping event server with confirmation");
+
+    CEventServer::GetInstance()->StopServer(true);
+  }
+  else
+  {
+    if (!bWait)
+      CLog::Log(LOGINFO, "ES: Stopping event server");
+
+    CEventServer::GetInstance()->StopServer(bWait);
+  }
+
+  return true;
+}
+
+bool CNetworkServices::RefreshEventServer()
+{
+  if (!m_settings->GetBool(CSettings::SETTING_SERVICES_ESENABLED))
+    return false;
+
+  if (!IsEventServerRunning())
+    return false;
+
+  CEventServer::GetInstance()->RefreshSettings();
+  return true;
+}
+
+bool CNetworkServices::StartUPnP()
+{
+  bool ret = false;
+#ifdef HAS_UPNP
+  ret |= StartUPnPClient();
+  if (m_settings->GetBool(CSettings::SETTING_SERVICES_UPNPSERVER))
+  {
+   ret |= StartUPnPServer();
+  }
+
+  if (m_settings->GetBool(CSettings::SETTING_SERVICES_UPNPRENDERER))
+  {
+    ret |= StartUPnPRenderer();
+  }
+#endif // HAS_UPNP
+  return ret;
+}
+
+bool CNetworkServices::StopUPnP(bool bWait)
+{
+#ifdef HAS_UPNP
+  if (!CUPnP::IsInstantiated())
+    return true;
+
+  CLog::Log(LOGINFO, "stopping upnp");
+  CUPnP::ReleaseInstance(bWait);
+
+  return true;
+#endif // HAS_UPNP
+  return false;
+}
+
+bool CNetworkServices::StartUPnPClient()
+{
+#ifdef HAS_UPNP
+  if (!m_settings->GetBool(CSettings::SETTING_SERVICES_UPNP))
+    return false;
+
+  CLog::Log(LOGINFO, "starting upnp client");
+  CUPnP::GetInstance()->StartClient();
+  return IsUPnPClientRunning();
+#endif // HAS_UPNP
+  return false;
+}
+
+bool CNetworkServices::IsUPnPClientRunning()
+{
+#ifdef HAS_UPNP
+  return CUPnP::GetInstance()->IsClientStarted();
+#endif // HAS_UPNP
+  return false;
+}
+
+bool CNetworkServices::StopUPnPClient()
+{
+#ifdef HAS_UPNP
+  if (!IsUPnPClientRunning())
+    return true;
+
+  CLog::Log(LOGINFO, "stopping upnp client");
+  CUPnP::GetInstance()->StopClient();
+
+  return true;
+#endif // HAS_UPNP
+  return false;
+}
+
+bool CNetworkServices::StartUPnPRenderer()
+{
+#ifdef HAS_UPNP
+  if (!m_settings->GetBool(CSettings::SETTING_SERVICES_UPNPRENDERER) ||
+      !m_settings->GetBool(CSettings::SETTING_SERVICES_UPNP))
+    return false;
+
+  CLog::Log(LOGINFO, "starting upnp renderer");
+  return CUPnP::GetInstance()->StartRenderer();
+#endif // HAS_UPNP
+  return false;
+}
+
+bool CNetworkServices::IsUPnPRendererRunning()
+{
+#ifdef HAS_UPNP
+  return CUPnP::GetInstance()->IsInstantiated();
+#endif // HAS_UPNP
+  return false;
+}
+
+bool CNetworkServices::StopUPnPRenderer()
+{
+#ifdef HAS_UPNP
+  if (!IsUPnPRendererRunning())
+    return true;
+
+  CLog::Log(LOGINFO, "stopping upnp renderer");
+  CUPnP::GetInstance()->StopRenderer();
+
+  return true;
+#endif // HAS_UPNP
+  return false;
+}
+
+bool CNetworkServices::StartUPnPServer()
+{
+#ifdef HAS_UPNP
+  if (!m_settings->GetBool(CSettings::SETTING_SERVICES_UPNPSERVER) ||
+      !m_settings->GetBool(CSettings::SETTING_SERVICES_UPNP))
+    return false;
+
+  CLog::Log(LOGINFO, "starting upnp server");
+  return CUPnP::GetInstance()->StartServer();
+#endif // HAS_UPNP
+  return false;
+}
+
+bool CNetworkServices::IsUPnPServerRunning()
+{
+#ifdef HAS_UPNP
+  return CUPnP::GetInstance()->IsInstantiated();
+#endif // HAS_UPNP
+  return false;
+}
+
+bool CNetworkServices::StopUPnPServer()
+{
+#ifdef HAS_UPNP
+  if (!IsUPnPServerRunning())
+    return true;
+
+  CLog::Log(LOGINFO, "stopping upnp server");
+  CUPnP::GetInstance()->StopServer();
+
+  return true;
+#endif // HAS_UPNP
+  return false;
+}
+
+bool CNetworkServices::StartRss()
+{
+  if (IsRssRunning())
+    return true;
+
+  CRssManager::GetInstance().Start();
+  return true;
+}
+
+bool CNetworkServices::IsRssRunning()
+{
+  return CRssManager::GetInstance().IsActive();
+}
+
+bool CNetworkServices::StopRss()
+{
+  if (!IsRssRunning())
+    return true;
+
+  CRssManager::GetInstance().Stop();
+  return true;
+}
+
+bool CNetworkServices::ValidatePort(int port)
+{
+  if (port <= 0 || port > 65535)
+    return false;
+
+  return true;
+}
+
+bool CNetworkServices::StartTimeServer()
+{
+  if (!CServiceBroker::GetNetwork().IsAvailable())
+    return false;
+
+  if (!m_settings->GetBool(CSettings::SETTING_SERVICES_TIMESERVER))
+    return false;
+
+  if(m_sntpclient == NULL)
+  {
+    CSectionLoader::Load("SNTP");
+    m_sntpclient = new CSNTPClient();
+    m_sntpclient->Update();
+  }
+
+  return true;
+}
+
+bool CNetworkServices::StopTimeServer()
+{
+  if (m_sntpclient != NULL)
+  {
+    delete m_sntpclient;
+    m_sntpclient = NULL;
+    CSectionLoader::Unload("SNTP");
   }
   return true;
-#endif
-  return false;
+}
+
+void CNetworkServices::UpdateTimeServer()
+{
+  if (m_sntpclient != NULL && m_sntpclient->UpdateNeeded())
+  {
+    m_sntpclient->Update();
+  }
+}
+
+bool CNetworkServices::StartFtpServer()
+{
+  if (!CServiceBroker::GetNetwork().IsAvailable())
+    return false;
+
+  if (!m_settings->GetBool(CSettings::SETTING_SERVICES_FTPSERVER))
+    return false;
+
+  if (m_filezilla != NULL)
+    return true;
+
+  std::string xmlpath = "special://xbmc/system/";
+  // if user didn't upgrade properly,
+  // check whether UserData/FileZilla Server.xml exists
+  if (XFILE::CFile::Exists(CServiceBroker::GetSettingsComponent()->GetProfileManager()->GetUserDataItem("FileZilla Server.xml")))
+    xmlpath = CServiceBroker::GetSettingsComponent()->GetProfileManager()->GetUserDataFolder();
+
+  XFILE::CFile file;
+  if (file.Open(xmlpath + "FileZilla Server.xml") && file.GetLength() > 0)
+  {
+    m_filezilla = new CXBFileZilla(CSpecialProtocol::TranslatePath(xmlpath).c_str());
+    m_filezilla->Start(false);
+  }
+  else
+  {
+    CLog::Log(LOGINFO, "XBFileZilla: 'FileZilla Server.xml' is missing or is corrupt!");
+    CLog::Log(LOGINFO, "XBFileZilla: Starting ftp emergency recovery mode");
+    StartFtpEmergencyRecoveryMode();
+  }
+  file.Close();
+  return true;
 }
 
 bool CNetworkServices::StartFtpEmergencyRecoveryMode()
@@ -513,340 +1002,57 @@ bool CNetworkServices::StartFtpEmergencyRecoveryMode()
   return false;
 }
 
-bool CNetworkServices::IsFtpServerRunning()
-{
-#ifdef HAS_FTP_SERVER
-  return m_filezilla != NULL;
-#endif
-  return false;
-}
-
 bool CNetworkServices::StopFtpServer()
 {
-#ifdef HAS_FTP_SERVER
-  if (IsFtpServerRunning())
+  if (m_filezilla != NULL)
   {
-    CLog::Log(LOGINFO, "XBFileZilla: Stopping...");
     m_filezilla->Stop();
     delete m_filezilla;
     m_filezilla = NULL;
-    CLog::Log(LOGINFO, "XBFileZilla: Stopped");
   }
   return true;
-#endif
-  return false;
 }
 
 bool CNetworkServices::SetFTPServerUserPass()
 {
-#ifdef HAS_FTP_SERVER
-  if(!m_filezilla)
+  if (m_filezilla == NULL)
     return false;
 
   // TODO: Read the FileZilla Server XML and Set it here!
   // Get GUI USER and pass and set pass to FTP Server
-  CStdString strFtpUserName, strFtpUserPassword;
-  strFtpUserName      = CSettings::GetInstance().GetString("services.ftpserveruser");
-  strFtpUserPassword  = CSettings::GetInstance().GetString("services.ftpserverpassword");
-
-  if(strFtpUserPassword.size() == 0)
-  { // PopUp OK and Display: FTP Server Password is empty! Try Again!
+  std::string strFtpUserName = m_settings->GetString(CSettings::SETTING_SERVICES_FTPSERVER_USER);
+  std::string strFtpUserPassword = m_settings->GetString(CSettings::SETTING_SERVICES_FTPSERVER_PASSWORD);
+  if (strFtpUserPassword.empty())
+  {
     CGUIDialogOK::ShowAndGetInput(728, 0, 12358, 0);
     return false;
   }
 
-  CStdString strTempUserName;
-  class CXFUser* p_ftpUser;
-  vector<CXFUser*> v_ftpusers;
+  std::vector<CXFUser*> v_ftpusers;
   m_filezilla->GetAllUsers(v_ftpusers);
-  int iUserSize = v_ftpusers.size();
-  if (iUserSize > 0)
+  if (v_ftpusers.size() > 0)
   {
-    int i = 1 ;
-    while( i <= iUserSize)
+    for (size_t i = 0; i < v_ftpusers.size(); i++)
     {
-      p_ftpUser = v_ftpusers[i-1];
-      strTempUserName = p_ftpUser->GetName();
-      if (strTempUserName.Equals(strFtpUserName.c_str()) )
+      if (v_ftpusers[i]->GetName() == strFtpUserName)
       {
-        if (p_ftpUser->SetPassword(strFtpUserPassword.c_str()) != XFS_INVALID_PARAMETERS)
+        if (v_ftpusers[i]->SetPassword(strFtpUserPassword.c_str()) != XFS_INVALID_PARAMETERS)
         {
-          p_ftpUser->CommitChanges();
-          CSettings::GetInstance().SetString("services.ftpserverpassword",strFtpUserPassword.c_str());
+          v_ftpusers[i]->CommitChanges();
           CGUIDialogOK::ShowAndGetInput(728, 0, 1247, 0);
           return true;
         }
         break;
       }
-      i++;
     }
   }
-#endif
   return false;
 }
 
 bool CNetworkServices::FtpHasActiveConnections()
 {
-  if (IsFtpServerRunning())
-    return m_filezilla->GetNoConnections() != 0;
-  return false;
-}
-
-int CNetworkServices::GetFtpServerPort()
-{
-  if (IsFtpServerRunning())
-    return m_filezilla->mSettings.GetServerPort();
-  return 0;
-}
-
-bool CNetworkServices::StartEventServer()
-{
-#ifdef HAS_EVENT_SERVER
-  if (!CSettings::GetInstance().GetBool("services.esenabled"))
+  if (m_filezilla == NULL)
     return false;
 
-  if (IsEventServerRunning())
-    return true;
-
-  CEventServer* server = CEventServer::GetInstance();
-  if (!server)
-  {
-    CLog::Log(LOGERROR, "ES: Out of memory");
-    return false;
-  }
-
-  CLog::Log(LOGNOTICE, "ES: Starting event server");
-  server->StartServer();
-
-  return true;
-#endif // HAS_EVENT_SERVER
-  return false;
-}
-
-bool CNetworkServices::IsEventServerRunning()
-{
-#ifdef HAS_EVENT_SERVER
-  return CEventServer::GetInstance()->Running();
-#endif // HAS_EVENT_SERVER
-  return false;
-}
-
-bool CNetworkServices::StopEventServer(bool bWait, bool promptuser)
-{
-#ifdef HAS_EVENT_SERVER
-  if (!IsEventServerRunning())
-    return true;
-
-  CEventServer* server = CEventServer::GetInstance();
-  if (!server)
-  {
-    CLog::Log(LOGERROR, "ES: Out of memory");
-    return false;
-  }
-
-  if (promptuser)
-  {
-    if (server->GetNumberOfClients() > 0)
-    {
-      if (HELPERS::ShowYesNoDialogText(13140, 13141, "", "", 10000) != 
-        YES)
-      {
-        CLog::Log(LOGNOTICE, "ES: Not stopping event server");
-        return false;
-      }
-    }
-    CLog::Log(LOGNOTICE, "ES: Stopping event server with confirmation");
-
-    CEventServer::GetInstance()->StopServer(true);
-  }
-  else
-  {
-    if (!bWait)
-      CLog::Log(LOGNOTICE, "ES: Stopping event server");
-
-    CEventServer::GetInstance()->StopServer(bWait);
-  }
-
-  return true;
-#endif // HAS_EVENT_SERVER
-  return false;
-}
-
-bool CNetworkServices::RefreshEventServer()
-{
-#ifdef HAS_EVENT_SERVER
-  if (!CSettings::GetInstance().GetBool("services.esenabled"))
-    return false;
-
-  if (!IsEventServerRunning())
-    return false;
-
-  CEventServer::GetInstance()->RefreshSettings();
-  return true;
-#endif // HAS_EVENT_SERVER
-  return false;
-}
-
-bool CNetworkServices::StartUPnP()
-{
-  bool ret = false;
-#ifdef HAS_UPNP
-  ret |= StartUPnPClient();
-  ret |= StartUPnPServer();
-  ret |= StartUPnPRenderer();
-#endif // HAS_UPNP
-  return ret;
-}
-
-bool CNetworkServices::StopUPnP(bool bWait)
-{
-#ifdef HAS_UPNP
-  if (!CUPnP::IsInstantiated())
-    return true;
-
-  CLog::Log(LOGNOTICE, "stopping upnp");
-  CUPnP::ReleaseInstance(bWait);
-
-  return true;
-#endif // HAS_UPNP
-  return false;
-}
-
-bool CNetworkServices::StartUPnPClient()
-{
-#ifdef HAS_UPNP
-  if (!CSettings::GetInstance().GetBool("services.upnpcontroller"))
-    return false;
-
-  CLog::Log(LOGNOTICE, "starting upnp controller");
-  CUPnP::GetInstance()->StartClient();
-  return IsUPnPClientRunning();
-#endif // HAS_UPNP
-  return false;
-}
-
-bool CNetworkServices::IsUPnPClientRunning()
-{
-#ifdef HAS_UPNP
-  return CUPnP::GetInstance()->IsClientStarted();
-#endif // HAS_UPNP
-  return false;
-}
-
-bool CNetworkServices::StopUPnPClient()
-{
-#ifdef HAS_UPNP
-  if (!IsUPnPRendererRunning())
-    return true;
-
-  CLog::Log(LOGNOTICE, "stopping upnp client");
-  CUPnP::GetInstance()->StopClient();
-
-  return true;
-#endif // HAS_UPNP
-  return false;
-}
-
-bool CNetworkServices::StartUPnPRenderer()
-{
-#ifdef HAS_UPNP
-  if (!CSettings::GetInstance().GetBool("services.upnprenderer"))
-    return false;
-
-  CLog::Log(LOGNOTICE, "starting upnp renderer");
-  return CUPnP::GetInstance()->StartRenderer();
-#endif // HAS_UPNP
-  return false;
-}
-
-bool CNetworkServices::IsUPnPRendererRunning()
-{
-#ifdef HAS_UPNP
-  return CUPnP::GetInstance()->IsInstantiated();
-#endif // HAS_UPNP
-  return false;
-}
-
-bool CNetworkServices::StopUPnPRenderer()
-{
-#ifdef HAS_UPNP
-  if (!IsUPnPRendererRunning())
-    return true;
-
-  CLog::Log(LOGNOTICE, "stopping upnp renderer");
-  CUPnP::GetInstance()->StopRenderer();
-
-  return true;
-#endif // HAS_UPNP
-  return false;
-}
-
-bool CNetworkServices::StartUPnPServer()
-{
-#ifdef HAS_UPNP
-  if (!CSettings::GetInstance().GetBool("services.upnpserver"))
-    return false;
-
-  CLog::Log(LOGNOTICE, "starting upnp server");
-  return CUPnP::GetInstance()->StartServer();
-#endif // HAS_UPNP
-  return false;
-}
-
-bool CNetworkServices::IsUPnPServerRunning()
-{
-#ifdef HAS_UPNP
-  return CUPnP::GetInstance()->IsInstantiated();
-#endif // HAS_UPNP
-  return false;
-}
-
-bool CNetworkServices::StopUPnPServer()
-{
-#ifdef HAS_UPNP
-  if (!IsUPnPRendererRunning())
-    return true;
-
-  CLog::Log(LOGNOTICE, "stopping upnp server");
-  CUPnP::GetInstance()->StopServer();
-
-  return true;
-#endif // HAS_UPNP
-  return false;
-}
-  
-bool CNetworkServices::StartRss()
-{
-  if (IsRssRunning())
-    return true;
-
-  CRssManager::Get().Start();
-  return true;
-}
-
-bool CNetworkServices::IsRssRunning()
-{
-  return CRssManager::Get().IsActive();
-}
-
-bool CNetworkServices::StopRss()
-{
-  if (!IsRssRunning())
-    return true;
-
-  CRssManager::Get().Stop();
-  return true;
-}
-
-bool CNetworkServices::ValidatePort(int port)
-{
-  if (port <= 0 || port > 65535)
-    return false;
-
-#ifdef TARGET_LINUX
-  if (!CUtil::CanBindPrivileged() && (port < 1024 || port > 65535))
-    return false;
-#endif
-
-  return true;
+  return m_filezilla->GetNoConnections() != 0;
 }

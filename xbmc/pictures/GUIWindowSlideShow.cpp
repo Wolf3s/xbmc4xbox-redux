@@ -21,20 +21,26 @@
 #include "threads/SystemClock.h"
 #include "system.h"
 #include "GUIWindowSlideShow.h"
-#include "Application.h"
+#include "application/Application.h"
+#include "application/ApplicationComponents.h"
+#include "application/ApplicationPlayer.h"
+#include "application/ApplicationPowerHandling.h"
 #include "messaging/ApplicationMessenger.h"
 #include "utils/URIUtils.h"
 #include "URL.h"
 #include "guilib/TextureManager.h"
 #include "guilib/GUILabelControl.h"
-#include "guilib/Key.h"
+#include "input/actions/Action.h"
+#include "input/actions/ActionIDs.h"
 #include "GUIInfoManager.h"
 #include "filesystem/Directory.h"
 #include "GUIDialogPictureInfo.h"
 #include "GUIUserMessages.h"
+#include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
 #include "settings/DisplaySettings.h"
 #include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "FileItem.h"
 #include "guilib/Texture.h"
 #include "guilib/LocalizeStrings.h"
@@ -49,6 +55,8 @@
 #ifdef TARGET_POSIX
 #include "linux/XTimeUtils.h"
 #endif
+
+#include <boost/make_shared.hpp>
 
 using namespace XFILE;
 using namespace KODI::MESSAGING;
@@ -105,7 +113,7 @@ void CBackgroundPicLoader::Process()
       if (m_pCallback)
       {
         unsigned int start = XbmcThreads::SystemClockMillis();
-        CBaseTexture* texture = CTexture::LoadFromFile(m_strFileName, m_maxWidth, m_maxHeight, CSettings::GetInstance().GetBool("pictures.useexifrotation"));
+        boost::movelib::unique_ptr<CTexture> texture = CTexture::LoadFromFile(m_strFileName, m_maxWidth, m_maxHeight, CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool("pictures.useexifrotation"));
         totalTime += XbmcThreads::SystemClockMillis() - start;
         count++;
         // tell our parent
@@ -118,13 +126,13 @@ void CBackgroundPicLoader::Process()
             int iSize = texture->GetWidth() * texture->GetHeight() - MAX_PICTURE_SIZE;
             if ((iSize + (int)texture->GetWidth() > 0) || (iSize + (int)texture->GetHeight() > 0))
               bFullSize = true;
-            if (!bFullSize && texture->GetWidth() == g_graphicsContext.GetMaxTextureSize())
+            if (!bFullSize && texture->GetWidth() == CServiceBroker::GetWinSystem()->GetGfxContext().GetMaxTextureSize())
               bFullSize = true;
-            if (!bFullSize && texture->GetHeight() == g_graphicsContext.GetMaxTextureSize())
+            if (!bFullSize && texture->GetHeight() == CServiceBroker::GetWinSystem()->GetGfxContext().GetMaxTextureSize())
               bFullSize = true;
           }
         }
-        m_pCallback->OnLoadPic(m_iPic, m_iSlideNumber, m_strFileName, texture, bFullSize);
+        m_pCallback->OnLoadPic(m_iPic, m_iSlideNumber, m_strFileName, boost::move(texture), bFullSize);
         m_isLoading = false;
       }
     }
@@ -159,39 +167,39 @@ void CGUIWindowSlideShow::AnnouncePlayerPlay(const CFileItemPtr& item)
 {
   CVariant param;
   param["player"]["speed"] = m_bSlideShow && !m_bPause ? 1 : 0;
-  param["player"]["playerid"] = PLAYLIST_PICTURE;
-  ANNOUNCEMENT::CAnnouncementManager::GetInstance().Announce(ANNOUNCEMENT::Player, "xbmc", "OnPlay", item, param);
+  param["player"]["playerid"] = PLAYLIST::TYPE_PICTURE;
+  CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::Player, "xbmc", "OnPlay", item, param);
 }
 
 void CGUIWindowSlideShow::AnnouncePlayerPause(const CFileItemPtr& item)
 {
   CVariant param;
   param["player"]["speed"] = 0;
-  param["player"]["playerid"] = PLAYLIST_PICTURE;
-  ANNOUNCEMENT::CAnnouncementManager::GetInstance().Announce(ANNOUNCEMENT::Player, "xbmc", "OnPause", item, param);
+  param["player"]["playerid"] = PLAYLIST::TYPE_PICTURE;
+  CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::Player, "xbmc", "OnPause", item, param);
 }
 
 void CGUIWindowSlideShow::AnnouncePlayerStop(const CFileItemPtr& item)
 {
   CVariant param;
-  param["player"]["playerid"] = PLAYLIST_PICTURE;
+  param["player"]["playerid"] = PLAYLIST::TYPE_PICTURE;
   param["end"] = true;
-  ANNOUNCEMENT::CAnnouncementManager::GetInstance().Announce(ANNOUNCEMENT::Player, "xbmc", "OnStop", item, param);
+  CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::Player, "xbmc", "OnStop", item, param);
 }
 
 void CGUIWindowSlideShow::AnnouncePlaylistClear()
 {
   CVariant data;
-  data["playlistid"] = PLAYLIST_PICTURE;
-  ANNOUNCEMENT::CAnnouncementManager::GetInstance().Announce(ANNOUNCEMENT::Playlist, "xbmc", "OnClear", data);
+  data["playlistid"] = PLAYLIST::TYPE_PICTURE;
+  CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::Playlist, "xbmc", "OnClear", data);
 }
 
 void CGUIWindowSlideShow::AnnouncePlaylistAdd(const CFileItemPtr& item, int pos)
 {
   CVariant data;
-  data["playlistid"] = PLAYLIST_PICTURE;
+  data["playlistid"] = PLAYLIST::TYPE_PICTURE;
   data["position"] = pos;
-  ANNOUNCEMENT::CAnnouncementManager::GetInstance().Announce(ANNOUNCEMENT::Playlist, "xbmc", "OnAdd", item, data);
+  CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::Playlist, "xbmc", "OnAdd", item, data);
 }
 
 void CGUIWindowSlideShow::AnnouncePropertyChanged(const std::string &strProperty, const CVariant &value)
@@ -200,9 +208,9 @@ void CGUIWindowSlideShow::AnnouncePropertyChanged(const std::string &strProperty
     return;
 
   CVariant data;
-  data["player"]["playerid"] = PLAYLIST_PICTURE;
+  data["player"]["playerid"] = PLAYLIST::TYPE_PICTURE;
   data["property"][strProperty] = value;
-  ANNOUNCEMENT::CAnnouncementManager::GetInstance().Announce(ANNOUNCEMENT::Player, "xbmc", "OnPropertyChanged", data);
+  CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::Player, "xbmc", "OnPropertyChanged", data);
 }
 
 bool CGUIWindowSlideShow::IsPlaying() const
@@ -235,15 +243,15 @@ void CGUIWindowSlideShow::Reset()
   m_iLastFailedNextSlide = -1;
   m_slides.clear();
   AnnouncePlaylistClear();
-  m_Resolution = g_graphicsContext.GetVideoResolution();
+  m_Resolution = CServiceBroker::GetWinSystem()->GetGfxContext().GetVideoResolution();
 }
 
 void CGUIWindowSlideShow::OnDeinitWindow(int nextWindowID)
 {
-  if (m_Resolution != CDisplaySettings::Get().GetCurrentResolution())
+  if (m_Resolution != CDisplaySettings::GetInstance().GetCurrentResolution())
   {
     //FIXME: Use GUI resolution for now
-    g_graphicsContext.SetVideoResolution(CDisplaySettings::Get().GetCurrentResolution(), TRUE);
+    CServiceBroker::GetWinSystem()->GetGfxContext().SetVideoResolution(CDisplaySettings::GetInstance().GetCurrentResolution(), TRUE);
   }
 
   if (nextWindowID != WINDOW_PICTURES)
@@ -252,7 +260,7 @@ void CGUIWindowSlideShow::OnDeinitWindow(int nextWindowID)
 #ifdef _XBOX
   // set screen filters to video filters so that we
   // get sharper images
-  g_graphicsContext.SetScreenFilters(false);
+  CServiceBroker::GetWinSystem()->GetGfxContext().SetScreenFilters(false);
 #endif
 
   if (nextWindowID != WINDOW_FULLSCREEN_VIDEO)
@@ -274,7 +282,7 @@ void CGUIWindowSlideShow::OnDeinitWindow(int nextWindowID)
     m_Image[0].Close();
     m_Image[1].Close();
   }
-  g_infoManager.ResetCurrentSlide();
+  CServiceBroker::GetGUI()->GetInfoManager().GetInfoProviders().GetPicturesInfoProvider().SetCurrentSlide(NULL);
   m_bSlideShow = false;
 
   CGUIDialog::OnDeinitWindow(nextWindowID);
@@ -386,18 +394,20 @@ void CGUIWindowSlideShow::SetDirection(int direction)
 
 void CGUIWindowSlideShow::Process(unsigned int currentTime, CDirtyRegionList &regions)
 {
-  const RESOLUTION_INFO res = g_graphicsContext.GetResInfo();
+  const RESOLUTION_INFO res = CServiceBroker::GetWinSystem()->GetGfxContext().GetResInfo();
 
   // reset the screensaver if we're in a slideshow
   // (unless we are the screensaver!)
-  if (m_bSlideShow && !m_bPause && !g_application.IsInScreenSaver())
-    g_application.ResetScreenSaver();
+  CApplicationComponents &components = CServiceBroker::GetAppComponents();
+  const boost::shared_ptr<CApplicationPowerHandling> appPower = components.GetComponent<CApplicationPowerHandling>();
+  if (m_bSlideShow && !m_bPause && !appPower->IsInScreenSaver())
+    appPower->ResetScreenSaver();
   int iSlides = m_slides.size();
   if (!iSlides) return ;
 
   // if we haven't processed yet, we should mark the whole screen
   if (!HasProcessed())
-    regions.push_back(CRect(0.0f, 0.0f, (float)g_graphicsContext.GetWidth(), (float)g_graphicsContext.GetHeight()));
+    regions.push_back(CDirtyRegion(CRect(0.0f, 0.0f, (float)CServiceBroker::GetWinSystem()->GetGfxContext().GetWidth(), (float)CServiceBroker::GetWinSystem()->GetGfxContext().GetHeight())));
 
   if (m_iCurrentSlide < 0 || m_iCurrentSlide >= static_cast<int>(m_slides.size()))
     m_iCurrentSlide = 0;
@@ -482,7 +492,7 @@ void CGUIWindowSlideShow::Process(unsigned int currentTime, CDirtyRegionList &re
 
   if (m_bErrorMessage)
   { // hack, just mark it all
-    regions.push_back(CRect(0.0f, 0.0f, (float)g_graphicsContext.GetWidth(), (float)g_graphicsContext.GetHeight()));
+    regions.push_back(CDirtyRegion(CRect(0.0f, 0.0f, (float)CServiceBroker::GetWinSystem()->GetGfxContext().GetWidth(), (float)CServiceBroker::GetWinSystem()->GetGfxContext().GetHeight())));
     return;
   }
 
@@ -559,6 +569,8 @@ void CGUIWindowSlideShow::Process(unsigned int currentTime, CDirtyRegionList &re
     }
   }
 
+  const boost::shared_ptr<CApplicationPlayer> appPlayer = components.GetComponent<CApplicationPlayer>();
+
   // render the next image
   if (m_Image[m_iCurrentPic].DrawNextImage())
   {
@@ -568,8 +580,8 @@ void CGUIWindowSlideShow::Process(unsigned int currentTime, CDirtyRegionList &re
     }
     else if (m_Image[1 - m_iCurrentPic].IsLoaded())
     {
-      if (g_application.m_pPlayer->IsPlayingVideo())
-        g_application.m_pPlayer->CloseFile();
+      if (appPlayer->IsPlayingVideo())
+        appPlayer->ClosePlayer();
       m_bPlayingVideo = false;
 
       // first time render the next image, make sure using current display effect.
@@ -634,11 +646,11 @@ void CGUIWindowSlideShow::Process(unsigned int currentTime, CDirtyRegionList &re
   }
 
   if (m_Image[m_iCurrentPic].IsLoaded())
-    g_infoManager.SetCurrentSlide(*m_slides.at(m_iCurrentSlide));
+    CServiceBroker::GetGUI()->GetInfoManager().GetInfoProviders().GetPicturesInfoProvider().SetCurrentSlide(m_slides.at(m_iCurrentSlide).get());
 
   RenderPause();
   CGUIWindow::Process(currentTime, regions);
-  m_renderRegion.SetRect(0, 0, (float)g_graphicsContext.GetWidth(), (float)g_graphicsContext.GetHeight());
+  m_renderRegion.SetRect(0, 0, (float)CServiceBroker::GetWinSystem()->GetGfxContext().GetWidth(), (float)CServiceBroker::GetWinSystem()->GetGfxContext().GetHeight());
 }
 
 void CGUIWindowSlideShow::Render()
@@ -646,15 +658,15 @@ void CGUIWindowSlideShow::Render()
   if (m_slides.empty())
     return;
 
-  g_graphicsContext.Clear(0xff000000);
+  CServiceBroker::GetWinSystem()->GetGfxContext().Clear(0xff000000);
 
   if (m_slides.at(m_iCurrentSlide)->IsVideo())
   {
 #ifndef _XBOX
-    g_graphicsContext.SetViewWindow(0, 0, m_coordsRes.iWidth, m_coordsRes.iHeight);
-    g_graphicsContext.SetRenderingResolution(g_graphicsContext.GetVideoResolution(), false);
+    CServiceBroker::GetWinSystem()->GetGfxContext().SetViewWindow(0, 0, m_coordsRes.iWidth, m_coordsRes.iHeight);
+    CServiceBroker::GetWinSystem()->GetGfxContext().SetRenderingResolution(CServiceBroker::GetWinSystem()->GetGfxContext().GetVideoResolution(), false);
     g_application.m_pPlayer->Render(true, 255);
-    g_graphicsContext.SetRenderingResolution(m_coordsRes, m_needsScaling);
+    CServiceBroker::GetWinSystem()->GetGfxContext().SetRenderingResolution(m_coordsRes, m_needsScaling);
 #else
     CLog::Log(LOGDEBUG, "%s - video inside slideshow not supported", __FUNCTION__);
 #endif
@@ -691,7 +703,7 @@ bool CGUIWindowSlideShow::OnAction(const CAction &action)
 {
   if (m_bScreensaver)
   {
-    g_windowManager.PreviousWindow();
+    CServiceBroker::GetGUI()->GetWindowManager().PreviousWindow();
     return true;
   }
 
@@ -699,7 +711,7 @@ bool CGUIWindowSlideShow::OnAction(const CAction &action)
   {
   case ACTION_SHOW_INFO:
     {
-      CGUIDialogPictureInfo *pictureInfo = (CGUIDialogPictureInfo *)g_windowManager.GetWindow(WINDOW_DIALOG_PICTURE_INFO);
+      CGUIDialogPictureInfo *pictureInfo = (CGUIDialogPictureInfo *)CServiceBroker::GetGUI()->GetWindowManager().GetWindow(WINDOW_DIALOG_PICTURE_INFO);
       if (pictureInfo)
       {
         // no need to set the picture here, it's done in Render()
@@ -708,12 +720,16 @@ bool CGUIWindowSlideShow::OnAction(const CAction &action)
     }
     break;
   case ACTION_STOP:
+  {
     if (m_slides.size())
       AnnouncePlayerStop(m_slides.at(m_iCurrentSlide));
-    if (g_application.m_pPlayer->IsPlayingVideo())
-      g_application.m_pPlayer->CloseFile();
+    CApplicationComponents &components = CServiceBroker::GetAppComponents();
+    const boost::shared_ptr<CApplicationPlayer> appPlayer = components.GetComponent<CApplicationPlayer>();
+    if (appPlayer->IsPlayingVideo())
+      appPlayer->ClosePlayer();
     Close();
     break;
+  }
 
   case ACTION_NEXT_PICTURE:
       ShowNext();
@@ -842,7 +858,7 @@ void CGUIWindowSlideShow::RenderErrorMessage()
   }
 
   CGUIFont *pFont = ((CGUILabelControl *)control)->GetLabelInfo().font;
-  CGUITextLayout::DrawText(pFont, 0.5f*g_graphicsContext.GetWidth(), 0.5f*g_graphicsContext.GetHeight(), 0xffffffff, 0, g_localizeStrings.Get(747), XBFONT_CENTER_X | XBFONT_CENTER_Y);
+  CGUITextLayout::DrawText(pFont, 0.5f*CServiceBroker::GetWinSystem()->GetGfxContext().GetWidth(), 0.5f*CServiceBroker::GetWinSystem()->GetGfxContext().GetHeight(), 0xffffffff, 0, g_localizeStrings.Get(747), XBFONT_CENTER_X | XBFONT_CENTER_Y);
 }
 
 bool CGUIWindowSlideShow::OnMessage(CGUIMessage& message)
@@ -851,23 +867,23 @@ bool CGUIWindowSlideShow::OnMessage(CGUIMessage& message)
   {
   case GUI_MSG_WINDOW_INIT:
     {
-      m_Resolution = (RESOLUTION) CSettings::GetInstance().GetInt("pictures.displayresolution");
+      m_Resolution = (RESOLUTION) CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("pictures.displayresolution");
 
-      if (m_Resolution != CDisplaySettings::Get().GetCurrentResolution() && m_Resolution != RES_INVALID && m_Resolution!=RES_AUTORES)
-        g_graphicsContext.SetVideoResolution(m_Resolution);
+      if (m_Resolution != CDisplaySettings::GetInstance().GetCurrentResolution() && m_Resolution != RES_INVALID && m_Resolution!=RES_AUTORES)
+        CServiceBroker::GetWinSystem()->GetGfxContext().SetVideoResolution(m_Resolution);
       else
-        m_Resolution = g_graphicsContext.GetVideoResolution();
+        m_Resolution = CServiceBroker::GetWinSystem()->GetGfxContext().GetVideoResolution();
 
       CGUIDialog::OnMessage(message);
 #ifdef _XBOX
       // clear as much memory as possible
-      g_TextureManager.Flush();
+      CServiceBroker::GetGUI()->GetTextureManager().Flush();
       if (message.GetParam1() != WINDOW_PICTURES)
         m_ImageLib.Load();
 
       // set screen filters to video filters so that we
       // get sharper images
-      g_graphicsContext.SetScreenFilters(true);
+      CServiceBroker::GetWinSystem()->GetGfxContext().SetScreenFilters(true);
 #endif
 
       // turn off slideshow if we only have 1 image
@@ -1030,16 +1046,14 @@ bool CGUIWindowSlideShow::PlayVideo()
     return false;
   CLog::Log(LOGDEBUG, "Playing current video slide %s", item->GetPath().c_str());
   m_bPlayingVideo = true;
-  PlayBackRet ret = g_application.PlayFile(*item, "");
-  if (ret == PLAYBACK_OK)
+  bool ret = g_application.PlayFile(*item, "");
+  if (ret == true)
     return true;
-  if (ret == PLAYBACK_FAIL)
+  else
   {
     CLog::Log(LOGINFO, "set video %s unplayable", item->GetPath().c_str());
     item->SetProperty("unplayable", true);
   }
-  else if (ret == PLAYBACK_CANCELED)
-    m_bPause = true;
   m_bPlayingVideo = false;
   return false;
 }
@@ -1047,24 +1061,23 @@ bool CGUIWindowSlideShow::PlayVideo()
 CSlideShowPic::DISPLAY_EFFECT CGUIWindowSlideShow::GetDisplayEffect(int iSlideNumber) const
 {
   if (m_bSlideShow && !m_bPause && !m_slides.at(iSlideNumber)->IsVideo())
-    return CSettings::GetInstance().GetBool("slideshow.displayeffects") ? CSlideShowPic::EFFECT_RANDOM : CSlideShowPic::EFFECT_NONE;
+    return CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool("slideshow.displayeffects") ? CSlideShowPic::EFFECT_RANDOM : CSlideShowPic::EFFECT_NONE;
   else
     return CSlideShowPic::EFFECT_NO_TIMEOUT;
 }
 
-void CGUIWindowSlideShow::OnLoadPic(int iPic, int iSlideNumber, const std::string &strFileName, CBaseTexture* pTexture, bool bFullSize)
+void CGUIWindowSlideShow::OnLoadPic(int iPic, int iSlideNumber, const std::string &strFileName, boost::movelib::unique_ptr<CTexture> pTexture, bool bFullSize)
 {
   if (pTexture)
   {
     // set the pic's texture + size etc.
     if (iSlideNumber >= static_cast<int>(m_slides.size()) || GetPicturePath(m_slides.at(iSlideNumber).get()) != strFileName)
     { // throw this away - we must have cleared the slideshow while we were still loading
-      delete pTexture;
       return;
     }
     CLog::Log(LOGDEBUG, "Finished background loading slot %d, %d: %s", iPic, iSlideNumber, m_slides.at(iSlideNumber)->GetPath().c_str());
-    m_Image[iPic].SetTexture(iSlideNumber, pTexture, GetDisplayEffect(iSlideNumber));
     m_Image[iPic].SetOriginalSize(pTexture->GetOriginalWidth(), pTexture->GetOriginalHeight(), bFullSize);
+    m_Image[iPic].SetTexture(iSlideNumber, boost::move(pTexture), GetDisplayEffect(iSlideNumber));
 
     m_Image[iPic].m_bIsComic = false;
     if (URIUtils::IsInRAR(m_slides.at(m_iCurrentSlide)->GetPath()) || URIUtils::IsInZIP(m_slides.at(m_iCurrentSlide)->GetPath())) // move to top for cbr/cbz
@@ -1140,7 +1153,9 @@ void CGUIWindowSlideShow::RunSlideShow(const std::string &strPath,
                                        const std::string &strExtensions)
 {
   // stop any video
-  if (g_application.m_pPlayer->IsPlayingVideo())
+  const CApplicationComponents &components = CServiceBroker::GetAppComponents();
+  const boost::shared_ptr<const CApplicationPlayer> appPlayer = components.GetComponent<CApplicationPlayer>();
+  if (appPlayer->IsPlayingVideo())
     g_application.StopPlaying();
 
   AddFromPath(strPath, bRecursive, method, order, sortAttributes, strExtensions);
@@ -1154,7 +1169,7 @@ void CGUIWindowSlideShow::RunSlideShow(const std::string &strPath,
     bRandom = bNotRandom = false;
 
   // NotRandom overrides the window setting
-  if ((!bNotRandom && CSettings::GetInstance().GetBool("slideshow.shuffle")) || bRandom)
+  if ((!bNotRandom && CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool("slideshow.shuffle")) || bRandom)
     Shuffle();
 
   if (!beginSlidePath.empty())
@@ -1166,11 +1181,11 @@ void CGUIWindowSlideShow::RunSlideShow(const std::string &strPath,
   {
     CVariant param;
     param["player"]["speed"] = 0;
-    param["player"]["playerid"] = PLAYLIST_PICTURE;
-    ANNOUNCEMENT::CAnnouncementManager::GetInstance().Announce(ANNOUNCEMENT::Player, "xbmc", "OnPlay", GetCurrentSlide(), param);
+    param["player"]["playerid"] = PLAYLIST::TYPE_PICTURE;
+    CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::Player, "xbmc", "OnPlay", GetCurrentSlide(), param);
   }
 
-  g_windowManager.ActivateWindow(WINDOW_SLIDESHOW);
+  CServiceBroker::GetGUI()->GetWindowManager().ActivateWindow(WINDOW_SLIDESHOW);
 }
 
 void CGUIWindowSlideShow::AddItems(const std::string &strPath, path_set *recursivePaths, SortBy method, SortOrder order, SortAttribute sortAttributes)
@@ -1220,13 +1235,13 @@ void CGUIWindowSlideShow::GetCheckedSize(float width, float height, int &maxWidt
   }
   maxWidth = (int)width;
   maxHeight = (int)height;
-  if (maxWidth > g_graphicsContext.GetMaxTextureSize())
-    maxWidth = g_graphicsContext.GetMaxTextureSize();
-  if (maxHeight > g_graphicsContext.GetMaxTextureSize())
-    maxHeight = g_graphicsContext.GetMaxTextureSize();
+  if (maxWidth > CServiceBroker::GetWinSystem()->GetGfxContext().GetMaxTextureSize())
+    maxWidth = CServiceBroker::GetWinSystem()->GetGfxContext().GetMaxTextureSize();
+  if (maxHeight > CServiceBroker::GetWinSystem()->GetGfxContext().GetMaxTextureSize())
+    maxHeight = CServiceBroker::GetWinSystem()->GetGfxContext().GetMaxTextureSize();
 #else
-  maxWidth = g_graphicsContext.GetMaxTextureSize();
-  maxHeight = g_graphicsContext.GetMaxTextureSize();
+  maxWidth = CServiceBroker::GetWinSystem()->GetGfxContext().GetMaxTextureSize();
+  maxHeight = CServiceBroker::GetWinSystem()->GetGfxContext().GetMaxTextureSize();
 #endif
 }
 
@@ -1252,7 +1267,7 @@ std::string CGUIWindowSlideShow::GetPicturePath(CFileItem *item)
 
 void CGUIWindowSlideShow::RunSlideShow(std::vector<std::string> paths, int start /* = 0*/)
 {
-  CGUIWindowSlideShow *dialog = static_cast<CGUIWindowSlideShow*>(g_windowManager.GetWindow(WINDOW_SLIDESHOW));
+  CGUIWindowSlideShow *dialog = static_cast<CGUIWindowSlideShow*>(CServiceBroker::GetGUI()->GetWindowManager().GetWindow(WINDOW_SLIDESHOW));
   if (dialog)
   {
     std::vector<CFileItemPtr> items;

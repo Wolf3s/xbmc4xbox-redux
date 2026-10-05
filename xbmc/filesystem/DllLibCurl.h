@@ -59,7 +59,7 @@ namespace XCURL
 
   class DllLibCurl : public DllDynamic, DllLibCurlInterface
   {
-    DECLARE_DLL_WRAPPER(DllLibCurl, Q:\\system\\libcurl.dll)
+    DECLARE_DLL_WRAPPER(DllLibCurl, DLL_PATH_LIBCURL)
     DEFINE_METHOD1(CURLcode, global_init, (long p1))
     DEFINE_METHOD0(void, global_cleanup)
     DEFINE_METHOD0(CURL_HANDLE *, easy_init)
@@ -111,7 +111,7 @@ namespace XCURL
   {
   public:
     /* extend interface with buffered functions */
-    void easy_aquire(const char *protocol, const char *hostname, CURL_HANDLE** easy_handle, CURLM** multi_handle);
+    void easy_acquire(const char *protocol, const char *hostname, CURL_HANDLE** easy_handle, CURLM** multi_handle);
     void easy_release(CURL_HANDLE** easy_handle, CURLM** multi_handle);
     void easy_duplicate(CURL_HANDLE* easy, CURLM* multi, CURL_HANDLE** easy_out, CURLM** multi_out);
     CURL_HANDLE* easy_duphandle(CURL_HANDLE* easy_handle);

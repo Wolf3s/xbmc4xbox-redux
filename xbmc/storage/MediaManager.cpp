@@ -18,18 +18,24 @@
  *
  */
 
-#include "storage/MediaManager.h"
-#include "xbox/IoSupport.h"
+#include "MediaManager.h"
+
+#include "ServiceBroker.h"
 #include "URL.h"
-#include "LocalizeStrings.h"
-#include "utils/log.h"
+#include "guilib/LocalizeStrings.h"
+#include "settings/AdvancedSettings.h"
+#include "settings/MediaSourceSettings.h"
+#include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
+#include "utils/StringUtils.h"
 #include "utils/XBMCTinyXML.h"
+#include "utils/log.h"
+
+#include "platform/xbox/storage/IoSupport.h"
 
 using namespace std;
 
 const char MEDIA_SOURCES_XML[] = { "Q:\\system\\mediasources.xml" };
-
-class CMediaManager g_mediaManager;
 
 CMediaManager::CMediaManager()
 {
@@ -69,6 +75,7 @@ bool CMediaManager::LoadSources()
       pLocation = pLocation->NextSiblingElement("location");
     }
   }
+  LoadAddonSources();
   return true;
 }
 
@@ -100,7 +107,7 @@ void CMediaManager::GetLocalDrives(VECSOURCES &localDrives, bool includeQ)
   // Local shares
   CMediaSource share;
   share.strPath = "C:\\";
-  share.strName.Format(g_localizeStrings.Get(21438).c_str(),'C');
+  share.strName = StringUtils::Format(g_localizeStrings.Get(21438).c_str(),'C');
   share.m_ignore = true;
   share.m_iDriveType = CMediaSource::SOURCE_TYPE_LOCAL;
   localDrives.push_back(share);
@@ -110,16 +117,16 @@ void CMediaManager::GetLocalDrives(VECSOURCES &localDrives, bool includeQ)
   localDrives.push_back(share);
   share.strPath = "E:\\";
   share.m_iDriveType = CMediaSource::SOURCE_TYPE_LOCAL;
-  share.strName.Format(g_localizeStrings.Get(21438).c_str(),'E');
+  share.strName = StringUtils::Format(g_localizeStrings.Get(21438).c_str(),'E');
   localDrives.push_back(share);
   for (int driveCount=EXTEND_PARTITION_BEGIN;driveCount<=(EXTEND_PARTITION_BEGIN+EXTEND_PARTITIONS_LIMIT-1);driveCount++)
   {
     if (CIoSupport::DriveExists(CIoSupport::GetExtendedPartitionDriveLetter(driveCount-EXTEND_PARTITION_BEGIN)))
     {
       CMediaSource share;
-      share.strPath.Format("%c:\\", CIoSupport::GetExtendedPartitionDriveLetter(driveCount-EXTEND_PARTITION_BEGIN));
-      CLog::Log(LOGNOTICE, "  Local Source Drive %c:", CIoSupport::GetExtendedPartitionDriveLetter(driveCount-EXTEND_PARTITION_BEGIN));
-      share.strName.Format(g_localizeStrings.Get(21438).c_str(),CIoSupport::GetExtendedPartitionDriveLetter(driveCount-EXTEND_PARTITION_BEGIN));
+      share.strPath = StringUtils::Format("%c:\\", CIoSupport::GetExtendedPartitionDriveLetter(driveCount-EXTEND_PARTITION_BEGIN));
+      CLog::Log(LOGINFO, "  Local Source Drive %c:", CIoSupport::GetExtendedPartitionDriveLetter(driveCount-EXTEND_PARTITION_BEGIN));
+      share.strName = StringUtils::Format(g_localizeStrings.Get(21438).c_str(),CIoSupport::GetExtendedPartitionDriveLetter(driveCount-EXTEND_PARTITION_BEGIN));
       share.m_ignore = true;
       localDrives.push_back(share);
     }
@@ -128,7 +135,7 @@ void CMediaManager::GetLocalDrives(VECSOURCES &localDrives, bool includeQ)
   {
     CMediaSource share;
     share.strPath = "Q:\\";
-    share.strName.Format(g_localizeStrings.Get(21438).c_str(),'Q');
+    share.strName = StringUtils::Format(g_localizeStrings.Get(21438).c_str(),'Q');
     share.m_ignore = true;
     localDrives.push_back(share);
   }
@@ -136,8 +143,6 @@ void CMediaManager::GetLocalDrives(VECSOURCES &localDrives, bool includeQ)
 
 void CMediaManager::GetNetworkLocations(VECSOURCES &locations)
 {
-  // Load our xml file
-  LoadSources();
   for (unsigned int i = 0; i < m_locations.size(); i++)
   {
     CMediaSource share;
@@ -148,7 +153,7 @@ void CMediaManager::GetNetworkLocations(VECSOURCES &locations)
   }
 }
 
-bool CMediaManager::AddNetworkLocation(const CStdString &path)
+bool CMediaManager::AddNetworkLocation(const std::string &path)
 {
   CNetworkLocation location;
   location.path = path;
@@ -157,7 +162,7 @@ bool CMediaManager::AddNetworkLocation(const CStdString &path)
   return SaveSources();
 }
 
-bool CMediaManager::HasLocation(const CStdString& path) const
+bool CMediaManager::HasLocation(const std::string& path) const
 {
   for (unsigned int i=0;i<m_locations.size();++i)
   {
@@ -169,13 +174,13 @@ bool CMediaManager::HasLocation(const CStdString& path) const
 }
 
 
-bool CMediaManager::RemoveLocation(const CStdString& path)
+bool CMediaManager::RemoveLocation(const std::string& path)
 {
   for (unsigned int i=0;i<m_locations.size();++i)
   {
     if (m_locations[i].path == path)
     {
-      // prompt for sources, remove, cancel, 
+      // prompt for sources, remove, cancel,
       m_locations.erase(m_locations.begin()+i);
       return SaveSources();
     }
@@ -184,7 +189,7 @@ bool CMediaManager::RemoveLocation(const CStdString& path)
   return false;
 }
 
-bool CMediaManager::SetLocationPath(const CStdString& oldPath, const CStdString& newPath)
+bool CMediaManager::SetLocationPath(const std::string& oldPath, const std::string& newPath)
 {
   for (unsigned int i=0;i<m_locations.size();++i)
   {
@@ -198,3 +203,55 @@ bool CMediaManager::SetLocationPath(const CStdString& oldPath, const CStdString&
   return false;
 }
 
+void CMediaManager::LoadAddonSources() const
+{
+  if (CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_bVirtualShares)
+  {
+    CMediaSourceSettings::GetInstance().AddShare("video", GetRootAddonTypeSource("video"));
+    CMediaSourceSettings::GetInstance().AddShare("programs", GetRootAddonTypeSource("programs"));
+    CMediaSourceSettings::GetInstance().AddShare("pictures", GetRootAddonTypeSource("pictures"));
+    CMediaSourceSettings::GetInstance().AddShare("music", GetRootAddonTypeSource("music"));
+  }
+}
+
+CMediaSource CMediaManager::GetRootAddonTypeSource(const std::string& type) const
+{
+  if (type == "programs" || type == "myprograms")
+  {
+    return ComputeRootAddonTypeSource("executable", g_localizeStrings.Get(1043),
+                                      "DefaultAddonProgram.png");
+  }
+  else if (type == "video" || type == "videos")
+  {
+    return ComputeRootAddonTypeSource("video", g_localizeStrings.Get(1037),
+                                      "DefaultAddonVideo.png");
+  }
+  else if (type == "music")
+  {
+    return ComputeRootAddonTypeSource("music", g_localizeStrings.Get(1038),
+                                      "DefaultAddonMusic.png");
+  }
+  else if (type == "pictures")
+  {
+    return ComputeRootAddonTypeSource("image", g_localizeStrings.Get(1039),
+                                      "DefaultAddonPicture.png");
+  }
+  else
+  {
+    CLog::Log(LOGERROR, "Invalid type %s provided", type.c_str());
+    return CMediaSource();
+  }
+}
+
+CMediaSource CMediaManager::ComputeRootAddonTypeSource(const std::string& type,
+                                                       const std::string& label,
+                                                       const std::string& thumb) const
+{
+  CMediaSource source;
+  source.strPath = "addons://sources/" + type + "/";
+  source.strName = label;
+  source.m_strThumbnailImage = thumb;
+  source.m_iDriveType = CMediaSource::SOURCE_TYPE_VPATH;
+  source.m_ignore = true;
+  return source;
+}

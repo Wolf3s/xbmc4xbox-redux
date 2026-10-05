@@ -1,47 +1,44 @@
 /*
- *      Copyright (C) 2005-2015 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
 #include "PlayerBuiltins.h"
 
-#include "Application.h"
 #include "FileItem.h"
-#include "filesystem/Directory.h"
-#include "guilib/GUIWindowManager.h"
 #include "GUIUserMessages.h"
 #include "PartyModeManager.h"
 #include "PlayListPlayer.h"
-#include "settings/AdvancedSettings.h"
+#include "SeekHandler.h"
+#include "ServiceBroker.h"
+#include "Util.h"
+#include "application/Application.h"
+#include "application/ApplicationComponents.h"
+#include "application/ApplicationPlayer.h"
+#include "application/ApplicationPowerHandling.h"
+#include "guilib/GUIComponent.h"
+#include "guilib/GUIWindowManager.h"
+#include "input/actions/Action.h"
+#include "input/actions/ActionIDs.h"
+#include "music/MusicUtils.h"
+#include "playlists/PlayList.h"
 #include "settings/MediaSettings.h"
 #include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "storage/MediaManager.h"
-#include "system.h"
-#include "utils/log.h"
-#include "utils/SeekHandler.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
-#include "view/GUIViewState.h"
-#include "video/windows/GUIWindowVideoBase.h"
+#include "utils/log.h"
+#include "video/PlayerController.h"
+#include "video/VideoUtils.h"
+#include "video/guilib/VideoSelectActionProcessor.h"
 
 #include <math.h>
 
-#ifdef HAS_DVD_DRIVE
+#ifdef HAS_OPTICAL_DRIVE
 #include "Autorun.h"
 #endif
 
@@ -50,7 +47,7 @@
  */
 static int ClearPlaylist(const std::vector<std::string>& params)
 {
-  g_playlistPlayer.Clear();
+  CServiceBroker::GetPlaylistPlayer().Clear();
 
   return 0;
 }
@@ -73,35 +70,38 @@ static int PlayOffset(const std::vector<std::string>& params)
     std::string strPlaylist = params[0];
     strPos = params[1];
 
-    int iPlaylist = PLAYLIST_NONE;
+    PLAYLIST::Id playlistId = PLAYLIST::TYPE_NONE;
     if (paramlow == "music")
-      iPlaylist = PLAYLIST_MUSIC;
+      playlistId = PLAYLIST::TYPE_MUSIC;
     else if (paramlow == "video")
-      iPlaylist = PLAYLIST_VIDEO;
+      playlistId = PLAYLIST::TYPE_VIDEO;
 
     // unknown playlist
-    if (iPlaylist == PLAYLIST_NONE)
+    if (playlistId == PLAYLIST::TYPE_NONE)
     {
-      CLog::Log(LOGERROR,"Playlist.PlayOffset called with unknown playlist: %s", strPlaylist.c_str());
+      CLog::Log(LOGERROR, "Playlist.PlayOffset called with unknown playlist: %s", strPlaylist.c_str());
       return false;
     }
 
     // user wants to play the 'other' playlist
-    if (iPlaylist != g_playlistPlayer.GetCurrentPlaylist())
+    if (playlistId != CServiceBroker::GetPlaylistPlayer().GetCurrentPlaylist())
     {
       g_application.StopPlaying();
-      g_playlistPlayer.Reset();
-      g_playlistPlayer.SetCurrentPlaylist(iPlaylist);
+      CServiceBroker::GetPlaylistPlayer().Reset();
+      CServiceBroker::GetPlaylistPlayer().SetCurrentPlaylist(playlistId);
     }
   }
   // play the desired offset
   int pos = atol(strPos.c_str());
+
+  const CApplicationComponents &components = CServiceBroker::GetAppComponents();
+  const boost::shared_ptr<const CApplicationPlayer> appPlayer = components.GetComponent<CApplicationPlayer>();
   // playlist is already playing
-  if (g_application.m_pPlayer->IsPlaying())
-    g_playlistPlayer.PlayNext(pos);
+  if (appPlayer->IsPlaying())
+    CServiceBroker::GetPlaylistPlayer().PlayNext(pos);
   // we start playing the 'other' playlist so we need to use play to initialize the player state
   else
-    g_playlistPlayer.Play(pos, "");
+    CServiceBroker::GetPlaylistPlayer().Play(pos, "");
 
   return 0;
 }
@@ -113,21 +113,25 @@ static int PlayOffset(const std::vector<std::string>& params)
  */
 static int PlayerControl(const std::vector<std::string>& params)
 {
-  g_application.ResetScreenSaver();
-  g_application.ResetScreenSaverWindow();
+  CApplicationComponents &components = CServiceBroker::GetAppComponents();
+  const boost::shared_ptr<CApplicationPowerHandling> appPower = components.GetComponent<CApplicationPowerHandling>();
+  appPower->ResetScreenSaver();
+  appPower->WakeUpScreenSaverAndDPMS();
 
   std::string paramlow(params[0]);
   StringUtils::ToLower(paramlow);
 
+  const boost::shared_ptr<CApplicationPlayer> appPlayer = components.GetComponent<CApplicationPlayer>();
+
   if (paramlow ==  "play")
   { // play/pause
     // either resume playing, or pause
-    if (g_application.m_pPlayer->IsPlaying())
+    if (appPlayer->IsPlaying())
     {
-      if (g_application.m_pPlayer->GetPlaySpeed() != 1)
-        g_application.m_pPlayer->SetPlaySpeed(1);
+      if (appPlayer->GetPlaySpeed() != 1)
+        appPlayer->SetPlaySpeed(1);
       else
-        g_application.m_pPlayer->Pause();
+        appPlayer->Pause();
     }
   }
   else if (paramlow == "stop")
@@ -136,9 +140,9 @@ static int PlayerControl(const std::vector<std::string>& params)
   }
   else if (paramlow =="rewind" || paramlow == "forward")
   {
-    if (g_application.m_pPlayer->IsPlaying() && !g_application.m_pPlayer->IsPaused())
+    if (appPlayer->IsPlaying() && !appPlayer->IsPaused())
     {
-      int playSpeed = g_application.m_pPlayer->GetPlaySpeed();
+      int playSpeed = appPlayer->GetPlaySpeed();
       if (playSpeed >= 0.75 && playSpeed <= 1.55)
         playSpeed = 1;
 
@@ -158,28 +162,8 @@ static int PlayerControl(const std::vector<std::string>& params)
       if (playSpeed > 32 || playSpeed < -32)
         playSpeed = 1;
 
-      g_application.m_pPlayer->SetPlaySpeed(playSpeed, false);
+      appPlayer->SetPlaySpeed(playSpeed);
     }
-  }
-  else if (paramlow =="tempoup" || paramlow == "tempodown")
-  {
-#ifndef _XBOX
-    if (g_application.m_pPlayer->SupportsTempo() &&
-        g_application.m_pPlayer->IsPlaying() && !g_application.m_pPlayer->IsPaused())
-    {
-      float playSpeed = g_application.m_pPlayer->GetPlaySpeed();
-      if (playSpeed >= 0.75 && playSpeed <= 1.55)
-      {
-        if (paramlow == "tempodown" && playSpeed > 0.85)
-          playSpeed -= 0.1;
-        else if (paramlow == "tempoup" && playSpeed < 1.45)
-          playSpeed += 0.1;
-
-        playSpeed = floor(playSpeed * 100 + 0.5) / 100;
-        g_application.m_pPlayer->SetPlaySpeed(playSpeed);
-      }
-    }
-#endif
   }
   else if (paramlow == "next")
   {
@@ -191,23 +175,23 @@ static int PlayerControl(const std::vector<std::string>& params)
   }
   else if (paramlow == "bigskipbackward")
   {
-    if (g_application.m_pPlayer->IsPlaying())
-      g_application.m_pPlayer->Seek(false, true);
+    if (appPlayer->IsPlaying())
+      appPlayer->Seek(false, true);
   }
   else if (paramlow == "bigskipforward")
   {
-    if (g_application.m_pPlayer->IsPlaying())
-      g_application.m_pPlayer->Seek(true, true);
+    if (appPlayer->IsPlaying())
+      appPlayer->Seek(true, true);
   }
   else if (paramlow == "smallskipbackward")
   {
-    if (g_application.m_pPlayer->IsPlaying())
-      g_application.m_pPlayer->Seek(false, false);
+    if (appPlayer->IsPlaying())
+      appPlayer->Seek(false, false);
   }
   else if (paramlow == "smallskipforward")
   {
-    if (g_application.m_pPlayer->IsPlaying())
-      g_application.m_pPlayer->Seek(true, false);
+    if (appPlayer->IsPlaying())
+      appPlayer->Seek(true, false);
   }
   else if (StringUtils::StartsWithNoCase(params[0], "seekpercentage"))
   {
@@ -215,7 +199,8 @@ static int PlayerControl(const std::vector<std::string>& params)
     if (params[0].size() == 14)
       CLog::Log(LOGERROR,"PlayerControl(seekpercentage(n)) called with no argument");
     else if (params[0].size() < 17) // arg must be at least "(N)"
-      CLog::Log(LOGERROR,"PlayerControl(seekpercentage(n)) called with invalid argument: \"%s\"", params[0].substr(14).c_str());
+      CLog::Log(LOGERROR, "PlayerControl(seekpercentage(n)) called with invalid argument: \"%s\"",
+                params[0].substr(14).c_str());
     else
     {
       // Don't bother checking the argument: an invalid arg will do seek(0)
@@ -223,20 +208,16 @@ static int PlayerControl(const std::vector<std::string>& params)
       StringUtils::TrimRight(offset, ")");
       float offsetpercent = (float) atof(offset.c_str());
       if (offsetpercent < 0 || offsetpercent > 100)
-        CLog::Log(LOGERROR,"PlayerControl(seekpercentage(n)) argument, %f, must be 0-100", offsetpercent);
-      else if (g_application.m_pPlayer->IsPlaying())
+        CLog::Log(LOGERROR, "PlayerControl(seekpercentage(n)) argument, %f, must be 0-100",
+                  offsetpercent);
+      else if (appPlayer->IsPlaying())
         g_application.SeekPercentage(offsetpercent);
     }
   }
   else if (paramlow == "showvideomenu")
   {
-    if( g_application.m_pPlayer->IsPlaying() )
-      g_application.m_pPlayer->OnAction(CAction(ACTION_SHOW_VIDEOMENU));
-  }
-  else if (paramlow == "record")
-  {
-    if( g_application.m_pPlayer->IsPlaying() && g_application.m_pPlayer->CanRecord())
-      g_application.m_pPlayer->Record(!g_application.m_pPlayer->IsRecording());
+    if (appPlayer->IsPlaying())
+      appPlayer->OnAction(CAction(ACTION_SHOW_VIDEOMENU));
   }
   else if (StringUtils::StartsWithNoCase(params[0], "partymode"))
   {
@@ -262,98 +243,87 @@ static int PlayerControl(const std::vector<std::string>& params)
   else if (paramlow == "random" || paramlow == "randomoff" || paramlow == "randomon")
   {
     // get current playlist
-    int iPlaylist = g_playlistPlayer.GetCurrentPlaylist();
+    PLAYLIST::Id playlistId = CServiceBroker::GetPlaylistPlayer().GetCurrentPlaylist();
 
     // reverse the current setting
-    bool shuffled = g_playlistPlayer.IsShuffled(iPlaylist);
+    bool shuffled = CServiceBroker::GetPlaylistPlayer().IsShuffled(playlistId);
     if ((shuffled && paramlow == "randomon") || (!shuffled && paramlow == "randomoff"))
       return 0;
 
     // check to see if we should notify the user
     bool notify = (params.size() == 2 && StringUtils::EqualsNoCase(params[1], "notify"));
-    g_playlistPlayer.SetShuffle(iPlaylist, !shuffled, notify);
+    CServiceBroker::GetPlaylistPlayer().SetShuffle(playlistId, !shuffled, notify);
 
     // save settings for now playing windows
-    switch (iPlaylist)
+    switch (playlistId)
     {
-      case PLAYLIST_MUSIC:
-        CMediaSettings::Get().SetMusicPlaylistShuffled(g_playlistPlayer.IsShuffled(iPlaylist));
-        CSettings::GetInstance().Save();
+      case PLAYLIST::TYPE_MUSIC:
+        CMediaSettings::GetInstance().SetMusicPlaylistShuffled(
+            CServiceBroker::GetPlaylistPlayer().IsShuffled(playlistId));
+        CServiceBroker::GetSettingsComponent()->GetSettings()->Save();
         break;
-      case PLAYLIST_VIDEO:
-        CMediaSettings::Get().SetVideoPlaylistShuffled(g_playlistPlayer.IsShuffled(iPlaylist));
-        CSettings::GetInstance().Save();
+      case PLAYLIST::TYPE_VIDEO:
+        CMediaSettings::GetInstance().SetVideoPlaylistShuffled(
+            CServiceBroker::GetPlaylistPlayer().IsShuffled(playlistId));
+        CServiceBroker::GetSettingsComponent()->GetSettings()->Save();
       default:
         break;
     }
 
     // send message
-    CGUIMessage msg(GUI_MSG_PLAYLISTPLAYER_RANDOM, 0, 0, iPlaylist, g_playlistPlayer.IsShuffled(iPlaylist));
-    g_windowManager.SendThreadMessage(msg);
+    CGUIMessage msg(GUI_MSG_PLAYLISTPLAYER_RANDOM, 0, 0, playlistId,
+                    CServiceBroker::GetPlaylistPlayer().IsShuffled(playlistId));
+    CServiceBroker::GetGUI()->GetWindowManager().SendThreadMessage(msg);
   }
   else if (StringUtils::StartsWithNoCase(params[0], "repeat"))
   {
     // get current playlist
-    int iPlaylist = g_playlistPlayer.GetCurrentPlaylist();
-    PLAYLIST::REPEAT_STATE previous_state = g_playlistPlayer.GetRepeat(iPlaylist);
+    PLAYLIST::Id playlistId = CServiceBroker::GetPlaylistPlayer().GetCurrentPlaylist();
+    PLAYLIST::RepeatState::Type prevRepeatState =
+        CServiceBroker::GetPlaylistPlayer().GetRepeat(playlistId);
 
     std::string paramlow(params[0]);
     StringUtils::ToLower(paramlow);
 
-    PLAYLIST::REPEAT_STATE state;
+    PLAYLIST::RepeatState::Type repeatState;
     if (paramlow == "repeatall")
-      state = PLAYLIST::REPEAT_ALL;
+      repeatState = PLAYLIST::RepeatState::ALL;
     else if (paramlow == "repeatone")
-      state = PLAYLIST::REPEAT_ONE;
+      repeatState = PLAYLIST::RepeatState::ONE;
     else if (paramlow == "repeatoff")
-      state = PLAYLIST::REPEAT_NONE;
-    else if (previous_state == PLAYLIST::REPEAT_NONE)
-      state = PLAYLIST::REPEAT_ALL;
-    else if (previous_state == PLAYLIST::REPEAT_ALL)
-      state = PLAYLIST::REPEAT_ONE;
+      repeatState = PLAYLIST::RepeatState::NONE;
+    else if (prevRepeatState == PLAYLIST::RepeatState::NONE)
+      repeatState = PLAYLIST::RepeatState::ALL;
+    else if (prevRepeatState == PLAYLIST::RepeatState::ALL)
+      repeatState = PLAYLIST::RepeatState::ONE;
     else
-      state = PLAYLIST::REPEAT_NONE;
+      repeatState = PLAYLIST::RepeatState::NONE;
 
-    if (state == previous_state)
+    if (repeatState == prevRepeatState)
       return 0;
 
     // check to see if we should notify the user
     bool notify = (params.size() == 2 && StringUtils::EqualsNoCase(params[1], "notify"));
-    g_playlistPlayer.SetRepeat(iPlaylist, state, notify);
+    CServiceBroker::GetPlaylistPlayer().SetRepeat(playlistId, repeatState, notify);
 
     // save settings for now playing windows
-    switch (iPlaylist)
+    switch (playlistId)
     {
-      case PLAYLIST_MUSIC:
-        CMediaSettings::Get().SetMusicPlaylistRepeat(state == PLAYLIST::REPEAT_ALL);
-        CSettings::GetInstance().Save();
+      case PLAYLIST::TYPE_MUSIC:
+        CMediaSettings::GetInstance().SetMusicPlaylistRepeat(repeatState ==
+                                                             PLAYLIST::RepeatState::ALL);
+        CServiceBroker::GetSettingsComponent()->GetSettings()->Save();
         break;
-      case PLAYLIST_VIDEO:
-        CMediaSettings::Get().SetVideoPlaylistRepeat(state == PLAYLIST::REPEAT_ALL);
-        CSettings::GetInstance().Save();
+      case PLAYLIST::TYPE_VIDEO:
+        CMediaSettings::GetInstance().SetVideoPlaylistRepeat(repeatState ==
+                                                             PLAYLIST::RepeatState::ALL);
+        CServiceBroker::GetSettingsComponent()->GetSettings()->Save();
     }
 
     // send messages so now playing window can get updated
-    CGUIMessage msg(GUI_MSG_PLAYLISTPLAYER_REPEAT, 0, 0, iPlaylist, (int)state);
-    g_windowManager.SendThreadMessage(msg);
+    CGUIMessage msg(GUI_MSG_PLAYLISTPLAYER_REPEAT, 0, 0, playlistId, static_cast<int>(repeatState));
+    CServiceBroker::GetGUI()->GetWindowManager().SendThreadMessage(msg);
   }
-#ifndef _XBOX
-  else if (StringUtils::StartsWithNoCase(params[0], "resumelivetv"))
-  {
-    CFileItem& fileItem(g_application.CurrentFileItem());
-    PVR::CPVRChannelPtr channel = fileItem.HasPVRRecordingInfoTag() ? fileItem.GetPVRRecordingInfoTag()->Channel() : PVR::CPVRChannelPtr();
-
-    if (channel)
-    {
-      CFileItem playItem(channel);
-      if (!g_application.PlayMedia(playItem, "", channel->IsRadio() ? PLAYLIST_MUSIC : PLAYLIST_VIDEO))
-      {
-        CLog::Log(LOGERROR, "ResumeLiveTv could not play channel: %s", channel->ChannelName().c_str());
-        return false;
-      }
-    }
-  }
-#endif
 
   return 0;
 }
@@ -364,12 +334,236 @@ static int PlayerControl(const std::vector<std::string>& params)
  */
 static int PlayDVD(const std::vector<std::string>& params)
 {
-#ifdef HAS_DVD_DRIVE
+#ifdef HAS_OPTICAL_DRIVE
   bool restart = false;
   if (!params.empty() && StringUtils::EqualsNoCase(params[0], "restart"))
     restart = true;
   MEDIA_DETECT::CAutorun::PlayDisc(restart);
 #endif
+
+  return 0;
+}
+
+namespace
+{
+void GetItemsForPlayList(const boost::shared_ptr<CFileItem>& item, CFileItemList& queuedItems)
+{
+  if (VIDEO_UTILS::IsItemPlayable(*item))
+    VIDEO_UTILS::GetItemsForPlayList(item, queuedItems);
+  else if (MUSIC_UTILS::IsItemPlayable(*item))
+    MUSIC_UTILS::GetItemsForPlayList(item, queuedItems);
+}
+
+PLAYLIST::Id GetPlayListId(const CFileItem& item)
+{
+  PLAYLIST::Id playlistId(PLAYLIST::TYPE_NONE);
+  if (item.IsVideo())
+    playlistId = PLAYLIST::TYPE_VIDEO;
+  else if (item.IsAudio())
+    playlistId = PLAYLIST::TYPE_MUSIC;
+
+  return playlistId;
+}
+
+int PlayOrQueueMedia(const std::vector<std::string>& params, bool forcePlay)
+{
+  // restore to previous window if needed
+  if( CServiceBroker::GetGUI()->GetWindowManager().GetActiveWindow() == WINDOW_SLIDESHOW ||
+      CServiceBroker::GetGUI()->GetWindowManager().GetActiveWindow() == WINDOW_FULLSCREEN_VIDEO ||
+      CServiceBroker::GetGUI()->GetWindowManager().GetActiveWindow() == WINDOW_FULLSCREEN_GAME ||
+      CServiceBroker::GetGUI()->GetWindowManager().GetActiveWindow() == WINDOW_VISUALISATION )
+    CServiceBroker::GetGUI()->GetWindowManager().PreviousWindow();
+
+  // reset screensaver
+  CApplicationComponents &components = CServiceBroker::GetAppComponents();
+  const boost::shared_ptr<CApplicationPowerHandling> appPower = components.GetComponent<CApplicationPowerHandling>();
+  appPower->ResetScreenSaver();
+  appPower->WakeUpScreenSaverAndDPMS();
+
+  CFileItem item(params[0], URIUtils::HasSlashAtEnd(params[0], true));
+
+  // at this point the item instance has only the path and the folder flag set. We
+  // need some extended item properties to process resume successfully. Load them.
+  item.LoadDetails();
+
+  // ask if we need to check guisettings to resume
+  bool askToResume = true;
+  int playOffset = 0;
+  bool hasPlayOffset = false;
+  bool playNext = true;
+  for (unsigned int i = 1 ; i < params.size() ; i++)
+  {
+    if (StringUtils::EqualsNoCase(params[i], "isdir"))
+      item.m_bIsFolder = true;
+    else if (params[i] == "1") // set fullscreen or windowed
+      CMediaSettings::GetInstance().SetMediaStartWindowed(true);
+    else if (StringUtils::EqualsNoCase(params[i], "resume"))
+    {
+      // force the item to resume (if applicable)
+      if (VIDEO_UTILS::GetItemResumeInformation(item).isResumable)
+        item.SetStartOffset(STARTOFFSET_RESUME);
+      else
+        item.SetStartOffset(0);
+
+      askToResume = false;
+    }
+    else if (StringUtils::EqualsNoCase(params[i], "noresume"))
+    {
+      // force the item to start at the beginning
+      item.SetStartOffset(0);
+      askToResume = false;
+    }
+    else if (StringUtils::StartsWithNoCase(params[i], "playoffset="))
+    {
+      playOffset = atoi(params[i].substr(11).c_str()) - 1;
+      item.SetProperty("playlist_starting_track", playOffset);
+      hasPlayOffset = true;
+    }
+    else if (StringUtils::StartsWithNoCase(params[i], "playlist_type_hint="))
+    {
+      // Set the playlist type for the playlist file (e.g. STRM)
+      int playlistTypeHint = atoi(params[i].substr(19).c_str());
+      item.SetProperty("playlist_type_hint", playlistTypeHint);
+    }
+    else if (StringUtils::EqualsNoCase(params[i], "playnext"))
+    {
+      // If app player is currently playing, the queued media shall be played next.
+      playNext = true;
+    }
+  }
+
+  if (!item.m_bIsFolder && item.IsPlugin())
+    item.SetProperty("IsPlayable", true);
+
+  if (askToResume)
+  {
+    const VIDEO::GUILIB::Action action =
+        VIDEO::GUILIB::CVideoSelectActionProcessorBase::ChoosePlayOrResume(item);
+    if (action == VIDEO::GUILIB::ACTION_RESUME)
+    {
+      item.SetStartOffset(STARTOFFSET_RESUME);
+    }
+    else if (action != VIDEO::GUILIB::ACTION_PLAY_FROM_BEGINNING)
+    {
+      // The Resume dialog was closed without any choice
+      return false;
+    }
+  }
+  item.SetProperty("check_resume", false);
+
+  if (item.IsStack())
+  {
+    const VIDEO_UTILS::ResumeInformation resumeInfo =
+        VIDEO_UTILS::GetStackPartResumeInformation(item, playOffset + 1);
+
+    if (item.GetStartOffset() == STARTOFFSET_RESUME)
+      item.SetStartOffset(resumeInfo.startOffset);
+
+    item.m_lStartPartNumber = resumeInfo.partNumber;
+  }
+  else if (!forcePlay /* queue */ || item.m_bIsFolder || item.IsPlayList())
+  {
+    CFileItemList items;
+    GetItemsForPlayList(boost::make_shared<CFileItem>(item), items);
+    if (!items.IsEmpty()) // fall through on non expandable playlist
+    {
+      bool containsMusic = false;
+      bool containsVideo = false;
+      for (int i = 0; i < items.Size(); ++i)
+      {
+        const bool isVideo = items[i]->IsVideo();
+        containsMusic |= !isVideo;
+        containsVideo |= isVideo;
+
+        if (containsMusic && containsVideo)
+          break;
+      }
+
+      PLAYLIST::Id playlistId = containsVideo ? PLAYLIST::TYPE_VIDEO : PLAYLIST::TYPE_MUSIC;
+      // Mixed playlist item played by music player, mixed content folder has music removed
+      if (containsMusic && containsVideo)
+      {
+        if (item.IsPlayList())
+          playlistId = PLAYLIST::TYPE_MUSIC;
+        else
+        {
+          for (int i = items.Size() - 1; i >= 0; i--) //remove music entries
+          {
+            if (!items[i]->IsVideo())
+              items.Remove(i);
+          }
+        }
+      }
+
+      if (!items.IsEmpty())
+      {
+        PLAYLIST::CPlayListPlayer &playlistPlayer = CServiceBroker::GetPlaylistPlayer();
+
+        // Play vs. Queue (+Play)
+        if (forcePlay)
+        {
+          playlistPlayer.ClearPlaylist(playlistId);
+          playlistPlayer.Reset();
+          playlistPlayer.Add(playlistId, items);
+          playlistPlayer.SetCurrentPlaylist(playlistId);
+          playlistPlayer.Play(playOffset, "");
+        }
+        else
+        {
+          const int oldSize = playlistPlayer.GetPlaylist(playlistId).size();
+
+          const boost::shared_ptr<CApplicationPlayer> appPlayer = components.GetComponent<CApplicationPlayer>();
+          if (playNext)
+          {
+            if (appPlayer->IsPlaying())
+              playlistPlayer.Insert(playlistId, items, playlistPlayer.GetCurrentItemIdx() + 1);
+            else
+              playlistPlayer.Add(playlistId, items);
+          }
+          else
+          {
+            playlistPlayer.Add(playlistId, items);
+          }
+
+          if (!appPlayer->IsPlaying())
+          {
+            playlistPlayer.SetCurrentPlaylist(playlistId);
+
+            if (containsMusic)
+            {
+              // video does not auto play on queue like music
+              playlistPlayer.Play(hasPlayOffset ? playOffset : oldSize, "");
+            }
+          }
+        }
+      }
+      else
+      {
+        CLog::Log(LOGERROR, "Unable to %s item '%s'", forcePlay ? "play" : "queue",
+                   item.GetPath().c_str());
+      }
+      return 0;
+    }
+  }
+
+  if (forcePlay)
+  {
+    if ((item.IsAudio() || item.IsVideo()) && !item.IsSmartPlayList())
+    {
+      if (!item.HasProperty("playlist_type_hint"))
+        item.SetProperty("playlist_type_hint", GetPlayListId(item));
+
+      CServiceBroker::GetPlaylistPlayer().Play(boost::make_shared<CFileItem>(item), "");
+    }
+    else
+    {
+      g_application.PlayMedia(item, "", GetPlayListId(item));
+    }
+  }
+  else
+  {
+    CLog::Log(LOGERROR, "Unable to %s item '%s'", forcePlay ? "play" : "queue", item.GetPath().c_str());
+  }
 
   return 0;
 }
@@ -382,111 +576,34 @@ static int PlayDVD(const std::vector<std::string>& params)
  *           params[1,...] = "resume" to force resuming (optional).
  *           params[1,...] = "noresume" to force not resuming (optional).
  *           params[1,...] = "playoffset=<offset>" to start playback from a given position in a playlist (optional).
+ *           params[1,...] = "playlist_type_hint=<id>" to set the playlist type if a playlist file (e.g. STRM) is played (optional),
+ *                           for <id> value refer to PLAYLIST::TYPE_MUSIC / PLAYLIST::TYPE_VIDEO values, if not set will fallback to music playlist.
  */
-static int PlayMedia(const std::vector<std::string>& params)
+int PlayMedia(const std::vector<std::string>& params)
 {
-  CFileItem item(params[0], false);
-  if (URIUtils::HasSlashAtEnd(params[0]))
-    item.m_bIsFolder = true;
-
-  // restore to previous window if needed
-  if( g_windowManager.GetActiveWindow() == WINDOW_SLIDESHOW ||
-      g_windowManager.GetActiveWindow() == WINDOW_FULLSCREEN_VIDEO ||
-      g_windowManager.GetActiveWindow() == WINDOW_VISUALISATION )
-    g_windowManager.PreviousWindow();
-
-  // reset screensaver
-  g_application.ResetScreenSaver();
-  g_application.ResetScreenSaverWindow();
-
-  // ask if we need to check guisettings to resume
-  bool askToResume = true;
-  int playOffset = 0;
-  for (unsigned int i = 1 ; i < params.size() ; i++)
-  {
-    if (StringUtils::EqualsNoCase(params[i], "isdir"))
-      item.m_bIsFolder = true;
-    else if (params[i] == "1") // set fullscreen or windowed
-      CMediaSettings::Get().SetVideoStartWindowed(true);
-    else if (StringUtils::EqualsNoCase(params[i], "resume"))
-    {
-      // force the item to resume (if applicable) (see CApplication::PlayMedia)
-      item.m_lStartOffset = STARTOFFSET_RESUME;
-      askToResume = false;
-    }
-    else if (StringUtils::EqualsNoCase(params[i], "noresume"))
-    {
-      // force the item to start at the beginning (m_lStartOffset is initialized to 0)
-      askToResume = false;
-    }
-    else if (StringUtils::StartsWithNoCase(params[i], "playoffset=")) {
-      playOffset = atoi(params[i].substr(11).c_str()) - 1;
-      item.SetProperty("playlist_starting_track", playOffset);
-    }
-  }
-
-  if (!item.m_bIsFolder && item.IsPlugin())
-    item.SetProperty("IsPlayable", true);
-
-  if ( askToResume == true )
-  {
-    if ( CGUIWindowVideoBase::ShowResumeMenu(item) == false )
-      return false;
-  }
-  if (item.m_bIsFolder)
-  {
-    CFileItemList items;
-    std::string extensions = g_advancedSettings.m_videoExtensions + "|" + g_advancedSettings.GetMusicExtensions();
-    XFILE::CDirectory::GetDirectory(item.GetPath(), items, extensions, XFILE::DIR_FLAG_DEFAULTS);
-
-    bool containsMusic = false, containsVideo = false;
-    for (int i = 0; i < items.Size(); i++)
-    {
-      bool isVideo = items[i]->IsVideo();
-      containsMusic |= !isVideo;
-      containsVideo |= isVideo;
-
-      if (containsMusic && containsVideo)
-        break;
-    }
-
-    boost::movelib::unique_ptr<CGUIViewState> state(CGUIViewState::GetViewState(containsVideo ? WINDOW_VIDEO_NAV : WINDOW_MUSIC_NAV, items));
-    if (state.get())
-      items.Sort(state->GetSortMethod());
-    else
-      items.Sort(SortByLabel, SortOrderAscending);
-
-    int playlist = containsVideo? PLAYLIST_VIDEO : PLAYLIST_MUSIC;;
-    if (containsMusic && containsVideo) //mixed content found in the folder
-    {
-      for (int i = items.Size() - 1; i >= 0; i--) //remove music entries
-      {
-        if (!items[i]->IsVideo())
-          items.Remove(i);
-      }
-    }
-
-    g_playlistPlayer.ClearPlaylist(playlist);
-    g_playlistPlayer.Add(playlist, items);
-    g_playlistPlayer.SetCurrentPlaylist(playlist);
-    g_playlistPlayer.Play(playOffset, "");
-  }
-  else
-  {
-    int playlist = item.IsAudio() ? PLAYLIST_MUSIC : PLAYLIST_VIDEO;
-    g_playlistPlayer.ClearPlaylist(playlist);
-    g_playlistPlayer.SetCurrentPlaylist(playlist);
-
-    // play media
-    if (!g_application.PlayMedia(item, "", playlist))
-    {
-      CLog::Log(LOGERROR, "PlayMedia could not play media: %s", params[0].c_str());
-      return false;
-    }
-  }
-
-  return 0;
+  return PlayOrQueueMedia(params, true);
 }
+
+/*! \brief Queue media in the video or music playlist, according to type of media items. If both audio and video items are contained, queue to video
+ *  playlist. Start playback at requested position if player is not playing.
+ *  \param params The parameters.
+ *  \details params[0] = URL of media to queue.
+ *           params[1,...] = "isdir" if media is a directory (optional).
+ *           params[1,...] = "1" to start playback in fullscreen (optional).
+ *           params[1,...] = "resume" to force resuming (optional).
+ *           params[1,...] = "noresume" to force not resuming (optional).
+ *           params[1,...] = "playoffset=<offset>" to start playback from a given position in a playlist (optional).
+ *           params[1,...] = "playlist_type_hint=<id>" to set the playlist type if a playlist file (e.g. STRM) is played (optional),
+ *                           for <id> value refer to PLAYLIST::TYPE_MUSIC / PLAYLIST::TYPE_VIDEO values, if not set will fallback to music playlist.
+ *           params[1,...] = "playnext" if player is currently playing, to play the media right after the currently playing item. If player is not
+ *                           playing, append media to current playlist (optional).
+ */
+int QueueMedia(const std::vector<std::string>& params)
+{
+  return PlayOrQueueMedia(params, false);
+}
+
+} // unnamed namespace
 
 /*! \brief Start playback with a given playback core.
  *  \param params The parameters.
@@ -505,8 +622,10 @@ static int PlayWith(const std::vector<std::string>& params)
  */
 static int Seek(const std::vector<std::string>& params)
 {
-  if (g_application.m_pPlayer->IsPlaying())
-    CSeekHandler::Get().SeekSeconds(atoi(params[0].c_str()));
+  CApplicationComponents &components = CServiceBroker::GetAppComponents();
+  const boost::shared_ptr<CApplicationPlayer> appPlayer = components.GetComponent<CApplicationPlayer>();
+  if (appPlayer->IsPlaying())
+    appPlayer->GetSeekHandler().SeekSeconds(atoi(params[0].c_str()));
 
   return 0;
 }
@@ -530,22 +649,50 @@ static int Seek(const std::vector<std::string>& params)
 ///     @param[in] param                 "restart" to restart from resume point (optional)
 ///   }
 ///   \table_row2_l{
-///     <b>`PlayerControl(command[\,param])`</b>
+///     <b>`PlayerControl(control[\,param])`</b>
 ///     ,
-///     Allows control of music and videos. The command may be one of Play\, Stop\,
-///     Forward\, Rewind\, Next\, Previous\, BigSkipForward\, BigSkipBackward\,
-///     SmallSkipForward\, SmallSkipBackward\, Random\, RandomOn\, RandomOff\,
-///     Repeat\, RepeatOne\, RepeatAll\, RepeatOff\, Partymode(music) or
-///     Partymode(video) or Partymode(path to .xsp file)\, and Record. Play will
-///     either pause\, resume\, or stop ffwding or rewinding. Random toggles random
-///     playback and Repeat cycles through the repeat modes (these both take an
-///     optional second parameter\, Notify\, that notifies the user of the new
-///     state). Partymode(music/video) toggles the appropriate partymode\,
-///     defaults to music if no parameter is given\, besides the default music or
-///     video partymode you can also pass a path to a custom smartplaylist (.xsp)
-///     as parameter.
+///     Allows control of music and videos. <br>
+///     <br>
+///     | Control                 | Video playback behaviour               | Audio playback behaviour    | Added in    |
+///     |:------------------------|:---------------------------------------|:----------------------------|:------------|
+///     | Play                    | Play/Pause                             | Play/Pause                  |             |
+///     | Stop                    | Stop                                   | Stop                        |             |
+///     | Forward                 | Fast Forward                           | Fast Forward                |             |
+///     | Rewind                  | Rewind                                 | Rewind                      |             |
+///     | Next                    | Next chapter or movie in playlists     | Next track                  |             |
+///     | Previous                | Previous chapter or movie in playlists | Previous track              |             |
+///     | TempoUp                 | Increases playback speed               | none                        | Kodi v18    |
+///     | TempoDown               | Decreases playback speed               | none                        | Kodi v18    |
+///     | Tempo(n)                | Sets playback speed to given value     | none                        | Kodi v19    |
+///     | BigSkipForward          | Big Skip Forward                       | Big Skip Forward            | Kodi v15    |
+///     | BigSkipBackward         | Big Skip Backward                      | Big Skip Backward           | Kodi v15    |
+///     | SmallSkipForward        | Small Skip Forward                     | Small Skip Forward          | Kodi v15    |
+///     | SmallSkipBackward       | Small Skip Backward                    | Small Skip Backward         | Kodi v15    |
+///     | SeekPercentage(n)       | Seeks to given percentage              | Seeks to given percentage   |             |
+///     | Random *                | Toggle Random Playback                 | Toggle Random Playback      |             |
+///     | RandomOn                | Sets 'Random' to 'on'                  | Sets 'Random' to 'on'       |             |
+///     | RandomOff               | Sets 'Random' to 'off'                 | Sets 'Random' to 'off'      |             |
+///     | Repeat *                | Cycles through repeat modes            | Cycles through repeat modes |             |
+///     | RepeatOne               | Repeats a single video                 | Repeats a single track      |             |
+///     | RepeatAll               | Repeat all videos in a list            | Repeats all tracks in a list|             |
+///     | RepeatOff               | Sets 'Repeat' to 'off'                 | Sets 'Repeat' to 'off'      |             |
+///     | Partymode(music) **     | none                                   | Toggles music partymode     |             |
+///     | Partymode(video) **     | Toggles video partymode                | none                        |             |
+///     | Partymode(path to .xsp) | Partymode for *.xsp-file               | Partymode for *.xsp-file    |             |
+///     | ShowVideoMenu           | Shows the DVD/BR menu if available     | none                        |             |
+///     | FrameAdvance(n) ***     | Advance video by _n_ frames            | none                        | Kodi v18    |
+///     <br>
+///     '*' = For these controls\, the PlayerControl built-in function can make use of the 'notify'-parameter. For example: PlayerControl(random\, notify)
+///     <br>
+///     '**' = If no argument is given for 'partymode'\, the control  will default to music.
+///     <br>
+///     '***' = This only works if the player is paused.
+///     <br>
 ///     @param[in] control               Control to execute.
 ///     @param[in] param                 "notify" to notify user (optional\, certain controls).
+///
+///     @note 'TempoUp' or 'TempoDown' only works if "Sync playback to display" is enabled.
+///     @note 'Next' will behave differently while using video playlists. In those\, chapters will be ignored and the next movie will be played.
 ///   }
 ///   \table_row2_l{
 ///     <b>`Playlist.Clear`</b>
@@ -563,17 +710,17 @@ static int Seek(const std::vector<std::string>& params)
 ///   \table_row2_l{
 ///     <b>`PlayMedia(media[\,isdir][\,1]\,[playoffset=xx])`</b>
 ///     ,
-///     Plays the media. This can be a playlist\, music\, or video file\, directory\,
-///     plugin or an Url. The optional parameter "\,isdir" can be used for playing
-///     a directory. "\,1" will start a video in a preview window\, instead of
-///     fullscreen. If media is a playlist\, you can use playoffset=xx where xx is
-///     the position to start playback from.
+///     Plays the given media. This can be a playlist\, music\, or video file\, directory\,
+///     plugin\, disc image stack\, video file stack or an URL. The optional parameter `,isdir` can
+///     be used for playing a directory. `,1` will start the media without switching to fullscreen.
+///     If media is a playlist or a disc image stack or a video file stack\, you can use
+///     playoffset=xx where xx is the position to start playback from.
 ///     @param[in] media                 URL to media to play (optional).
-///     @param[in] isdir                 Set "isdir" if media is a directory (optional).
-///     @param[in] fullscreen            Set "1" to start playback in fullscreen (optional).
-///     @param[in] resume                Set "resume" to force resuming (optional).
-///     @param[in] noresume              Set "noresume" to force not resuming (optional).
-///     @param[in] playeroffset          Set "playoffset=<offset>" to start playback from a given position in a playlist (optional).
+///     @param[in] isdir                 Set `isdir` if media is a directory (optional).
+///     @param[in] windowed              Set `1` to start playback without switching to fullscreen (optional).
+///     @param[in] resume                Set `resume` to force resuming (optional).
+///     @param[in] noresume              Set `noresume` to force not resuming (optional).
+///     @param[in] playoffset            Set `playoffset=<offset>` to start playback from a given position in a playlist or stack (optional).
 ///   }
 ///   \table_row2_l{
 ///     <b>`PlayWith(core)`</b>
@@ -588,9 +735,31 @@ static int Seek(const std::vector<std::string>& params)
 ///     playing media. A negative value will seek backward and a positive value forward.
 ///     @param[in] seconds               Number of seconds to seek.
 ///   }
+///   \table_row2_l{
+///     <b>`QueueMedia(media[\,isdir][\,1][\,playnext]\,[playoffset=xx])`</b>
+///     \anchor Builtin_QueueMedia,
+///     Queues the given media. This can be a playlist\, music\, or video file\, directory\,
+///     plugin\, disc image stack\, video file stack or an URL. The optional parameter `,isdir` can
+///     be used for playing a directory. `,1` will start the media without switching to fullscreen.
+///     If media is a playlist or a disc image stack or a video file stack\, you can use
+///     playoffset=xx where xx is the position to start playback from.
+///     where xx is the position to start playback from.
+///     @param[in] media                 URL of media to queue.
+///     @param[in] isdir                 Set `isdir` if media is a directory (optional).
+///     @param[in] 1                     Set `1` to start playback without switching to fullscreen (optional).
+///     @param[in] resume                Set `resume` to force resuming (optional).
+///     @param[in] noresume              Set `noresume` to force not resuming (optional).
+///     @param[in] playoffset            Set `playoffset=<offset>` to start playback from a given position in a playlist or stack (optional).
+///     @param[in] playnext              Set `playnext` to play the media right after the currently playing item, if player is currently
+///     playing. If player is not playing, append media to current playlist (optional).
+///     <p><hr>
+///     @skinning_v20 **[New builtin]** \link Builtin_QueueMedia `QueueMedia(media[\,isdir][\,1][\,playnext]\,[playoffset=xx])`\endlink
+///     <p>
+///   }
 /// \table_end
 ///
 
+// clang-format off
 CBuiltins::CommandMap CPlayerBuiltins::GetOperations() const
 {
   CBuiltins::CommandMap commands;
@@ -613,11 +782,15 @@ CBuiltins::CommandMap CPlayerBuiltins::GetOperations() const
   CBuiltins::BUILT_IN builtin6 = {"Play the specified media file (or playlist)", 1, PlayMedia};
   commands.insert(std::make_pair("playmedia", builtin6));
 
-  CBuiltins::BUILT_IN builtin7 = {"Play the selected item with the specified core", 1, PlayWith};
-  commands.insert(std::make_pair("playwith", builtin7));
+  CBuiltins::BUILT_IN builtin7 = {"Queue the specified media in video or music playlist", 1, QueueMedia};
+  commands.insert(std::make_pair("queuemedia", builtin7));
 
-  CBuiltins::BUILT_IN builtin8 = {"Performs a seek in seconds on the current playing media file", 1, Seek};
-  commands.insert(std::make_pair("seek", builtin8));
+  CBuiltins::BUILT_IN builtin8 = {"Play the selected item with the specified core", 1, PlayWith};
+  commands.insert(std::make_pair("playwith", builtin8));
+
+  CBuiltins::BUILT_IN builtin9 = {"Performs a seek in seconds on the current playing media file", 1, Seek};
+  commands.insert(std::make_pair("seek", builtin9));
 
   return commands;
 }
+// clang-format on

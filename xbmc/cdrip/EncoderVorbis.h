@@ -26,13 +26,18 @@
 #include "DllVorbis.h"
 #include "DllVorbisEnc.h"
 
+namespace KODI
+{
+namespace CDRIP
+{
+
 class CEncoderVorbis : public CEncoder
 {
 public:
   CEncoderVorbis();
   virtual ~CEncoderVorbis() {};
-  bool Init(const char* strFile, int iInChannels, int iInRate, int iInBits);
-  int Encode(int nNumBytesRead, BYTE* pbtStream);
+  bool Init();
+  ssize_t Encode(uint8_t* pbtStream, size_t nNumBytesRead);
   bool Close();
   void AddTag(int key, const char* value);
 
@@ -52,5 +57,8 @@ protected:
   DllVorbis m_VorbisDll;
   DllVorbisEnc m_VorbisEncDll;
 };
+
+} /* namespace CDRIP */
+} /* namespace KODI */
 
 #endif // _ENCODERVORBIS_H

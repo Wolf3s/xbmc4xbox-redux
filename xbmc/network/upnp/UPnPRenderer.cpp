@@ -1,18 +1,26 @@
-#include "xbox/Network.h"
+#include "network/Network.h"
 #include "UPnPRenderer.h"
 #include "UPnP.h"
 #include "UPnPInternal.h"
 #include "Platinum.h"
-#include "Application.h"
+#include "application/Application.h"
+#include "application/ApplicationComponents.h"
+#include "application/ApplicationPlayer.h"
+#include "application/ApplicationVolumeHandling.h"
 #include "messaging/ApplicationMessenger.h"
 #include "FileItem.h"
 #include "GUIInfoManager.h"
+#include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
 #include "pictures/GUIWindowSlideShow.h"
 #include "pictures/PictureInfoTag.h"
-#include "profiles/ProfilesManager.h"
+#include "profiles/ProfileManager.h"
 #include "utils/URIUtils.h"
-#include "guiinfo/GUIInfoLabels.h"
+#include "guilib/guiinfo/GUIInfoLabels.h"
+#include "input/actions/Action.h"
+#include "input/actions/ActionIDs.h"
+#include "settings/SettingsComponent.h"
+#include "utils/MathUtils.h"
 
 #include <boost/make_shared.hpp>
 
@@ -146,7 +154,7 @@ CUPnPRenderer::ProcessHttpRequest(NPT_HttpRequest&              request,
 
             // ensure that the request's path is a valid thumb path
             if (URIUtils::IsRemote(filepath.GetChars()) ||
-                !filepath.StartsWith(CProfilesManager::Get().GetUserDataFolder().c_str())) {
+                !filepath.StartsWith(CServiceBroker::GetSettingsComponent()->GetProfileManager()->GetUserDataFolder().c_str())) {
                 response.SetStatus(404, "Not Found");
                 return NPT_SUCCESS;
             }
@@ -187,39 +195,44 @@ CUPnPRenderer::UpdateState()
     if (NPT_FAILED(FindServiceByType("urn:schemas-upnp-org:service:RenderingControl:1", rct)))
         return;
 
-    CStdString buffer;
-    int volume;
-    if (g_application.IsMuted()) {
+    const CApplicationComponents &components = CServiceBroker::GetAppComponents();
+    const boost::shared_ptr<const CApplicationVolumeHandling> appVolume = components.GetComponent<CApplicationVolumeHandling>();
+
+    std::string buffer;
+    float volume;
+    if (appVolume->IsMuted()) {
         rct->SetStateVariable("Mute", "1");
     } else {
         rct->SetStateVariable("Mute", "0");
     }
-    volume = g_application.GetVolume();
+    volume = appVolume->GetVolumeRatio();
 
-    buffer.Format("%d", volume);
+    buffer = StringUtils::Format("%d", volume);
     rct->SetStateVariable("Volume", buffer.c_str());
 
-    buffer.Format("%d", 256 * (volume * 60 - 60) / 100);
+    buffer = StringUtils::Format("%d", 256 * (volume * 60 - 60) / 100);
     rct->SetStateVariable("VolumeDb", buffer.c_str());
 
-    if (g_application.m_pPlayer->IsPlaying() || g_application.m_pPlayer->IsPaused()) {
-        if (g_application.m_pPlayer->IsPaused()) {
+    const boost::shared_ptr<const CApplicationPlayer> appPlayer = components.GetComponent<CApplicationPlayer>();
+    if (appPlayer->IsPlaying() || appPlayer->IsPaused()) {
+        if (appPlayer->IsPaused()) {
             avt->SetStateVariable("TransportState", "PAUSED_PLAYBACK");
         } else {
             avt->SetStateVariable("TransportState", "PLAYING");
         }
 
         avt->SetStateVariable("TransportStatus", "OK");
-        avt->SetStateVariable("TransportPlaySpeed", (const char*)NPT_String::FromInteger(g_application.m_pPlayer->GetPlaySpeed()));
+        avt->SetStateVariable("TransportPlaySpeed", (const char*)NPT_String::FromInteger(appPlayer->GetPlaySpeed()));
         avt->SetStateVariable("NumberOfTracks", "1");
         avt->SetStateVariable("CurrentTrack", "1");
 
-        buffer = g_infoManager.GetCurrentPlayTime(TIME_FORMAT_HH_MM_SS);
+        buffer =
+            StringUtils::SecondsToTimeString(MathUtils::round_int(g_application.GetTime()), TIME_FORMAT_HH_MM_SS);
         avt->SetStateVariable("RelativeTimePosition", buffer.c_str());
-        buffer = StringUtils::SecondsToTimeString((long)g_infoManager.GetTotalPlayTime(), TIME_FORMAT_HH_MM_SS);
         avt->SetStateVariable("AbsoluteTimePosition", buffer.c_str());
 
-        buffer = g_infoManager.GetDuration(TIME_FORMAT_HH_MM_SS);
+        buffer = StringUtils::SecondsToTimeString(MathUtils::round_int(g_application.GetTotalTime()),
+                                                  TIME_FORMAT_HH_MM_SS);
         if (buffer.length() > 0) {
           avt->SetStateVariable("CurrentTrackDuration", buffer.c_str());
           avt->SetStateVariable("CurrentMediaDuration", buffer.c_str());
@@ -263,9 +276,9 @@ CUPnPRenderer::GetMetadata(NPT_String& meta)
     PLT_MediaObject* object = BuildObject(item, file_path, false);
     if (object) {
         // fetch the path to the thumbnail
-        CStdString thumb = g_infoManager.GetImage(MUSICPLAYER_COVER, -1); //TODO: Only audio for now
-            
-        NPT_String ip = g_application.getNetwork().m_networkinfo.ip;
+        std::string thumb = CServiceBroker::GetGUI()->GetInfoManager().GetImage(MUSICPLAYER_COVER, -1); //TODO: Only audio for now
+
+        NPT_String ip = CServiceBroker::GetNetwork().m_networkinfo.ip;
 
         // build url, use the internal device http server to serv the image
         NPT_HttpUrlQuery query;
@@ -289,10 +302,10 @@ CUPnPRenderer::GetMetadata(NPT_String& meta)
 NPT_Result
 CUPnPRenderer::OnNext(PLT_ActionReference& action)
 {
-    if (g_windowManager.GetActiveWindow() == WINDOW_SLIDESHOW) {
-        CApplicationMessenger::Get().SendMsg(TMSG_GUI_ACTION, WINDOW_SLIDESHOW, -1, static_cast<void*>(new CAction(ACTION_NEXT_PICTURE)));
+    if (CServiceBroker::GetGUI()->GetWindowManager().GetActiveWindow() == WINDOW_SLIDESHOW) {
+        CServiceBroker::GetAppMessenger()->SendMsg(TMSG_GUI_ACTION, WINDOW_SLIDESHOW, -1, static_cast<void*>(new CAction(ACTION_NEXT_PICTURE)));
     } else {
-        CApplicationMessenger::Get().SendMsg(TMSG_PLAYLISTPLAYER_NEXT);
+        CServiceBroker::GetAppMessenger()->SendMsg(TMSG_PLAYLISTPLAYER_NEXT);
     }
     return NPT_SUCCESS;
 }
@@ -303,8 +316,10 @@ CUPnPRenderer::OnNext(PLT_ActionReference& action)
 NPT_Result
 CUPnPRenderer::OnPause(PLT_ActionReference& action)
 {
-    if (!g_application.m_pPlayer->IsPaused())
-        CApplicationMessenger::Get().SendMsg(TMSG_MEDIA_PAUSE);
+    const CApplicationComponents &components = CServiceBroker::GetAppComponents();
+    const boost::shared_ptr<const CApplicationPlayer> appPlayer = components.GetComponent<CApplicationPlayer>();
+    if (!appPlayer->IsPaused())
+        CServiceBroker::GetAppMessenger()->SendMsg(TMSG_MEDIA_PAUSE);
     return NPT_SUCCESS;
 }
 
@@ -314,16 +329,18 @@ CUPnPRenderer::OnPause(PLT_ActionReference& action)
 NPT_Result
 CUPnPRenderer::OnPlay(PLT_ActionReference& action)
 {
-    if (g_application.m_pPlayer->IsPaused()) {
-        CApplicationMessenger::Get().SendMsg(TMSG_MEDIA_PAUSE);
-    } else if (!g_application.m_pPlayer->IsPlaying()) {
+    const CApplicationComponents &components = CServiceBroker::GetAppComponents();
+    const boost::shared_ptr<const CApplicationPlayer> appPlayer = components.GetComponent<CApplicationPlayer>();
+    if (appPlayer->IsPaused()) {
+        CServiceBroker::GetAppMessenger()->SendMsg(TMSG_MEDIA_PAUSE);
+    } else if (!appPlayer->IsPlaying()) {
         NPT_String uri, meta;
         PLT_Service* service;
         // look for value set previously by SetAVTransportURI
         NPT_CHECK_SEVERE(FindServiceByType("urn:schemas-upnp-org:service:AVTransport:1", service));
         NPT_CHECK_SEVERE(service->GetStateVariableValue("AVTransportURI", uri));
         NPT_CHECK_SEVERE(service->GetStateVariableValue("AVTransportURIMetaData", meta));
-        
+
         // if not set, use the current file being played
         PlayMedia(uri, meta);
     }
@@ -336,7 +353,7 @@ CUPnPRenderer::OnPlay(PLT_ActionReference& action)
 NPT_Result
 CUPnPRenderer::OnPrevious(PLT_ActionReference& action)
 {
-    CApplicationMessenger::Get().SendMsg(TMSG_PLAYLISTPLAYER_PREV);
+    CServiceBroker::GetAppMessenger()->SendMsg(TMSG_PLAYLISTPLAYER_PREV);
     return NPT_SUCCESS;
 }
 
@@ -346,7 +363,7 @@ CUPnPRenderer::OnPrevious(PLT_ActionReference& action)
 NPT_Result
 CUPnPRenderer::OnStop(PLT_ActionReference& action)
 {
-    CApplicationMessenger::Get().SendMsg(TMSG_MEDIA_STOP);
+    CServiceBroker::GetAppMessenger()->SendMsg(TMSG_MEDIA_STOP);
     return NPT_SUCCESS;
 }
 
@@ -363,9 +380,12 @@ CUPnPRenderer::OnSetAVTransportURI(PLT_ActionReference& action)
     NPT_CHECK_SEVERE(action->GetArgumentValue("CurrentURI", uri));
     NPT_CHECK_SEVERE(action->GetArgumentValue("CurrentURIMetaData", meta));
 
+    const CApplicationComponents &components = CServiceBroker::GetAppComponents();
+    const boost::shared_ptr<const CApplicationPlayer> appPlayer = components.GetComponent<CApplicationPlayer>();
+
     // if not playing already, just keep around uri & metadata
     // and wait for play command
-    if (!g_application.m_pPlayer->IsPlaying()) {
+    if (!appPlayer->IsPlaying()) {
         service->SetStateVariable("TransportState", "STOPPED");
         service->SetStateVariable("TransportStatus", "OK");
         service->SetStateVariable("TransportPlaySpeed", "1");
@@ -405,7 +425,7 @@ CUPnPRenderer::PlayMedia(const char* uri, const char* meta, PLT_Action* action)
 
         PLT_MediaItemResource* res = object->m_Resources.GetFirstItem();
         for(NPT_Cardinal i = 0; i < object->m_Resources.GetItemCount(); i++) {
-          if(object->m_Resources[i].m_Uri == uri) { 
+          if(object->m_Resources[i].m_Uri == uri) {
             res = &object->m_Resources[i];
             break;
           }
@@ -413,7 +433,7 @@ CUPnPRenderer::PlayMedia(const char* uri, const char* meta, PLT_Action* action)
         for(NPT_Cardinal i = 0; i < object->m_Resources.GetItemCount(); i++) {
             if(object->m_Resources[i].m_ProtocolInfo.ToString().StartsWith("xbmc-get:")) {
             res = &object->m_Resources[i];
-            item.SetPath(CStdString(res->m_Uri));
+            item.SetPath(std::string(res->m_Uri));
             break;
           }
         }
@@ -425,37 +445,40 @@ CUPnPRenderer::PlayMedia(const char* uri, const char* meta, PLT_Action* action)
         item.m_dateTime.SetFromDateString((const char*)object->m_Date);
         item.m_strTitle = (const char*)object->m_Title;
         item.SetLabel((const char*)object->m_Title);
-        item.SetLabelPreformated(true);
+        item.SetLabelPreformatted(true);
         item.SetArt("thumb", (const char*)object->m_ExtraInfo.album_art_uri);
-        if       (object->m_ObjectClass.type.StartsWith("object.item.audioItem")) {            
+        if       (object->m_ObjectClass.type.StartsWith("object.item.audioItem")) {
             if(NPT_SUCCEEDED(PopulateTagFromObject(*item.GetMusicInfoTag(), *object, res)))
-                item.SetLabelPreformated(false);
+                item.SetLabelPreformatted(false);
         } else if(object->m_ObjectClass.type.StartsWith("object.item.videoItem")) {
             if(NPT_SUCCEEDED(PopulateTagFromObject(*item.GetVideoInfoTag(), *object, res)))
-                item.SetLabelPreformated(false);
+                item.SetLabelPreformatted(false);
         } else if(object->m_ObjectClass.type.StartsWith("object.item.imageItem")) {
             bImageFile = true;
         }
         if (bImageFile)
-          CApplicationMessenger::Get().PostMsg(TMSG_PICTURE_SHOW, -1, -1, NULL, item.GetPath());
+          CServiceBroker::GetAppMessenger()->PostMsg(TMSG_PICTURE_SHOW, -1, -1, NULL, item.GetPath());
         else {
           CFileItemList *l = new CFileItemList; //don't delete,
           l->Add(boost::make_shared<CFileItem>(item));
-          CApplicationMessenger::Get().PostMsg(TMSG_MEDIA_PLAY, -1, -1, static_cast<void*>(l));
+          CServiceBroker::GetAppMessenger()->PostMsg(TMSG_MEDIA_PLAY, -1, -1, static_cast<void*>(l));
         }
     } else {
         bImageFile = NPT_String(PLT_MediaObject::GetUPnPClass(uri)).StartsWith("object.item.imageItem", true);
 
         if (bImageFile)
-          CApplicationMessenger::Get().PostMsg(TMSG_PICTURE_SHOW, -1, -1, NULL, (const char*)uri);
+          CServiceBroker::GetAppMessenger()->PostMsg(TMSG_PICTURE_SHOW, -1, -1, NULL, (const char*)uri);
         else {
           CFileItemList *l = new CFileItemList; //don't delete,
           l->Add(boost::make_shared<CFileItem>((const char*)uri, false));
-          CApplicationMessenger::Get().PostMsg(TMSG_MEDIA_PLAY, -1, -1, static_cast<void*>(l));
+          CServiceBroker::GetAppMessenger()->PostMsg(TMSG_MEDIA_PLAY, -1, -1, static_cast<void*>(l));
         }
     }
 
-    if (!g_application.m_pPlayer->IsPlaying()) {
+    const CApplicationComponents &components = CServiceBroker::GetAppComponents();
+    const boost::shared_ptr<const CApplicationPlayer> appPlayer = components.GetComponent<CApplicationPlayer>();
+
+    if (!appPlayer->IsPlaying()) {
         service->SetStateVariable("TransportState", "STOPPED");
         service->SetStateVariable("TransportStatus", "ERROR_OCCURRED");
     } else {
@@ -475,9 +498,12 @@ CUPnPRenderer::PlayMedia(const char* uri, const char* meta, PLT_Action* action)
 NPT_Result
 CUPnPRenderer::OnSetVolume(PLT_ActionReference& action)
 {
+    CApplicationComponents &components = CServiceBroker::GetAppComponents();
+    const boost::shared_ptr<CApplicationVolumeHandling> appVolume = components.GetComponent<CApplicationVolumeHandling>();
+
     NPT_String volume;
     NPT_CHECK_SEVERE(action->GetArgumentValue("DesiredVolume", volume));
-    g_application.SetVolume(atoi((const char*)volume));
+    appVolume->SetVolume(atof((const char*)volume));
     return NPT_SUCCESS;
 }
 
@@ -487,10 +513,13 @@ CUPnPRenderer::OnSetVolume(PLT_ActionReference& action)
 NPT_Result
 CUPnPRenderer::OnSetMute(PLT_ActionReference& action)
 {
+    CApplicationComponents &components = CServiceBroker::GetAppComponents();
+    const boost::shared_ptr<CApplicationVolumeHandling> appVolume = components.GetComponent<CApplicationVolumeHandling>();
+
     NPT_String mute;
     NPT_CHECK_SEVERE(action->GetArgumentValue("DesiredMute",mute));
-    if((mute == "1") ^ g_application.IsMuted())
-        g_application.ToggleMute();
+    if((mute == "1") ^ appVolume->IsMuted())
+        appVolume->ToggleMute();
     return NPT_SUCCESS;
 }
 
@@ -500,7 +529,9 @@ CUPnPRenderer::OnSetMute(PLT_ActionReference& action)
 NPT_Result
 CUPnPRenderer::OnSeek(PLT_ActionReference& action)
 {
-    if (!g_application.m_pPlayer->IsPlaying()) return NPT_ERROR_INVALID_STATE;
+    const CApplicationComponents &components = CServiceBroker::GetAppComponents();
+    const boost::shared_ptr<const CApplicationPlayer> appPlayer = components.GetComponent<CApplicationPlayer>();
+    if (!appPlayer->IsPlaying()) return NPT_ERROR_INVALID_STATE;
 
     NPT_String unit, target;
     NPT_CHECK_SEVERE(action->GetArgumentValue("Unit", unit));

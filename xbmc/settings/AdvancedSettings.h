@@ -1,38 +1,27 @@
-#pragma once
 /*
- *      Copyright (C) 2005-2013 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2005-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
 
-#include <set>
-#include <string>
-#include <vector>
+#pragma once
 
 #include "settings/lib/ISettingCallback.h"
 #include "settings/lib/ISettingsHandler.h"
-#include "utils/StdString.h"
-#include "utils/GlobalsHandling.h"
+#include "utils/SortUtils.h"
 
-#define CACHE_BUFFER_MODE_INTERNET      0
-#define CACHE_BUFFER_MODE_ALL           1
-#define CACHE_BUFFER_MODE_TRUE_INTERNET 2
-#define CACHE_BUFFER_MODE_NONE          3
-#define CACHE_BUFFER_MODE_REMOTE        4
+#include <stdint.h>
+#include <set>
+#include <string>
+#include <utility>
+#include <vector>
+
+class CProfileManager;
+class CSettingsManager;
+class CVariant;
+struct IntegerSettingOption;
 
 class TiXmlElement;
 namespace ADDON
@@ -76,15 +65,17 @@ public:
 struct TVShowRegexp
 {
   bool byDate;
-  CStdString regexp;
+  bool byTitle;
+  std::string regexp;
   int defaultSeason;
-  TVShowRegexp(bool d, const CStdString& r, int s = 1)
+  TVShowRegexp(bool d, const std::string& r, int s = 1, bool t = false) : regexp(r)
   {
     byDate = d;
-    regexp = r;
     defaultSeason = s;
+    byTitle = t;
   }
 };
+
 
 typedef std::vector<TVShowRegexp> SETTINGS_TVSHOWLIST;
 
@@ -93,34 +84,24 @@ class CAdvancedSettings : public ISettingCallback, public ISettingsHandler
   public:
     CAdvancedSettings();
 
-    static CAdvancedSettings* getInstance();
-
     virtual void OnSettingsLoaded();
     virtual void OnSettingsUnloaded();
 
-    virtual void OnSettingChanged(const CSetting *setting);
+    virtual void OnSettingChanged(const boost::shared_ptr<const CSetting>& setting);
 
-    virtual void OnSettingAction(const CSetting *setting);
-
-    void Initialize();
-    bool Initialized() { return m_initialized; };
-    void AddSettingsFile(const CStdString &filename);
-    bool Load();
-    void Clear();
+    void Initialize(CSettingsManager& settingsMgr);
+    void Uninitialize(CSettingsManager& settingsMgr);
+    bool Initialized() const { return m_initialized; }
+    bool Load(const CProfileManager &profileManager);
 
     static void GetCustomTVRegexps(TiXmlElement *pRootElement, SETTINGS_TVSHOWLIST& settings);
-    static void GetCustomRegexps(TiXmlElement *pRootElement, std::vector<std::string>& settings);
-    static void GetCustomRegexpReplacers(TiXmlElement *pRootElement, std::vector<std::string>& settings);
+    static void GetCustomRegexps(TiXmlElement *pRootElement, std::vector<std::string> &settings);
     static void GetCustomExtensions(TiXmlElement *pRootElement, std::string& extensions);
-
-    bool m_DisableModChipDetection;
-    bool m_bPowerSave;
 
     int m_audioHeadRoom;
     float m_karaokeSyncDelay;
-    float m_ac3Gain;
     float m_audioPlayCountMinimumPercent;
-    bool m_dvdplayerIgnoreDTSinWAV;
+    bool m_VideoPlayerIgnoreDTSinWAV;
 
     float m_videoSubsDelayRange;
     float m_videoAudioDelayRange;
@@ -134,9 +115,8 @@ class CAdvancedSettings : public ISettingCallback, public ISettingsHandler
     int m_videoPercentSeekForwardBig;
     int m_videoPercentSeekBackwardBig;
     std::vector<int> m_seekSteps;
-    CStdString m_videoPPFFmpegDeint;
-    CStdString m_videoPPFFmpegPostProc;
-
+    std::string m_videoPPFFmpegDeint;
+    std::string m_videoPPFFmpegPostProc;
     bool m_musicUseTimeSeeking;
     int m_musicTimeSeekForward;
     int m_musicTimeSeekBackward;
@@ -148,18 +128,11 @@ class CAdvancedSettings : public ISettingCallback, public ISettingsHandler
     int m_musicPercentSeekBackwardBig;
     int m_musicResample;
     int m_videoBlackBarColour;
+    int m_videoBusyDialogDelay_ms;
     int m_videoIgnoreSecondsAtStart;
     float m_videoIgnorePercentAtEnd;
-    bool m_audioApplyDrc;
-
-    int  m_videoBusyDialogDelay_ms;
 
     float m_videoPlayCountMinimumPercent;
-
-    bool m_guiKeepInMemory;
-    bool m_guiVisualizeDirtyRegions;
-    int  m_guiAlgorithmDirtyRegions;
-    unsigned int m_addonPackageFolderSize;
 
     unsigned int m_cacheMemSize;
     unsigned int m_cacheBufferMode;
@@ -179,17 +152,15 @@ class CAdvancedSettings : public ISettingCallback, public ISettingsHandler
     int m_autoDetectPingTime;
 
     int m_songInfoDuration;
-    int m_busyDialogDelay;
     int m_logLevel;
     int m_logLevelHint;
-    int m_extraLogLevels;
-    CStdString m_cddbAddress;
-    bool m_usePCDVDROM;
+    std::string m_cddbAddress;
+    bool m_addSourceOnTop; //!< True to put 'add source' buttons on top
+
     bool m_fullScreenOnMovieStart;
-    bool m_noDVDROM;
-    CStdString m_cachePath;
-    bool m_displayRemoteCodes;
-    CStdString m_videoCleanDateTimeRegExp;
+    std::string m_cachePath;
+    std::string m_videoCleanDateTimeRegExp;
+    std::string m_videoFilenameIdentifierRegExp;
     std::vector<std::string> m_videoCleanStringRegExps;
     std::vector<std::string> m_videoExcludeFromListingRegExps;
     std::vector<std::string> m_moviesExcludeFromScanRegExps;
@@ -202,61 +173,52 @@ class CAdvancedSettings : public ISettingCallback, public ISettingsHandler
     std::vector<std::string> m_trailerMatchRegExps;
     SETTINGS_TVSHOWLIST m_tvshowEnumRegExps;
     std::string m_tvshowMultiPartEnumRegExp;
-    typedef std::vector< std::pair<CStdString, CStdString> > StringMapping;
+    typedef std::vector< std::pair<std::string, std::string> > StringMapping;
     StringMapping m_pathSubstitutions;
+
     int m_remoteRepeat;
     float m_controllerDeadzone;
     bool m_FTPShowCache;
+    bool m_DisableModChipDetection;
+    bool m_bPowerSave;
+    bool m_displayRemoteCodes;
+    bool m_noDVDROM;
 
     bool m_playlistAsFolders;
     bool m_detectAsUdf;
 
-    int m_fanartRes; ///< \brief the maximal resolution to cache fanart at (assumes 16x9)
-    int m_imageRes;  ///< \brief the maximal resolution to cache images at (assumes 16x9)
-    /*! \brief the maximal size to cache thumbs at, assuming square
-     Used for actual thumbs (eg bookmark thumbs, picture thumbs) rather than cover art which uses m_imageRes instead
-     */
-    unsigned int GetThumbSize() const { return m_imageRes / 2; };
-    //dds DXT1 support
-    bool m_useDDSFanart;
+    unsigned int m_fanartRes; ///< \brief the maximal resolution to cache fanart at (assumes 16x9)
+    unsigned int m_imageRes;  ///< \brief the maximal resolution to cache images at (assumes 16x9)
+    bool m_useDDSFanart; ///< \brief support for DDS DXT1 generated thumbs
 
     int m_sambaclienttimeout;
-    CStdString m_sambadoscodepage;
+    std::string m_sambadoscodepage;
     bool m_sambastatfiles;
 
     bool m_bHTTPDirectoryStatFilesize;
 
     bool m_bFTPThumbs;
+    bool m_bShoutcastArt;
 
-    CStdString m_musicThumbs;
-    CStdString m_dvdThumbs;
-    CStdString m_fanartImages;
-    std::vector<std::string> m_musicArtistExtraArt;
-    std::vector<std::string> m_musicAlbumExtraArt;
-
-    bool m_bMusicLibraryHideAllItems;
     int m_iMusicLibraryRecentlyAddedItems;
     int m_iMusicLibraryDateAdded;
     bool m_bMusicLibraryAllItemsOnBottom;
     bool m_bMusicLibraryCleanOnUpdate;
     bool m_bMusicLibraryArtistSortOnUpdate;
-    CStdString m_strMusicLibraryAlbumFormat;
-    CStdString m_strMusicLibraryAlbumFormatRight;
+    bool m_bMusicLibraryUseISODates;
+    bool m_bMusicLibraryArtistNavigatesToSongs;
+    std::string m_strMusicLibraryAlbumFormat;
     bool m_prioritiseAPEv2tags;
-    CStdString m_musicItemSeparator;
+    std::string m_musicItemSeparator;
     std::vector<std::string> m_musicArtistSeparators;
-    CStdString m_videoItemSeparator;
+    std::string m_videoItemSeparator;
     std::string m_programItemSeparator;
-    std::vector<CStdString> m_musicTagsFromFileFilters;
-    bool m_musicUseArtistSortName;
+    std::vector<std::string> m_musicTagsFromFileFilters;
 
-    bool m_bVideoLibraryHideAllItems;
     bool m_bVideoLibraryAllItemsOnBottom;
     int m_iVideoLibraryRecentlyAddedItems;
-    bool m_bVideoLibraryHideEmptySeries;
     bool m_bVideoLibraryCleanOnUpdate;
     bool m_bVideoLibraryUseFastHash;
-    bool m_bVideoLibraryExportAutoThumbs;
     bool m_bVideoLibraryImportWatchedState;
     bool m_bVideoLibraryImportResumePoint;
 
@@ -277,51 +239,56 @@ class CAdvancedSettings : public ISettingCallback, public ISettingsHandler
     int m_curlconnecttimeout;
     int m_curllowspeedtime;
     int m_curlretries;
+    int m_curlKeepAliveInterval;    // seconds
     bool m_curlDisableIPV6;
+    bool m_curlDisableHTTP2;
 
+    std::string m_caTrustFile;
+
+    bool m_showExitButton; /* Ideal for appliances to hide a 'useless' button */
     bool m_splashImage;
-
     int m_playlistRetries;
     int m_playlistTimeout;
+
     bool m_bVirtualShares;
-    bool m_bNavVKeyboard; // if true we navigate the virtual keyboard using cursor keys
-
-    bool m_karaokeChangeGenreForKaraokeSongs;
-    int m_karaokeStartIndex; // auto-assign numbering start from this value
-
-    bool m_bPythonVerbose;
-
-    bool m_loaded;
-    bool m_initialized;
-
-    //! \brief Returns a list of music extension for filtering in the GUI
-    std::string GetMusicExtensions() const;
-
-    void SetDebugMode(bool debug);
-    void SetExtraLogsFromAddon(ADDON::IAddon* addon);
 
     DatabaseSettings m_databaseMusic; // advanced music database setup
     DatabaseSettings m_databaseVideo; // advanced video database setup
 
-    bool m_jsonOutputCompact;
+    bool m_guiKeepInMemory;
+    bool m_guiVisualizeDirtyRegions;
+    int  m_guiAlgorithmDirtyRegions;
+    bool m_guiSmartRedraw;
+    unsigned int m_addonPackageFolderSize;
 
-    std::vector<CStdString> m_settingsFiles;
-    void ParseSettingsFile(const CStdString &file);
+    bool m_useLocaleCollation;
+
+    bool m_jsonOutputCompact;
+    unsigned int m_jsonTcpPort;
+
+    void ParseSettingsFile(const std::string &file);
+
+    bool m_initialized;
+
+    void SetDebugMode(bool debug);
 
     //! \brief Toggles dirty-region visualization
-    void ToggleDirtyRegionVisualization() { m_guiVisualizeDirtyRegions = !m_guiVisualizeDirtyRegions; };
+    void ToggleDirtyRegionVisualization()
+    {
+      m_guiVisualizeDirtyRegions = !m_guiVisualizeDirtyRegions;
+    }
 
     // runtime settings which cannot be set from advancedsettings.xml
-    std::string m_pictureExtensions;
-    std::string m_musicExtensions;
     std::string m_videoExtensions;
+    std::string m_discStubExtensions;
+    std::string m_subtitlesExtensions;
+    std::string m_musicExtensions;
+    std::string m_pictureExtensions;
     std::string m_programExtensions;
-    CStdString m_discStubExtensions;
-    CStdString m_subtitlesExtensions;
 
-    CStdString m_logFolder;
+    std::string m_userAgent;
 
-    CStdString m_userAgent;
+  private:
+    void Initialize();
+    void Clear();
 };
-
-XBMC_GLOBAL(CAdvancedSettings,g_advancedSettings);

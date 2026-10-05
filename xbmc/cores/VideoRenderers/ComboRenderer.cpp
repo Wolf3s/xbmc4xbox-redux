@@ -17,15 +17,21 @@
  *  <http://www.gnu.org/licenses/>.
  *
  */
- 
-#include "utils/log.h"
+
 #include "ComboRenderer.h"
-#include "Application.h"
-#include "settings/DisplaySettings.h"
+
+#include "application/Application.h"
+#include "application/ApplicationComponents.h"
+#include "application/ApplicationPowerHandling.h"
+#include "guilib/GUIComponent.h"
+#include "guilib/GUIWindowManager.h"
 #include "settings/DisplaySettings.h"
 #include "settings/MediaSettings.h"
 #include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "threads/SingleLock.h"
+#include "utils/log.h"
+#include "video/windows/GUIWindowFullScreen.h"
 
 CComboRenderer::CComboRenderer(LPDIRECT3DDEVICE8 pDevice)
     : CXBoxRenderer(pDevice)
@@ -42,7 +48,7 @@ CComboRenderer::CComboRenderer(LPDIRECT3DDEVICE8 pDevice)
 
 void CComboRenderer::DeleteYUY2Texture(int index)
 {
-  CSingleLock lock(g_graphicsContext);
+  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   if (m_RGBSurface[index])
     SAFE_RELEASE(m_RGBSurface[index]);
 
@@ -64,7 +70,7 @@ void CComboRenderer::ClearYUY2Texture(int index)
 
 bool CComboRenderer::CreateYUY2Texture(int index)
 {
-  CSingleLock lock(g_graphicsContext);
+  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   DeleteYUY2Texture(index);
   // Create our textures...
 
@@ -86,7 +92,7 @@ bool CComboRenderer::CreateYUY2Texture(int index)
 void CComboRenderer::ManageTextures()
 {
   //use 1 buffer in fullscreen mode and 0 buffers in windowed mode
-  if (g_graphicsContext.IsFullScreenVideo())
+  if (CServiceBroker::GetWinSystem()->GetGfxContext().IsFullScreenVideo())
   {
     m_iYUY2Buffers = 2;
 
@@ -114,14 +120,14 @@ void CComboRenderer::ManageTextures()
 
 void CComboRenderer::ManageDisplay()
 {
-  const CRect rv = g_graphicsContext.GetViewWindow();
+  const CRect rv = CServiceBroker::GetWinSystem()->GetGfxContext().GetViewWindow();
   float fScreenWidth = rv.Width();
   float fScreenHeight = rv.Height();
   float fOffsetX1 = rv.x1;
   float fOffsetY1 = rv.y1;
-  float fPixelRatio = CDisplaySettings::Get().GetPixelRatio();
-  float fMaxScreenWidth = (float)CDisplaySettings::Get().GetResolutionInfo(g_graphicsContext.GetVideoResolution()).iWidth;
-  float fMaxScreenHeight = (float)CDisplaySettings::Get().GetResolutionInfo(g_graphicsContext.GetVideoResolution()).iHeight;
+  float fPixelRatio = CDisplaySettings::GetInstance().GetPixelRatio();
+  float fMaxScreenWidth = (float)CDisplaySettings::GetInstance().GetResolutionInfo(CServiceBroker::GetWinSystem()->GetGfxContext().GetVideoResolution()).iWidth;
+  float fMaxScreenHeight = (float)CDisplaySettings::GetInstance().GetResolutionInfo(CServiceBroker::GetWinSystem()->GetGfxContext().GetVideoResolution()).iHeight;
   if (fOffsetX1 < 0) fOffsetX1 = 0;
   if (fOffsetY1 < 0) fOffsetY1 = 0;
   if (fScreenWidth + fOffsetX1 > fMaxScreenWidth) fScreenWidth = fMaxScreenWidth - fOffsetX1;
@@ -136,12 +142,12 @@ void CComboRenderer::ManageDisplay()
   }
 
   // source rect
-  rs.left = CMediaSettings::Get().GetCurrentVideoSettings().m_CropLeft;
-  rs.top = CMediaSettings::Get().GetCurrentVideoSettings().m_CropTop;
-  rs.right = m_iSourceWidth - CMediaSettings::Get().GetCurrentVideoSettings().m_CropRight;
-  rs.bottom = m_iSourceHeight - CMediaSettings::Get().GetCurrentVideoSettings().m_CropBottom;
+  rs.left = CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CropLeft;
+  rs.top = CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CropTop;
+  rs.right = m_iSourceWidth - CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CropRight;
+  rs.bottom = m_iSourceHeight - CMediaSettings::GetInstance().GetCurrentVideoSettings().m_CropBottom;
 
-  CalcNormalDisplayRect(fOffsetX1, fOffsetY1, fScreenWidth, fScreenHeight, GetAspectRatio() * fPixelRatio, CDisplaySettings::Get().GetZoomAmount());
+  CalcNormalDisplayRect(fOffsetX1, fOffsetY1, fScreenWidth, fScreenHeight, GetAspectRatio() * fPixelRatio, CDisplaySettings::GetInstance().GetZoomAmount());
 
   // check whether we need to alter our source rect
   if (rd.left < fOffsetX1 || rd.right > fOffsetX1 + fScreenWidth)
@@ -182,9 +188,9 @@ bool CComboRenderer::Configure(unsigned int width, unsigned int height, unsigned
 void CComboRenderer::Update(bool bPauseDrawing)
 {
   if(!m_bConfigured) return;
-  CSingleLock lock(g_graphicsContext);
+  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
-  if(g_graphicsContext.IsFullScreenVideo() || g_graphicsContext.IsCalibrating())
+  if(CServiceBroker::GetWinSystem()->GetGfxContext().IsFullScreenVideo() || CServiceBroker::GetWinSystem()->GetGfxContext().IsCalibrating())
     m_pD3DDevice->EnableOverlay(!bPauseDrawing);
   else
     m_pD3DDevice->EnableOverlay(FALSE);
@@ -201,12 +207,14 @@ void CComboRenderer::FlipPage(int source)
 }
 
 void CComboRenderer::YV12toYUY2()
-{ 
+{
   int index = m_iYV12RenderBuffer;
   if (!m_RGBSurface[m_iYUY2RenderBuffer]) return;
 
   /* if we have dimmed our texture, don't overwrite it */
-  if( g_application.IsInScreenSaver() && m_bHasDimView ) return;
+  CApplicationComponents &components = CServiceBroker::GetAppComponents();
+  const boost::shared_ptr<CApplicationPowerHandling> appPower = components.GetComponent<CApplicationPowerHandling>();
+  if( appPower->IsInScreenSaver() && m_bHasDimView ) return;
 
   if( WaitForSingleObject(m_eventTexturesDone[index], 500) == WAIT_TIMEOUT )
     CLog::Log(LOGWARNING, __FUNCTION__" - Timeout waiting for texture %d", index);
@@ -365,7 +373,7 @@ unsigned int CComboRenderer::PreInit()
 
 void CComboRenderer::UnInit()
 {
-  CSingleLock lock(g_graphicsContext);
+  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
   m_pD3DDevice->EnableOverlay(FALSE);
   DeleteYUY2Texture(0);
@@ -382,10 +390,12 @@ void CComboRenderer::UnInit()
 
 void CComboRenderer::CheckScreenSaver()
 {
-  if (g_application.IsInScreenSaver() && !m_bHasDimView)
+  CApplicationComponents &components = CServiceBroker::GetAppComponents();
+  const boost::shared_ptr<CApplicationPowerHandling> appPower = components.GetComponent<CApplicationPowerHandling>();
+  if (appPower->IsInScreenSaver() && !m_bHasDimView)
   {
     D3DLOCKED_RECT lr;
-    float fAmount = (float)CSettings::GetInstance().GetInt("screensaver.dimlevel") / 100.0f;
+    float fAmount = (float)CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("screensaver.dimlevel") / 100.0f;
     if ( D3D_OK == m_YUY2Texture[m_iYUY2RenderBuffer]->LockRect(0, &lr, NULL, 0 ))
     {
       // Drop brightness of current surface to 20%
@@ -411,9 +421,9 @@ void CComboRenderer::CheckScreenSaver()
 
 void CComboRenderer::SetupScreenshot()
 {
-  if (!g_graphicsContext.IsFullScreenVideo())
+  if (!CServiceBroker::GetWinSystem()->GetGfxContext().IsFullScreenVideo())
     return;
-  CSingleLock lock(g_graphicsContext);
+  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   // first, grab the current overlay texture and convert it to RGB
   LPDIRECT3DTEXTURE8 pRGB = NULL;
   if (D3D_OK != m_pD3DDevice->CreateTexture(m_iSourceWidth, m_iSourceHeight, 1, 0, D3DFMT_LIN_A8R8G8B8, 0, &pRGB))
@@ -449,9 +459,9 @@ void CComboRenderer::SetupScreenshot()
   m_pD3DDevice->SetTextureStageState( 0, D3DTSS_MINFILTER, D3DTEXF_LINEAR );
 
   // set scissors if we are not in fullscreen video
-  if ( !(g_graphicsContext.IsFullScreenVideo() || g_graphicsContext.IsCalibrating() ))
+  if ( !(CServiceBroker::GetWinSystem()->GetGfxContext().IsFullScreenVideo() || CServiceBroker::GetWinSystem()->GetGfxContext().IsCalibrating() ))
   {
-    g_graphicsContext.ClipToViewWindow();
+    CServiceBroker::GetWinSystem()->GetGfxContext().ClipToViewWindow();
   }
 
   m_pD3DDevice->SetRenderState( D3DRS_ZENABLE, FALSE );
@@ -486,9 +496,15 @@ void CComboRenderer::SetupScreenshot()
 
   RenderOSD();
 
-  if (g_application.NeedRenderFullScreen())
-  { // render our subtitles and osd
-    g_application.RenderFullScreen();
+  if (CServiceBroker::GetWinSystem()->GetGfxContext().IsFullScreenVideo())
+  {
+    // render our subtitles and osd
+    CGUIWindowFullScreen *pFSWin = CServiceBroker::GetGUI()->GetWindowManager().GetWindow<CGUIWindowFullScreen>(WINDOW_FULLSCREEN_VIDEO);
+    if (pFSWin && pFSWin->NeedRenderFullScreen())
+    {
+      pFSWin->RenderFullScreen();
+      CServiceBroker::GetGUI()->GetWindowManager().RenderDialogs();
+    }
   }
 
   m_pD3DDevice->Present( NULL, NULL, NULL, NULL );

@@ -19,12 +19,13 @@
 
 #include "Insignia.h"
 
-#include "Application.h"
-#include "xbox/Network.h"
+#include "application/Application.h"
+#include "network/Network.h"
 #include "filesystem/CurlFile.h"
 #include "guilib/GUIBaseContainer.h"
 #include "guilib/GUIStaticItem.h"
 #include "guilib/GUIListItem.h"
+#include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
 #include "GUIUserMessages.h"
 #include "listproviders/StaticProvider.h"
@@ -32,6 +33,8 @@
 #include "utils/StringUtils.h"
 #include "utils/JSONVariantParser.h"
 #include "utils/log.h"
+
+#include <boost/move/make_unique.hpp>
 
 #define INSIGNIA_API "https://insignia-notify-job-app.fly.dev/api/"
 
@@ -52,7 +55,7 @@ bool MakeRequest(const std::string& strURL, std::string& strResponse)
 bool CInsigniaJob::DoWork()
 {
   // wait for the network
-  if (!g_application.getNetwork().IsAvailable())
+  if (!CServiceBroker::GetNetwork().IsAvailable())
     return false;
 
   std::string strResponse;
@@ -139,7 +142,7 @@ bool CInsigniaJob::DoWork()
 
   // send a message that we're done
   CGUIMessage msg(GUI_MSG_NOTIFY_ALL,0,0,GUI_MSG_INSIGNIA_FETCHED);
-  g_windowManager.SendThreadMessage(msg);
+  CServiceBroker::GetGUI()->GetWindowManager().SendThreadMessage(msg);
 
   return true;
 }
@@ -151,7 +154,7 @@ const CInsigniaInfo &CInsigniaJob::GetInfo() const
 
 void CInsigniaJob::SetWindowProperties()
 {
-  CGUIWindowInsignia* window = (CGUIWindowInsignia*)g_windowManager.GetWindow(WINDOW_INSIGNIA);
+  CGUIWindowInsignia* window = (CGUIWindowInsignia*)CServiceBroker::GetGUI()->GetWindowManager().GetWindow(WINDOW_INSIGNIA);
   if (window)
   {
     CGUIBaseContainer* gamesContainer = window->GetGamesContainer();
@@ -172,7 +175,7 @@ void CInsigniaJob::SetWindowProperties()
     for (std::vector<game_info>::const_iterator it = m_info.m_games.begin(); it != m_info.m_games.end(); ++it)
     {
       CFileItemPtr item(new CFileItem(it->name));
-      item->SetIconImage(it->thumbnail);
+      item->SetArt("icon", it->thumbnail);
       item->SetProperty("code", it->code);
       item->SetProperty("name", it->name);
       item->SetProperty("serial", it->serial);
@@ -190,7 +193,8 @@ void CInsigniaJob::SetWindowProperties()
       items.push_back(staticItem);
     }
 
-    gamesContainer->SetListProvider(new CStaticListProvider(items));
+    boost::movelib::unique_ptr<CStaticListProvider> provider = boost::movelib::make_unique<CStaticListProvider>(items);
+    gamesContainer->SetListProvider(boost::move(provider));
   }
 }
 

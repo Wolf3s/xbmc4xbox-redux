@@ -17,7 +17,7 @@
  *  <http://www.gnu.org/licenses/>.
  *
  */
- 
+
 #include "system.h"
 #include "utils/log.h"
 #include "RenderManager.h"
@@ -27,12 +27,13 @@
 #include "ComboRenderer.h"
 #include "RGBRenderer.h"
 #include "RGBRendererV2.h"
-#include "Application.h"
+#include "application/Application.h"
+#include "application/ApplicationComponents.h"
+#include "application/ApplicationPlayer.h"
 #include "messaging/ApplicationMessenger.h"
 #include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "settings/MediaSettings.h"
-
-#include "defs_from_settings.h"
 
 CXBoxRenderManager g_renderManager;
 
@@ -67,7 +68,7 @@ CXBoxRenderManager::CXBoxRenderManager() : CThread("AsyncRenderer")
 
 CXBoxRenderManager::~CXBoxRenderManager()
 {
-  CSingleExit leaveIt(g_graphicsContext);
+  CSingleExit leaveIt(CServiceBroker::GetWinSystem()->GetGfxContext());
   CExclusiveLock lock(m_sharedSection);
 
   delete m_pRenderer;
@@ -76,10 +77,10 @@ CXBoxRenderManager::~CXBoxRenderManager()
 
 bool CXBoxRenderManager::Configure(unsigned int width, unsigned int height, unsigned int d_width, unsigned int d_height, float fps, unsigned flags)
 {
-  CSingleExit leaveIt(g_graphicsContext);
-  CExclusiveLock lock(m_sharedSection);      
+  CSingleExit leaveIt(CServiceBroker::GetWinSystem()->GetGfxContext());
+  CExclusiveLock lock(m_sharedSection);
 
-  if(!m_pRenderer) 
+  if(!m_pRenderer)
   {
     CLog::Log(LOGERROR, "%s called without a valid Renderer object", __FUNCTION__);
     return false;
@@ -91,7 +92,7 @@ bool CXBoxRenderManager::Configure(unsigned int width, unsigned int height, unsi
     if( flags & CONF_FLAGS_FULLSCREEN )
     {
       lock.Leave();
-      CApplicationMessenger::Get().PostMsg(TMSG_SWITCHTOFULLSCREEN);
+      CServiceBroker::GetAppMessenger()->PostMsg(TMSG_SWITCHTOFULLSCREEN);
       lock.Enter();
     }
     m_pRenderer->Update(false);
@@ -110,7 +111,7 @@ bool CXBoxRenderManager::IsConfigured()
 
 void CXBoxRenderManager::Update(bool bPauseDrawing)
 {
-  CSingleExit leaveIt(g_graphicsContext);
+  CSingleExit leaveIt(CServiceBroker::GetWinSystem()->GetGfxContext());
   CExclusiveLock lock(m_sharedSection);
 
   m_bPauseDrawing = bPauseDrawing;
@@ -122,8 +123,8 @@ void CXBoxRenderManager::Update(bool bPauseDrawing)
 
 void CXBoxRenderManager::RenderUpdate(bool clear, DWORD flags, DWORD alpha)
 {
-  CSingleExit leaveIt(g_graphicsContext);
-  CSharedLock lock(m_sharedSection); 
+  CSingleExit leaveIt(CServiceBroker::GetWinSystem()->GetGfxContext());
+  CSharedLock lock(m_sharedSection);
 
   if (m_pRenderer)
     m_pRenderer->RenderUpdate(clear, flags, alpha);
@@ -131,7 +132,7 @@ void CXBoxRenderManager::RenderUpdate(bool clear, DWORD flags, DWORD alpha)
 
 unsigned int CXBoxRenderManager::PreInit()
 {
-  CSingleExit leaveIt(g_graphicsContext);
+  CSingleExit leaveIt(CServiceBroker::GetWinSystem()->GetGfxContext());
   CExclusiveLock lock(m_sharedSection);
 
   if(!g_eventVBlank)
@@ -148,28 +149,28 @@ unsigned int CXBoxRenderManager::PreInit()
   m_bPauseDrawing = false;
   m_presentdelay = 5;
   if (!m_pRenderer)
-  { 
+  {
     // no renderer
-    m_rendermethod = CSettings::GetInstance().GetInt("videoplayer.rendermethod");
+    m_rendermethod = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("videoplayer.rendermethod");
     if (m_rendermethod == RENDER_OVERLAYS)
     {
       CLog::Log(LOGDEBUG, __FUNCTION__" - Selected Overlay-Renderer");
-      m_pRenderer = new CComboRenderer(g_graphicsContext.Get3DDevice());
+      m_pRenderer = new CComboRenderer(CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice());
     }
     else if (m_rendermethod == RENDER_HQ_RGB_SHADER)
     {
       CLog::Log(LOGDEBUG, __FUNCTION__" - Selected RGB-Renderer");
-      m_pRenderer = new CRGBRenderer(g_graphicsContext.Get3DDevice());
+      m_pRenderer = new CRGBRenderer(CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice());
     }
     else if (m_rendermethod == RENDER_HQ_RGB_SHADERV2)
     {
       CLog::Log(LOGDEBUG, __FUNCTION__" - Selected RGB-Renderer V2");
-      m_pRenderer = new CRGBRendererV2(g_graphicsContext.Get3DDevice());
+      m_pRenderer = new CRGBRendererV2(CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice());
     }
-    else // if (CSettings::GetInstance().GetInt("videoplayer.rendermethod") == RENDER_LQ_RGB_SHADER)
+    else // if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("videoplayer.rendermethod") == RENDER_LQ_RGB_SHADER)
     {
       CLog::Log(LOGDEBUG, __FUNCTION__" - Selected LQShader-Renderer");
-      m_pRenderer = new CPixelShaderRenderer(g_graphicsContext.Get3DDevice());
+      m_pRenderer = new CPixelShaderRenderer(CServiceBroker::GetWinSystem()->GetGfxContext().Get3DDevice());
     }
   }
 
@@ -178,7 +179,7 @@ unsigned int CXBoxRenderManager::PreInit()
 
 void CXBoxRenderManager::UnInit()
 {
-  CSingleExit leaveIt(g_graphicsContext);
+  CSingleExit leaveIt(CServiceBroker::GetWinSystem()->GetGfxContext());
 
   m_bStop = true;
   m_eventFrame.Set();
@@ -190,8 +191,8 @@ void CXBoxRenderManager::UnInit()
   if (m_pRenderer)
   {
     m_pRenderer->UnInit();
-    delete m_pRenderer; 
-    m_pRenderer = NULL; 
+    delete m_pRenderer;
+    m_pRenderer = NULL;
   }
 }
 
@@ -204,7 +205,7 @@ void CXBoxRenderManager::SetupScreenshot()
 
 void CXBoxRenderManager::CreateThumbnail(LPDIRECT3DSURFACE8 surface, unsigned int width, unsigned int height)
 {
-  CSingleExit leaveIt(g_graphicsContext);
+  CSingleExit leaveIt(CServiceBroker::GetWinSystem()->GetGfxContext());
   CExclusiveLock lock(m_sharedSection);
 
   if (m_pRenderer)
@@ -230,8 +231,10 @@ void CXBoxRenderManager::FlipPage(DWORD delay /* = 0LL*/, int source /*= -1*/, E
   m_presenttime = timestamp;
   m_presentfield = sync;
 
-  CSingleLock lock2(g_graphicsContext);
-  if( g_graphicsContext.IsFullScreenVideo() && !g_application.m_pPlayer->IsPaused() )
+  CSingleLock lock2(CServiceBroker::GetWinSystem()->GetGfxContext());
+  const CApplicationComponents &components = CServiceBroker::GetAppComponents();
+  const boost::shared_ptr<const CApplicationPlayer> appPlayer = components.GetComponent<CApplicationPlayer>();
+  if( CServiceBroker::GetWinSystem()->GetGfxContext().IsFullScreenVideo() && !appPlayer->IsPaused() )
   {
     lock2.Leave();
 
@@ -255,8 +258,8 @@ void CXBoxRenderManager::FlipPage(DWORD delay /* = 0LL*/, int source /*= -1*/, E
 float CXBoxRenderManager::GetMaximumFPS()
 {
   float fps;
-  int res = g_graphicsContext.GetVideoResolution();
-  EINTERLACEMETHOD method = CMediaSettings::Get().GetCurrentVideoSettings().m_InterlaceMethod;
+  int res = CServiceBroker::GetWinSystem()->GetGfxContext().GetVideoResolution();
+  EINTERLACEMETHOD method = CMediaSettings::GetInstance().GetCurrentVideoSettings().m_InterlaceMethod;
 
   if( res == RES_PAL_4x3 || res == RES_PAL_16x9 )
     fps = 50.0f;
@@ -282,19 +285,19 @@ void CXBoxRenderManager::Present()
     return;
   }
 
-  EINTERLACEMETHOD mInt = CMediaSettings::Get().GetCurrentVideoSettings().m_InterlaceMethod;
+  EINTERLACEMETHOD mInt = CMediaSettings::GetInstance().GetCurrentVideoSettings().m_InterlaceMethod;
 
   /* check for forced fields */
   if( mInt == VS_INTERLACEMETHOD_AUTO && m_presentfield != FS_NONE )
   {
     /* this is uggly to do on each frame, should only need be done once */
-    int mResolution = g_graphicsContext.GetVideoResolution();
-    if( m_rendermethod == RENDER_HQ_RGB_SHADER 
+    int mResolution = CServiceBroker::GetWinSystem()->GetGfxContext().GetVideoResolution();
+    if( m_rendermethod == RENDER_HQ_RGB_SHADER
      || m_rendermethod == RENDER_HQ_RGB_SHADERV2 )
       mInt = VS_INTERLACEMETHOD_RENDER_BOB;
-    else if( mResolution == RES_HDTV_480p_16x9 
-          || mResolution == RES_HDTV_480p_4x3 
-          || mResolution == RES_HDTV_720p 
+    else if( mResolution == RES_HDTV_480p_16x9
+          || mResolution == RES_HDTV_480p_4x3
+          || mResolution == RES_HDTV_720p
           || mResolution == RES_HDTV_1080i )
       mInt = VS_INTERLACEMETHOD_RENDER_BLEND;
     else
@@ -333,7 +336,7 @@ void CXBoxRenderManager::Present()
 /* simple present method */
 void CXBoxRenderManager::PresentSingle()
 {
-  CSingleLock lock(g_graphicsContext);
+  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
   m_pRenderer->RenderUpdate(true, 0, 255);
 
@@ -346,7 +349,7 @@ void CXBoxRenderManager::PresentSingle()
  * we just render the two fields right after eachother */
 void CXBoxRenderManager::PresentBob()
 {
-  CSingleLock lock(g_graphicsContext);
+  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
   if( m_presentfield == FS_EVEN )
     m_pRenderer->RenderUpdate(true, RENDER_FLAG_EVEN | RENDER_FLAG_NOUNLOCK , 255);
@@ -381,7 +384,7 @@ void CXBoxRenderManager::PresentBob()
 
 void CXBoxRenderManager::PresentBlend()
 {
-  CSingleLock lock(g_graphicsContext);
+  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
   if( m_presentfield == FS_EVEN )
   {
@@ -405,7 +408,7 @@ void CXBoxRenderManager::PresentBlend()
  * scaling then reinterlaceing resulting image         */
 void CXBoxRenderManager::PresentWeave()
 {
-  CSingleLock lock(g_graphicsContext);
+  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
   m_pRenderer->RenderUpdate(true, RENDER_FLAG_BOTH, 255);
 
@@ -441,7 +444,7 @@ void CXBoxRenderManager::Process()
     //Wait for new frame or an stop event
     m_eventFrame.Wait();
     if( m_bStop )
-    { 
+    {
       return;
     }
 
@@ -449,9 +452,11 @@ void CXBoxRenderManager::Process()
     try
     {
       CSharedLock lock(m_sharedSection);
-      CSingleLock lock2(g_graphicsContext);
+      CSingleLock lock2(CServiceBroker::GetWinSystem()->GetGfxContext());
 
-      if( m_pRenderer && g_graphicsContext.IsFullScreenVideo() && !g_application.m_pPlayer->IsPaused() )
+      const CApplicationComponents &components = CServiceBroker::GetAppComponents();
+      const boost::shared_ptr<const CApplicationPlayer> appPlayer = components.GetComponent<CApplicationPlayer>();
+      if( m_pRenderer && CServiceBroker::GetWinSystem()->GetGfxContext().IsFullScreenVideo() && !appPlayer->IsPaused() )
         Present();
     }
     catch(...)

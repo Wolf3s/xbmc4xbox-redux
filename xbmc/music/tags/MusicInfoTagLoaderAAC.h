@@ -19,6 +19,7 @@
  *
  */
 
+#include "PlatformDefs.h"
 #include "music/tags/MusicInfoTagLoaderMP3.h"
 
 namespace XFILE
@@ -35,7 +36,7 @@ public:
   CMusicInfoTagLoaderAAC(void);
   virtual ~CMusicInfoTagLoaderAAC();
 private:
-  virtual int ReadDuration(const CStdString& strFileName);
+  virtual int ReadDuration(const std::string& strFileName);
   int ReadID3Length(XFILE::CFile& file);
   int ReadADTSDuration(XFILE::CFile& file, int offset);
   int ReadADIFDuration(XFILE::CFile& file, int offset);

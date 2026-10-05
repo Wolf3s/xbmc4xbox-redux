@@ -20,29 +20,19 @@
  *
  */
 
-#include "IAudioCallback.h"
-#include "guilib/Geometry.h"
-#include "Key.h"
+#include "IPlayerCallback.h"
+#include "cores/AudioEngine/Interfaces/IAudioCallback.h"
+#include "utils/Geometry.h"
+#include "input/keyboard/Key.h"
+#include "VideoSettings.h"
 
-class TiXmlElement; 
+#include <string>
+
+class TiXmlElement;
 class CStreamDetails;
+class CAction;
 
 class CFileItem;
-
-class IPlayerCallback
-{
-public:
-  virtual ~IPlayerCallback() {}
-  virtual void OnPlayBackEnded() = 0;
-  virtual void OnPlayBackStarted() = 0;
-  virtual void OnPlayBackPaused() {};
-  virtual void OnPlayBackResumed() {};
-  virtual void OnPlayBackStopped() = 0;
-  virtual void OnQueueNextItem() = 0;
-  virtual void OnPlayBackSeek(int iTime, int seekOffset) {};
-  virtual void OnPlayBackSeekChapter(int iChapter) {};
-  virtual void OnPlayBackSpeedChanged(int iSpeed) {};
-};
 
 class CPlayerOptions
 {
@@ -56,9 +46,9 @@ public:
     video_only = false;
   }
   double  starttime; /* start time in seconds */
-  double  startpercent; /* start time in percent */  
+  double  startpercent; /* start time in percent */
   bool    identify;  /* identify mode, used for checking format and length of a file */
-  CStdString state;  /* potential playerstate to restore to */
+  std::string state;  /* potential playerstate to restore to */
   bool    fullscreen; /* player is allowed to switch to fullscreen */
   bool    video_only; /* player is not allowed to play audio streams, video streams only */
 };
@@ -127,23 +117,23 @@ public:
   virtual void OnNothingToQueueNotify() {}
   virtual bool CloseFile(bool reopen = false){ return true;}
   virtual bool IsPlaying() const { return false;}
-  virtual bool CanPause() { return true; };
+  virtual bool CanPause() const { return true; }
   virtual void Pause() = 0;
   virtual bool IsPaused() const = 0;
   virtual bool HasVideo() const = 0;
   virtual bool HasAudio() const = 0;
-  virtual bool CanSeek() {return true;}
+  virtual bool CanSeek() const { return true; }
   virtual void Seek(bool bPlus = true, bool bLargeStep = false, bool bChapterOverride = false) = 0;
   virtual bool SeekScene(bool bPlus = true) {return false;}
   virtual void SeekPercentage(float fPercent = 0){}
-  virtual float GetPercentage(){ return 0;}
-  virtual float GetCachePercentage(){ return 0;}
+  virtual float GetPercentage() const { return 0; }
+  virtual float GetCachePercentage() const { return 0; }
   virtual void SetMute(bool bOnOff){}
-  virtual void SetVolume(long nVolume){}
+  virtual void SetVolume(float volume){}
   virtual void SetDynamicRangeCompression(long drc){}
-  virtual void GetAudioInfo( CStdString& strAudioInfo) = 0;
-  virtual void GetVideoInfo( CStdString& strVideoInfo) = 0;
-  virtual void GetGeneralInfo( CStdString& strVideoInfo) = 0;
+  virtual void GetAudioInfo( std::string& strAudioInfo) = 0;
+  virtual void GetVideoInfo( std::string& strVideoInfo) = 0;
+  virtual void GetGeneralInfo( std::string& strVideoInfo) = 0;
   virtual void Update(bool bPauseDrawing = false) = 0;
   virtual void GetVideoRect(RECT& SrcRect, RECT& DestRect) = 0;
   virtual void GetVideoAspectRatio(float& fAR) = 0;
@@ -156,28 +146,28 @@ public:
 
   virtual void SetSubTitleDelay(float fValue = 0.0f){};
   virtual float GetSubTitleDelay()    { return 0.0f; }
-  virtual int  GetSubtitleCount()     { return 0; }
+  virtual int GetSubtitleCount() { return 0; }
   virtual int  GetSubtitle()          { return -1; }
-  virtual void GetSubtitleName(int iStream, CStdString &strStreamName){};
-  virtual void GetSubtitleLanguage(int iStream, CStdString &strStreamLang){};
+  virtual void GetSubtitleName(int iStream, std::string &strStreamName){};
+  virtual void GetSubtitleLanguage(int iStream, std::string &strStreamLang){};
   virtual void SetSubtitle(int iStream){};
-  virtual bool GetSubtitleVisible(){ return false;};
+  virtual bool GetSubtitleVisible() { return false; }
   virtual void SetSubtitleVisible(bool bVisible){};
   virtual bool GetSubtitleExtension(std::string &strSubtitleExtension){ return false;};
-  virtual int  AddSubtitle(const CStdString& strSubPath) {return -1;};
+  virtual int  AddSubtitle(const std::string& strSubPath) {return -1;};
 
-  virtual int  GetAudioStreamCount()  { return 0; }
+  virtual int GetAudioStreamCount() { return 0; }
   virtual int  GetAudioStream()       { return -1; }
-  virtual void GetAudioStreamName(int iStream, CStdString &strStreamName){};
+  virtual void GetAudioStreamName(int iStream, std::string &strStreamName){};
   virtual void SetAudioStream(int iStream){};
-  virtual void GetAudioStreamLanguage(int iStream, CStdString &strLanguage){};
+  virtual void GetAudioStreamLanguage(int iStream, std::string &strLanguage){};
 
   virtual std::string GetRadioText(unsigned int line) { return ""; };
 
-  virtual int  GetChapterCount()                               { return 0; }
-  virtual int  GetChapter()                                    { return -1; }
-  virtual void GetChapterName(std::string& strChapterName)     { return; }
-  virtual int64_t GetChapterPos(int chapterIdx=-1)             { return -1; }
+  virtual int GetChapterCount() const { return 0; }
+  virtual int GetChapter() const { return -1; }
+  virtual void GetChapterName(std::string& strChapterName) const {}
+  virtual int64_t GetChapterPos(int chapterIdx = -1) const { return 0; }
   virtual int  SeekChapter(int iChapter)                       { return -1; }
 //  virtual bool GetChapterInfo(int chapter, SChapterInfo &info) { return false; }
 
@@ -192,11 +182,11 @@ public:
   /*!
    \brief current time in milliseconds
    */
-  virtual int64_t GetTime() { return 0; }
+  virtual int64_t GetTime() const { return 0; }
   /*!
    \brief total time in milliseconds
    */
-  virtual int64_t GetTotalTime() { return 0; }
+  virtual int64_t GetTotalTime() const { return 0; }
   virtual void ResetTime() {};
   virtual int GetAudioBitrate(){ return 0;}
   virtual int GetVideoBitrate(){ return 0;}
@@ -204,8 +194,8 @@ public:
   virtual int GetChannels(){ return 0;};
   virtual int GetBitsPerSample(){ return 0;};
   virtual int GetSampleRate(){ return 0;};
-  virtual CStdString GetAudioCodecName(){ return "";}
-  virtual CStdString GetVideoCodecName(){ return "";}
+  virtual std::string GetAudioCodecName(){ return "";}
+  virtual std::string GetVideoCodecName(){ return "";}
   virtual int GetPictureWidth(){ return 0;}
   virtual int GetPictureHeight(){ return 0;}
   virtual bool GetStreamDetails(CStreamDetails &details){ return false;}
@@ -216,19 +206,19 @@ public:
   //Returns true if not playback (paused or stopped beeing filled)
   virtual bool IsCaching() const {return false;};
   //Cache filled in Percent
-  virtual int GetCacheLevel() const {return -1;}; 
+  virtual int GetCacheLevel() const {return -1;};
 
   virtual bool IsInMenu() const {return false;};
   virtual bool HasMenu() { return false; };
 
   virtual void DoAudioWork(){};
-  virtual bool OnAction(const CAction &action) { return false; };
+  virtual bool OnAction(const CAction &action) { return false; }
 
-  virtual bool GetCurrentSubtitle(CStdString& strSubtitle) { strSubtitle = ""; return false; }
+  virtual bool GetCurrentSubtitle(std::string& strSubtitle) { strSubtitle = ""; return false; }
   //returns a state that is needed for resuming from a specific time
-  virtual CStdString GetPlayerState() { return ""; };
-  virtual bool SetPlayerState(CStdString state) { return false;};
-  
+  virtual std::string GetPlayerState() { return ""; };
+  virtual bool SetPlayerState(std::string state) { return false;};
+
   virtual std::string GetPlayingTitle() { return ""; };
 
   std::string m_name;

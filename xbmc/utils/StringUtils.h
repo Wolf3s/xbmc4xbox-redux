@@ -24,7 +24,7 @@
 //  Purpose:   ATL split string utility
 //  Author:    Paul J. Weiss
 //
-//  Modified to support J O'Leary's CStdString class by kraqh3d
+//  Modified to support J O'Leary's std::string class by kraqh3d
 //
 //------------------------------------------------------------------------
 
@@ -40,9 +40,9 @@
 
 #include "LangInfo.h"
 #include "XBDateTime.h"
-#include "StdString.h"
 #include "utils/params_check_macros.h"
-#include "xbox/PlatformDefs.h"
+
+#include "platform/xbox/PlatformDefs.h"
 
 class StringUtils
 {
@@ -62,16 +62,20 @@ public:
   static std::string FormatV(PRINTF_FORMAT_STRING const char *fmt, va_list args);
   static std::wstring Format(PRINTF_FORMAT_STRING const wchar_t *fmt, ...);
   static std::wstring FormatV(PRINTF_FORMAT_STRING const wchar_t *fmt, va_list args);
+  static std::string ToUpper(const std::string& str);
+  static std::wstring ToUpper(const std::wstring& str);
   static void ToUpper(std::string &str);
   static void ToUpper(std::wstring &str);
+  static std::string ToLower(const std::string& str);
+  static std::wstring ToLower(const std::wstring& str);
   static void ToLower(std::string &str);
   static void ToLower(std::wstring &str);
   static void ToCapitalize(std::wstring &str);
   static bool EqualsNoCase(const std::string &str1, const std::string &str2);
   static bool EqualsNoCase(const std::string &str1, const char *s2);
   static bool EqualsNoCase(const char *s1, const char *s2);
-  static int  CompareNoCase(const std::string &str1, const std::string &str2);
-  static int  CompareNoCase(const char *s1, const char *s2);
+  static int CompareNoCase(const std::string& str1, const std::string& str2, size_t n = 0);
+  static int CompareNoCase(const char* s1, const char* s2, size_t n = 0);
   static int ReturnDigits(const std::string &str);
   static std::string Left(const std::string &str, size_t count);
   static std::string Mid(const std::string &str, size_t first, size_t count = std::string::npos);
@@ -109,6 +113,70 @@ public:
    */
   static std::vector<std::string> Split(const std::string& input, const std::string& delimiter, unsigned int iMaxStrings = 0);
   static std::vector<std::string> Split(const std::string& input, const char delimiter, size_t iMaxStrings = 0);
+  static std::vector<std::string> Split(const std::string& input, const std::vector<std::string> &delimiters);
+  /*! \brief Splits the given input string using the given delimiter into separate strings.
+
+   If the given input string is empty nothing will be put into the target iterator.
+
+   \param d_first the beginning of the destination range
+   \param input Input string to be split
+   \param delimiter Delimiter to be used to split the input string
+   \param iMaxStrings (optional) Maximum number of splitted strings
+   \return output iterator to the element in the destination range, one past the last element
+   *       that was put there
+   */
+  template<typename OutputIt>
+  static OutputIt SplitTo(OutputIt d_first, const std::string& input, const std::string& delimiter, unsigned int iMaxStrings = 0)
+  {
+    OutputIt dest = d_first;
+
+    if (input.empty())
+      return dest;
+    if (delimiter.empty())
+    {
+      *d_first++ = input;
+      return dest;
+    }
+
+    const size_t delimLen = delimiter.length();
+    size_t nextDelim;
+    size_t textPos = 0;
+    do
+    {
+      if (--iMaxStrings == 0)
+      {
+        *dest++ = input.substr(textPos);
+        break;
+      }
+      nextDelim = input.find(delimiter, textPos);
+      *dest++ = input.substr(textPos, nextDelim - textPos);
+      textPos = nextDelim + delimLen;
+    } while (nextDelim != std::string::npos);
+
+    return dest;
+  }
+  template<typename OutputIt>
+  static OutputIt SplitTo(OutputIt d_first, const std::string& input, const char delimiter, size_t iMaxStrings = 0)
+  {
+    return SplitTo(d_first, input, std::string(1, delimiter), iMaxStrings);
+  }
+  template<typename OutputIt>
+  static OutputIt SplitTo(OutputIt d_first, const std::string& input, const std::vector<std::string> &delimiters)
+  {
+    OutputIt dest = d_first;
+    if (input.empty())
+      return dest;
+
+    if (delimiters.empty())
+    {
+      *dest++ = input;
+      return dest;
+    }
+    std::string str = input;
+    for (size_t di = 1; di < delimiters.size(); di++)
+      StringUtils::Replace(str, delimiters[di], delimiters[0]);
+    return SplitTo(dest, str, delimiters[0]);
+  }
 
   /*! \brief Splits the given input strings using the given delimiters into further separate strings.
 
@@ -188,6 +256,7 @@ public:
   static size_t FindWords(const char *str, const char *wordLowerCase);
   static int FindEndBracket(const std::string &str, char opener, char closer, int startPos = 0);
   static int DateStringToYYYYMMDD(const std::string &dateString);
+  static std::string ISODateToLocalizedDate (const std::string& strIsoDate);
   static void WordToDigits(std::string &word);
   static std::string CreateUUID();
   static bool ValidateUUID(const std::string &uuid); // NB only validates syntax
@@ -243,6 +312,15 @@ public:
    */
   static std::string Paramify(const std::string &param);
 
+  /*! \brief Unescapes the given string.
+
+   Unescapes backslashes and double-quotes and removes double-quotes around the whole string.
+
+   \param param String to unescape/deparamify
+   \return Unescaped/Deparamified string
+   */
+  static std::string DeParamify(const std::string& param);
+
   /*! \brief Split a string by the specified delimiters.
    Splits a string using one or more delimiting characters, ignoring empty tokens.
    Differs from Split() in two ways:
@@ -266,25 +344,13 @@ public:
    */
   static std::string FormatFileSize(uint64_t bytes);
 
-/* ####################################################################################################################### */
+  /*! \brief Converts a cstring pointer (const char*) to a std::string.
+             In case nullptr is passed the result is an empty string.
+      \param cstr the const pointer to char
+      \return the resulting std::string or ""
+   */
+  static std::string CreateFromCString(const char* cstr);
 
-  static void ToCapitalize(CStdString &str);
-  static void ToCapitalize(CStdStringW &str);
-
-  static void JoinString(const CStdStringArray &strings, const CStdString& delimiter, CStdString& result);
-  static CStdString JoinString(const CStdStringArray &strings, const CStdString& delimiter);
-  static int SplitString(const CStdString& input, const CStdString& delimiter, CStdStringArray &results, unsigned int iMaxStrings = 0);
-  static CStdStringArray SplitString(const CStdString& input, const CStdString& delimiter, unsigned int iMaxStrings = 0);
-  static int FindNumber(const CStdString& strInput, const CStdString &strFind);
-  static long TimeStringToSeconds(const CStdString &timeString);
-  static void RemoveCRLF(CStdString& strLine);
-
-  static const CStdString EmptyString;
-  static int FindEndBracket(const CStdString &str, char opener, char closer, int startPos = 0);
-  static int DateStringToYYYYMMDD(const CStdString &dateString);
-  static void WordToDigits(CStdString &word);
-  static float GetFloat(const char* str); // ignores locale
-  static bool ValidateUUID(const CStdString &uuid); // NB only validates syntax
 private:
   static std::string m_lastUUID;
 };

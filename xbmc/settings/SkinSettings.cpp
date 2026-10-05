@@ -1,34 +1,25 @@
 /*
- *      Copyright (C) 2013 Team XBMC
- *      http://xbmc.org
+ *  Copyright (C) 2013-2018 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
  *
- *  This Program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This Program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with XBMC; see the file COPYING.  If not, see
- *  <http://www.gnu.org/licenses/>.
- *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
  */
+
+#include "SkinSettings.h"
+
+#include "GUIInfoManager.h"
+#include "ServiceBroker.h"
+#include "addons/Skin.h"
+#include "guilib/GUIComponent.h"
+#include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
+#include "utils/StringUtils.h"
+#include "utils/XBMCTinyXML.h"
+#include "utils/log.h"
 
 #include <memory>
 #include <string>
-
-#include "SkinSettings.h"
-#include "GUIInfoManager.h"
-#include "addons/Skin.h"
-#include "settings/Settings.h"
-#include "threads/SingleLock.h"
-#include "utils/log.h"
-#include "utils/StringUtils.h"
-#include "utils/XBMCTinyXML.h"
 
 #define XML_SKINSETTINGS  "skinsettings"
 
@@ -37,10 +28,9 @@ CSkinSettings::CSkinSettings()
   Clear();
 }
 
-CSkinSettings::~CSkinSettings()
-{ }
+CSkinSettings::~CSkinSettings() {}
 
-CSkinSettings& CSkinSettings::Get()
+CSkinSettings& CSkinSettings::GetInstance()
 {
   static CSkinSettings sSkinSettings;
   return sSkinSettings;
@@ -71,6 +61,11 @@ bool CSkinSettings::GetBool(int setting) const
   return g_SkinInfo->GetBool(setting);
 }
 
+int CSkinSettings::GetInt(int setting) const
+{
+  return g_SkinInfo->GetInt(setting);
+}
+
 void CSkinSettings::SetBool(int setting, bool set)
 {
   g_SkinInfo->SetBool(setting, set);
@@ -81,23 +76,41 @@ void CSkinSettings::Reset(const std::string &setting)
   g_SkinInfo->Reset(setting);
 }
 
+std::set<ADDON::CSkinSettingPtr> CSkinSettings::GetSettings() const
+{
+  return g_SkinInfo->GetSkinSettings();
+}
+
+ADDON::CSkinSettingPtr CSkinSettings::GetSetting(const std::string& settingId)
+{
+  return g_SkinInfo->GetSkinSetting(settingId);
+}
+
+boost::shared_ptr<const ADDON::CSkinSetting> CSkinSettings::GetSetting(
+    const std::string& settingId) const
+{
+  return g_SkinInfo->GetSkinSetting(settingId);
+}
+
 void CSkinSettings::Reset()
 {
   g_SkinInfo->Reset();
 
-  g_infoManager.ResetCache();
+  CGUIInfoManager& infoMgr = CServiceBroker::GetGUI()->GetInfoManager();
+  infoMgr.ResetCache();
+  infoMgr.GetInfoProviders().GetGUIControlsInfoProvider().ResetContainerMovingCache();
 }
 
 bool CSkinSettings::Load(const TiXmlNode *settings)
 {
-  if (settings == nullptr)
+  if (settings == NULL)
     return false;
 
   const TiXmlElement *rootElement = settings->FirstChildElement(XML_SKINSETTINGS);
 
-  //return true in the case skinsettings is missing. It just means that
-  //it's been migrated and it's not an error
-  if (rootElement == nullptr)
+  // return true in the case skinsettings is missing. It just means that
+  // it's been migrated and it's not an error
+  if (rootElement == NULL)
   {
     CLog::Log(LOGDEBUG, "CSkinSettings: no <skinsettings> tag found");
     return true;
@@ -112,30 +125,10 @@ bool CSkinSettings::Load(const TiXmlNode *settings)
 
 bool CSkinSettings::Save(TiXmlNode *settings) const
 {
-  if (settings == nullptr)
+  if (settings == NULL)
     return false;
 
-  CSingleLock lock(m_critical);
-
-  if (m_settings.empty())
-    return true;
-
-  // add the <skinsettings> tag
-  TiXmlElement xmlSettingsElement(XML_SKINSETTINGS);
-  TiXmlNode* settingsNode = settings->InsertEndChild(xmlSettingsElement);
-  if (settingsNode == nullptr)
-  {
-    CLog::Log(LOGWARNING, "CSkinSettings: could not create <skinsettings> tag");
-    return false;
-  }
-
-  TiXmlElement* settingsElement = settingsNode->ToElement();
-  for (std::set<ADDON::CSkinSettingPtr>::const_iterator it = m_settings.begin(); it != m_settings.end(); ++it)
-  {
-    const ADDON::CSkinSettingPtr &setting = *it;
-    if (!setting->Serialize(settingsElement))
-      CLog::Log(LOGWARNING, "CSkinSettings: unable to save setting \"%s\"", setting->name.c_str());
-  }
+  // nothing to do here because skin settings saving has been migrated to CSkinInfo
 
   return true;
 }
@@ -146,7 +139,7 @@ void CSkinSettings::Clear()
   m_settings.clear();
 }
 
-void CSkinSettings::MigrateSettings(const ADDON::SkinPtr& skin)
+void CSkinSettings::MigrateSettings(const boost::shared_ptr<ADDON::CSkinInfo>& skin)
 {
   if (skin == NULL)
     return;
@@ -156,28 +149,27 @@ void CSkinSettings::MigrateSettings(const ADDON::SkinPtr& skin)
   bool settingsMigrated = false;
   const std::string& skinId = skin->ID();
   std::set<ADDON::CSkinSettingPtr> settingsCopy(m_settings.begin(), m_settings.end());
-  for (std::set<ADDON::CSkinSettingPtr>::const_iterator it = settingsCopy.begin(); it != settingsCopy.end(); ++it)
+  for (std::set<ADDON::CSkinSettingPtr>::const_iterator setting = settingsCopy.begin(); setting != settingsCopy.end(); ++setting)
   {
-    const ADDON::CSkinSettingPtr &setting = *it;
-    if (!StringUtils::StartsWith(setting->name, skinId + "."))
+    if (!StringUtils::StartsWith((*setting)->name, skinId + "."))
       continue;
 
-    std::string settingName = setting->name.substr(skinId.size() + 1);
+    std::string settingName = (*setting)->name.substr(skinId.size() + 1);
 
-    if (setting->GetType() == "string")
+    if ((*setting)->GetType() == "string")
     {
       int settingNumber = skin->TranslateString(settingName);
       if (settingNumber >= 0)
-        skin->SetString(settingNumber, boost::dynamic_pointer_cast<ADDON::CSkinSettingString>(setting)->value);
+        skin->SetString(settingNumber, boost::dynamic_pointer_cast<ADDON::CSkinSettingString>(*setting)->value);
     }
-    else if (setting->GetType() == "bool")
+    else if ((*setting)->GetType() == "bool")
     {
       int settingNumber = skin->TranslateBool(settingName);
       if (settingNumber >= 0)
-        skin->SetBool(settingNumber, boost::dynamic_pointer_cast<ADDON::CSkinSettingBool>(setting)->value);
+        skin->SetBool(settingNumber, boost::dynamic_pointer_cast<ADDON::CSkinSettingBool>(*setting)->value);
     }
 
-    m_settings.erase(setting);
+    m_settings.erase(*setting);
     settingsMigrated = true;
   }
 
@@ -187,7 +179,7 @@ void CSkinSettings::MigrateSettings(const ADDON::SkinPtr& skin)
     skin->SaveSettings();
 
     // save the guisettings.xml
-    CSettings::GetInstance().Save();
+    CServiceBroker::GetSettingsComponent()->GetSettings()->Save();
   }
 }
 

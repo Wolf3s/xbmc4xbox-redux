@@ -19,9 +19,11 @@
  */
 
 #include "music/tags/MusicInfoTagLoaderMP3.h"
+#include "ServiceBroker.h"
 #include "music/tags/APEv2Tag.h"
 #include "music/tags/Id3Tag.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/SettingsComponent.h"
 #include "filesystem/File.h"
 #include "utils/log.h"
 
@@ -73,7 +75,7 @@ CMusicInfoTagLoaderMP3::~CMusicInfoTagLoaderMP3()
 {
 }
 
-bool CMusicInfoTagLoaderMP3::Load(const CStdString& strFileName, CMusicInfoTag& tag, EmbeddedArt *art)
+bool CMusicInfoTagLoaderMP3::Load(const std::string& strFileName, CMusicInfoTag& tag, EmbeddedArt *art)
 {
   try
   {
@@ -119,10 +121,7 @@ bool CMusicInfoTagLoaderMP3::Load(const CStdString& strFileName, CMusicInfoTag& 
 
       if (apeTag.GetYear().size())
       {
-        SYSTEMTIME time;
-        ZeroMemory(&time, sizeof(SYSTEMTIME));
-        time.wYear = atoi(apeTag.GetYear().c_str());
-        tag.SetReleaseDate(time);
+        tag.SetYear(atoi(apeTag.GetYear().c_str()));
       }
       if (apeTag.GetTrackNum())
         tag.SetTrackNumber(apeTag.GetTrackNum());
@@ -150,7 +149,7 @@ bool CMusicInfoTagLoaderMP3::Load(const CStdString& strFileName, CMusicInfoTag& 
   return false;
 }
 
-bool CMusicInfoTagLoaderMP3::ReadSeekAndReplayGainInfo(const CStdString &strFileName)
+bool CMusicInfoTagLoaderMP3::ReadSeekAndReplayGainInfo(const std::string &strFileName)
 {
   // First check for an APEv2 tag
   CAPEv2Tag apeTag;
@@ -180,8 +179,8 @@ bool CMusicInfoTagLoaderMP3::ReadSeekAndReplayGainInfo(const CStdString &strFile
 int CMusicInfoTagLoaderMP3::IsMp3FrameHeader(unsigned long head)
 {
   const long freqs[9] = { 44100, 48000, 32000,
-			 22050, 24000, 16000 ,
-			 11025 , 12000 , 8000 };
+             22050, 24000, 16000 ,
+             11025 , 12000 , 8000 };
 
  const int tabsel_123[2][3][16] = {
   { {128,32,64,96,128,160,192,224,256,288,320,352,384,416,448,},
@@ -214,19 +213,19 @@ int CMusicInfoTagLoaderMP3::IsMp3FrameHeader(unsigned long head)
     return 0;
 
   int srate = 0;
-	if(!((head >> 20) &  1))
-		srate			= 6 + ((head>>10)&0x3);
-	else
-		srate			= ((head>>10)&0x3) + ((1-((head >> 19) &  1)) * 3);
+    if(!((head >> 20) &  1))
+        srate            = 6 + ((head>>10)&0x3);
+    else
+        srate            = ((head>>10)&0x3) + ((1-((head >> 19) &  1)) * 3);
 
- 	int framesize = tabsel_123[1 - ((head >> 19) &  1)][(4-((head>>17)&3))-1][((head>>12)&0xf)]*144000/(freqs[srate]<<(1 - ((head >> 19) &  1)))+((head>>9)&0x1);
-	return framesize;
+     int framesize = tabsel_123[1 - ((head >> 19) &  1)][(4-((head>>17)&3))-1][((head>>12)&0xf)]*144000/(freqs[srate]<<(1 - ((head >> 19) &  1)))+((head>>9)&0x1);
+    return framesize;
 }
 
 //TODO: merge duplicate, but slitely different implemented) code and consts in IsMp3FrameHeader(above) and ReadDuration (below).
 
 // Inspired by http://rockbox.haxx.se/ and http://www.xs4all.nl/~rwvtveer/scilla
-int CMusicInfoTagLoaderMP3::ReadDuration(const CStdString& strFileName)
+int CMusicInfoTagLoaderMP3::ReadDuration(const std::string& strFileName)
 {
 #define SCANSIZE  8192
 #define CHECKNUMFRAMES 5
@@ -345,7 +344,7 @@ int CMusicInfoTagLoaderMP3::ReadDuration(const CStdString& strFileName)
       if ((j + 4) >= iScanSize)
       {
         //no valid frame found in buffer
-	      firstValidFrameLocation = -1;
+          firstValidFrameLocation = -1;
         break;
       }
     }
@@ -693,7 +692,7 @@ bool CMusicInfoTagLoaderMP3::GetReplayGain(CReplayGain &info) const
 
 bool CMusicInfoTagLoaderMP3::PrioritiseAPETags() const
 {
-  return g_advancedSettings.m_prioritiseAPEv2tags;
+  return CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_prioritiseAPEv2tags;
 }
 
 // \brief Check to see if the specified buffer contains an ID3v2 tag header

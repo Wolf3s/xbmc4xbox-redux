@@ -9,9 +9,11 @@
 #include "system.h"
 #include "cddb.h"
 
+#include "ServiceBroker.h"
 #include "filesystem/File.h"
 #include "network/DNSNameCache.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/SettingsComponent.h"
 #include "utils/CharsetConverter.h"
 #include "utils/StringUtils.h"
 #include "utils/SystemInfo.h"
@@ -32,7 +34,7 @@ using namespace CDDB;
 //-------------------------------------------------------------------------------------------------------------------
 Xcddb::Xcddb()
     : m_cddb_socket(INVALID_SOCKET)
-    , m_cddb_ip_address(g_advancedSettings.m_cddbAddress)
+    , m_cddb_ip_address(CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_cddbAddress)
 {
   m_lastError = 0;
 }
@@ -52,7 +54,7 @@ bool Xcddb::openSocket()
   service.sin_family = AF_INET;
 
   // connect to site directly
-  CStdString strIpadres;
+  std::string strIpadres;
   CDNSNameCache::Lookup(m_cddb_ip_address, strIpadres);
   if (strIpadres == "")
   {

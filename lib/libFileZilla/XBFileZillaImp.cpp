@@ -25,12 +25,14 @@
 #include "XBFileZillaImp.h"
 
 #include "xbserver.h"
+#include "xbnetwork.h"
 #include "Options.h"
 #include "Permissions.h"
 #include "misc\md5.h"
 #include "misc\MarkupSTL.h"
 
 #include "bsdsfv.h"
+#include "utils/StringUtils.h"
 #include "utils/log.h"
 
 #pragma warning (disable:4244)
@@ -43,8 +45,9 @@ CCriticalSectionWrapper CXBFileZillaImp::mXBoxSettingsCS;
 
 CXBFileZillaImp::CXBFileZillaImp()
 {
-  ASSERT(mInstance == NULL);
+  assert(mInstance == NULL);
   mConfigurationPath = "T:\\";
+  m_selectManager.reset(new CAsyncSelectManager());
   mServer = new CXBServer();
   mCriticalOperationCallback = NULL;
   mCrcEnabled = false;
@@ -53,6 +56,7 @@ CXBFileZillaImp::CXBFileZillaImp()
 
 CXBFileZillaImp::~CXBFileZillaImp()
 {
+  m_selectManager->StopAndJoin();
   delete mServer;
   mInstance = NULL;
 }
@@ -61,19 +65,20 @@ CXBFileZillaImp::~CXBFileZillaImp()
 BOOL CXBFileZillaImp::InitInstance()
 {
   ReadXBoxSettings();
-  if( mServer->Create() )
+  if (!m_selectManager->Start())
   {
-    CLog::Log(LOGNOTICE, "XBFileZilla: Started");
-    return true;
-  }
-  else
-  {
-    CLog::Log(LOGNOTICE, "XBFileZilla: Startup failed");
+    CLog::Log(LOGERROR, "XBFileZilla: Failed to start CAsyncSelectManager");
     return false;
   }
 
-  /* set our normal thread proprity */
-  SetThreadPriority(m_hThread, THREAD_PRIORITY_NORMAL);
+  if (!mServer->Create())
+  {
+    CLog::Log(LOGERROR, "XBFileZilla: Startup failed");
+    return false;
+  }
+
+  CLog::Log(LOGINFO, "XBFileZilla: Started");
+  return true;
 }
 
 void CXBFileZillaImp::DestructInstance()
@@ -89,8 +94,19 @@ CXBFileZillaImp* CXBFileZillaImp::GetInstance()
   return mInstance;
 }
 
+CAsyncSelectManager* CXBFileZillaImp::GetAsyncSelectManager()
+{
+  if (!mInstance)
+    return NULL;
+
+  return mInstance->m_selectManager.get();
+}
+
 DWORD CXBFileZillaImp::ExitInstance()
 {
+  // Stop polling before worker shutdown releases Winsock resources. Keep the
+  // manager and its helpers alive while the server closes its sockets.
+  m_selectManager->StopAndJoin();
   // signal ftp server to stop
   //SendMessage(mServer->GetHwnd(), WM_CLOSE, 0, 0);
   SendMessage(mServer->GetHwnd(), WM_DESTROY, 0, 0);
@@ -141,10 +157,10 @@ CXBServer* CXBFileZillaImp::GetServer()
 
 void CXBFileZillaImp::SetConfigurationPath(LPCTSTR Path)
 {
-	if (Path)
-		mConfigurationPath = Path;
-	else
-		mConfigurationPath.clear();
+    if (Path)
+        mConfigurationPath = Path;
+    else
+        mConfigurationPath.clear();
 }
 
 LPCTSTR CXBFileZillaImp::GetConfigurationPath()
@@ -161,7 +177,7 @@ XFSTATUS CXBFileZillaImp::AddUser(LPCTSTR Name, CXFUser*& User)
     return XFS_ERROR;
 
   CXFPermissions permissions;
-  
+
   if (permissions.UserExists(Name))
   {
     User = NULL;
@@ -224,16 +240,16 @@ XFSTATUS CXBFileZillaImp::GetAllUsers(std::vector<CXFUser*>& UserVector)
     delete UserVector[i];
 
   UserVector.clear();
-  
-  CStdString username;
+
+  std::string username;
 
   for (i = 0; i < permissions.GetUserCount(); i++)
   {
     username = permissions.GetUsername(i);
-    if (!username.IsEmpty())
+    if (!username.empty())
     {
       CXFUserImp* user = new CXFUserImp();
-      if (user->Init(username) == XFS_OK)
+      if (user->Init(username.c_str()) == XFS_OK)
         UserVector.push_back(user);
       else
         delete user;
@@ -248,7 +264,7 @@ void CXBFileZillaImp::SetCriticalOperationCallback(CriticalOperationCallback Cal
   mCriticalOperationCallback = Callback;
 }
 
-XFSTATUS CXBFileZillaImp::LaunchXBE(CStdString& Filename)
+XFSTATUS CXBFileZillaImp::LaunchXBE(std::string& Filename)
 {
   if (mCriticalOperationCallback)
   {
@@ -290,29 +306,29 @@ XFSTATUS CXBFileZillaImp::Shutdown()
     return XFS_NOT_IMPLEMENTED;
 }
 
-bool CXBFileZillaImp::GetFreeSpacePrompt(unsigned ReplyCode, CStdString& Prompt)
+bool CXBFileZillaImp::GetFreeSpacePrompt(unsigned ReplyCode, std::string& Prompt)
 {
-  Prompt.Format(_T("%d- Free space: "), ReplyCode);
+  Prompt = StringUtils::Format(_T("%d- Free space: "), ReplyCode);
 
   for (unsigned i = 0; i < mFreeSpaceDrives.size(); ++i)
     if (mFreeSpaceDrives[i].mDisplay)
     {
       ULARGE_INTEGER freespace = mFreeSpaceDrives[i].GetFreeSpace();
-      CStdString Unit;
+      std::string Unit;
       double freespacedouble = 0.0;
-      if (freespace.QuadPart > (1024*1024*1024)) 
+      if (freespace.QuadPart > (1024*1024*1024))
       {
         Unit = _T("GB");
         freespacedouble = (double)freespace.QuadPart / (1024*1024*1024);
       }
       else
-      if (freespace.QuadPart > (1024*1024)) 
+      if (freespace.QuadPart > (1024*1024))
       {
         Unit = _T("MB");
         freespacedouble = (double)freespace.QuadPart / (1024*1024);
       }
       else
-      if (freespace.QuadPart > 1024) 
+      if (freespace.QuadPart > 1024)
       {
         Unit = _T("KB");
         freespacedouble = (double)freespace.QuadPart / 1024;
@@ -323,20 +339,20 @@ bool CXBFileZillaImp::GetFreeSpacePrompt(unsigned ReplyCode, CStdString& Prompt)
         freespacedouble = freespace.QuadPart;
       }
 
-      Prompt.AppendFormat(_T("[%s %.2f %s] "), mFreeSpaceDrives[i].mDrive.c_str(), freespacedouble, Unit.c_str());
+      Prompt += StringUtils::Format(_T("[%s %.2f %s] "), mFreeSpaceDrives[i].mDrive.c_str(), freespacedouble, Unit.c_str());
     }
 
   return !mFreeSpaceDrives.empty();
 }
 
 
-XFSTATUS CXBFileZillaImp::GetFileCRC(const CStdString& Filename, unsigned long& Crc)
+XFSTATUS CXBFileZillaImp::GetFileCRC(const std::string& Filename, unsigned long& Crc)
 {
   Crc = 0;
 
   if (!::GetFileCRC(Filename.c_str(), Crc))
     return XFS_ERROR;
-  
+
   return XFS_OK;
 }
 
@@ -363,24 +379,24 @@ bool CXBFileZillaImp::GetSfvEnabled()
 }
 
 
-CStdString CXBFileZillaImp::ConvertToDrivename(LPCTSTR Dirname)
+std::string CXBFileZillaImp::ConvertToDrivename(LPCTSTR Dirname)
 {
-  CStdString retval = Dirname;
-  retval.ToUpper();
-  retval.Trim();
-  retval.TrimRight(_T("\\"));
-  int index = retval.Find(_T("\\"));
+  std::string retval = Dirname;
+  StringUtils::ToUpper(retval);
+  StringUtils::Trim(retval);
+  StringUtils::TrimRight(retval, _T("\\"));
+  int index = retval.find(_T("\\"));
   if (index != -1)
-    retval = retval.Left(index);
+    retval = retval.substr(0, index);
   retval += _T("\\");
   return retval;
 }
 
 void CXBFileZillaImp::SetFreeSpace(LPCTSTR Drivename, bool DisplayAtPrompt)
 {
-  CStdString drive = ConvertToDrivename(Drivename);
+  std::string drive = ConvertToDrivename(Drivename);
   for (int i = 0; i < mFreeSpaceDrives.size(); i++)
-    if (!mFreeSpaceDrives[i].mDrive.CompareNoCase(drive))
+    if (!StringUtils::CompareNoCase(mFreeSpaceDrives[i].mDrive, drive))
     {
       mFreeSpaceDrives[i].mDisplay = DisplayAtPrompt;
       break;
@@ -398,9 +414,9 @@ void CXBFileZillaImp::SetFreeSpace(LPCTSTR Drivename, bool DisplayAtPrompt)
 
 XFSTATUS CXBFileZillaImp::GetFreeSpace(LPCTSTR Drivename, bool& DisplayAtPrompt)
 {
-  CStdString drive = ConvertToDrivename(Drivename);
+  std::string drive = ConvertToDrivename(Drivename);
   for (int i = 0; i < mFreeSpaceDrives.size(); i++)
-    if (!mFreeSpaceDrives[i].mDrive.CompareNoCase(drive))
+    if (!StringUtils::CompareNoCase(mFreeSpaceDrives[i].mDrive, drive))
     {
       DisplayAtPrompt = mFreeSpaceDrives[i].mDisplay;
       return XFS_OK;
@@ -440,11 +456,11 @@ XFSTATUS CXBFileZillaImp::ReadXBoxSettings()
   mSfvEnabled = false;
   mCrcEnabled = false;
 
-  
+
   CMarkupSTL *pXML=COptions::GetXML();
-	if (pXML)
-	{
-		if (!pXML->FindChildElem(_T("XBFileZilla")))
+    if (pXML)
+    {
+        if (!pXML->FindChildElem(_T("XBFileZilla")))
       if (!COptions::FreeXML(pXML))
       {
         mXBoxSettingsCS.Unlock();
@@ -456,32 +472,32 @@ XFSTATUS CXBFileZillaImp::ReadXBoxSettings()
         return XFS_NOT_FOUND;
       }
 
-		pXML->IntoElem();
+        pXML->IntoElem();
 
-  
+
     while (pXML->FindChildElem())
     {
-      CStdString tag = pXML->GetChildTagName();
+      std::string tag = pXML->GetChildTagName();
 
-      if (!tag.CompareNoCase(_T("Option")))
+      if (!StringUtils::CompareNoCase(tag, (_T("Option"))))
       {
-        CStdString value = pXML->GetChildData();
-        CStdString name  = pXML->GetChildAttrib( _T("Name") );
+        std::string value = pXML->GetChildData();
+        std::string name  = pXML->GetChildAttrib( _T("Name") );
         if (name == _T("SfvEnabled"))
-          mSfvEnabled = _ttoi(value);
+          mSfvEnabled = _ttoi(value.c_str());
         else
         if (name == _T("CrcEnabled"))
-          mCrcEnabled = _ttoi(value);
+          mCrcEnabled = _ttoi(value.c_str());
       }
       else
-      if (!tag.CompareNoCase(_T("FreeSpace")))
+      if (!StringUtils::CompareNoCase(tag, (_T("FreeSpace"))))
       {
         pXML->IntoElem();
 
         while (pXML->FindChildElem())
         {
           tag = pXML->GetChildTagName();
-          if (!tag.CompareNoCase(_T("Drive")))
+          if (!StringUtils::CompareNoCase(tag, _T("Drive")))
           {
             pXML->IntoElem();
             CFreeSpace freespace;
@@ -489,46 +505,46 @@ XFSTATUS CXBFileZillaImp::ReadXBoxSettings()
             while (pXML->FindChildElem())
             {
               tag = pXML->GetChildTagName();
-              if (!tag.CompareNoCase(_T("Name")))
-                freespace.mDrive = ConvertToDrivename(pXML->GetChildData());
+              if (!StringUtils::CompareNoCase(tag, _T("Name")))
+                freespace.mDrive = ConvertToDrivename(pXML->GetChildData().c_str());
               else
-              if (!tag.CompareNoCase(_T("Minimum")))
+              if (!StringUtils::CompareNoCase(tag, _T("Minimum")))
               {
-                CStdString value = pXML->GetChildData();
-                freespace.mMinimumSpace = _ttoi(value);
+                std::string value = pXML->GetChildData();
+                freespace.mMinimumSpace = _ttoi(value.c_str());
               }
               else
-              if (!tag.CompareNoCase(_T("Display")))
+              if (!StringUtils::CompareNoCase(tag, _T("Display")))
               {
-                CStdString value = pXML->GetChildData();
-                freespace.mDisplay = _ttoi(value);
+                std::string value = pXML->GetChildData();
+                freespace.mDisplay = _ttoi(value.c_str());
               }
             }
 
-            if (!freespace.mDrive.IsEmpty())
+            if (!freespace.mDrive.empty())
               mFreeSpaceDrives.push_back(freespace);
             pXML->OutOfElem();
           }
         }
-  
+
         pXML->OutOfElem();
       }
     }
 
-		if (!COptions::FreeXML(pXML))
+        if (!COptions::FreeXML(pXML))
     {
       mXBoxSettingsCS.Unlock();
-			return XFS_ERROR;
+            return XFS_ERROR;
     }
-	}
-	else
+    }
+    else
   {
     mXBoxSettingsCS.Unlock();
-		return XFS_ERROR;
+        return XFS_ERROR;
   }
 
   mXBoxSettingsCS.Unlock();
-	return XFS_OK;
+    return XFS_OK;
 }
 
 
@@ -536,19 +552,19 @@ XFSTATUS CXBFileZillaImp::WriteXBoxSettings()
 {
   mXBoxSettingsCS.Lock();
   CMarkupSTL *pXML=COptions::GetXML();
-	if (pXML)
-	{
+    if (pXML)
+    {
     pXML->ResetPos();
-		if (pXML->FindChildElem(_T("XBFileZilla")))
+        if (pXML->FindChildElem(_T("XBFileZilla")))
       pXML->RemoveChildElem();
 
     pXML->AddChildElem(_T("XBFileZilla"));
-		pXML->IntoElem();
+        pXML->IntoElem();
 
     pXML->AddChildElem(_T("Option"), mCrcEnabled?_T("1"):_T("0"));
-	  pXML->AddChildAttrib(_T("Name"), _T("CrcEnabled"));
+      pXML->AddChildAttrib(_T("Name"), _T("CrcEnabled"));
     pXML->AddChildElem(_T("Option"), mSfvEnabled?_T("1"):_T("0"));
-	  pXML->AddChildAttrib(_T("Name"), _T("SfvEnabled"));
+      pXML->AddChildAttrib(_T("Name"), _T("SfvEnabled"));
 
     pXML->AddChildElem(_T("FreeSpace"));
     pXML->IntoElem();
@@ -556,10 +572,10 @@ XFSTATUS CXBFileZillaImp::WriteXBoxSettings()
     {
       pXML->AddChildElem(_T("Drive"));
       pXML->IntoElem();
-      pXML->AddChildElem(_T("Name"), mFreeSpaceDrives[i].mDrive);
-      CStdString str;
-      str.Format(_T("%u"), mFreeSpaceDrives[i].mMinimumSpace);
-      pXML->AddChildElem(_T("Minimum"), str);
+      pXML->AddChildElem(_T("Name"), mFreeSpaceDrives[i].mDrive.c_str());
+      std::string str;
+      str = StringUtils::Format(_T("%u"), mFreeSpaceDrives[i].mMinimumSpace);
+      pXML->AddChildElem(_T("Minimum"), str.c_str());
       pXML->AddChildElem(_T("Display"), mFreeSpaceDrives[i].mDisplay?_T("1"):_T("0"));
       pXML->OutOfElem();
     }
@@ -568,7 +584,7 @@ XFSTATUS CXBFileZillaImp::WriteXBoxSettings()
     if (!COptions::FreeXML(pXML))
     {
       mXBoxSettingsCS.Unlock();
-			return XFS_ERROR;
+            return XFS_ERROR;
     }
   }
   else
@@ -578,7 +594,7 @@ XFSTATUS CXBFileZillaImp::WriteXBoxSettings()
   }
 
   mXBoxSettingsCS.Unlock();
-	return XFS_OK;
+    return XFS_OK;
 }
 
 
@@ -725,7 +741,7 @@ void CXFServerSettings::SetCustomPasvIP(LPCTSTR CustomPasvIP)
 
 LPCTSTR CXFServerSettings::GetCustomPasvIP()
 {
-  static CStdString sCustomPasvIP = _T("");
+  static std::string sCustomPasvIP = _T("");
   sCustomPasvIP = XBFILEZILLA(GetServer())->GetOptions()->GetOption(OPTION_CUSTOMPASVIP);
   return sCustomPasvIP.c_str();
 }
@@ -760,7 +776,7 @@ void CXFServerSettings::SetWelcomeMessage(LPCTSTR WelcomeMessage)
 
 LPCTSTR CXFServerSettings::GetWelcomeMessage()
 {
-  static CStdString sWelcomeMessage = _T("");
+  static std::string sWelcomeMessage = _T("");
   sWelcomeMessage = XBFILEZILLA(GetServer())->GetOptions()->GetOption(OPTION_WELCOMEMESSAGE);
   return sWelcomeMessage.c_str();
 }
@@ -784,7 +800,7 @@ void CXFServerSettings::SetAdminPass(LPCTSTR AdminPass)
 
 LPCTSTR CXFServerSettings::GetAdminPass()
 {
-  static CStdString sAdminPass = _T("");
+  static std::string sAdminPass = _T("");
   sAdminPass = XBFILEZILLA(GetServer())->GetOptions()->GetOption(OPTION_ADMINPASS);
   return sAdminPass.c_str();
 }
@@ -797,7 +813,7 @@ void CXFServerSettings::SetAdminIPBindings(LPCTSTR AdminIPBindings)
 
 LPCTSTR CXFServerSettings::GetAdminIPBindings()
 {
-  static CStdString sAdminIPBindings = _T("");
+  static std::string sAdminIPBindings = _T("");
   sAdminIPBindings = XBFILEZILLA(GetServer())->GetOptions()->GetOption(OPTION_ADMINIPBINDINGS);
   return sAdminIPBindings.c_str();
 }
@@ -810,7 +826,7 @@ void CXFServerSettings::SetAdminIPAddresses(LPCTSTR AdminIPAddresses)
 
 LPCTSTR CXFServerSettings::GetAdminIPAddresses()
 {
-  static CStdString sAdminIPAddresses = _T("");
+  static std::string sAdminIPAddresses = _T("");
   sAdminIPAddresses = XBFILEZILLA(GetServer())->GetOptions()->GetOption(OPTION_ADMINIPADDRESSES);
   return sAdminIPAddresses.c_str();
 }
@@ -867,7 +883,7 @@ bool CXFServerSettings::GetCrcEnabled()
 {
   return XBFILEZILLA(GetCrcEnabled());
 }
- 
+
 void CXFServerSettings::SetSfvEnabled(bool SfvEnabled)
 {
   XBFILEZILLA(SetSfvEnabled(SfvEnabled));
@@ -913,7 +929,7 @@ XFSTATUS CXFUserImp::Init(LPCTSTR Name)
 
   if (permissions.GetUser(Name, mUser))
     return XFS_OK;
-  
+
   return XFS_NOT_FOUND;
 }
 
@@ -932,13 +948,13 @@ XFSTATUS CXFUserImp::SetName(LPCTSTR Name)
   if (permissions.GetUser(Name, user))
     return XFS_ALREADY_EXISTS;
 
-  if (permissions.RemoveUser(mUser.user) != XFS_OK)
+  if (permissions.RemoveUser(mUser.user.c_str()) != XFS_OK)
   {
     // todo: log/notify ?
   }
 
-  mUser.user = Name; 
- 
+  mUser.user = Name;
+
   return permissions.AddUser(mUser);
 }
 
@@ -952,7 +968,7 @@ XFSTATUS CXFUserImp::SetPassword(LPCTSTR Password)
   md5.update((unsigned char *)tmp, _tcslen(Password));
   md5.finalize();
   char *res=md5.hex_digest();
-  CStdString hash = res;
+  std::string hash = res;
   delete [] res;
   mUser.password = hash;
   return XFS_OK;
@@ -1029,7 +1045,7 @@ DWORD CXFUserImp::GetDirectoryPermissions(t_directory& Dir)
 DWORD CXFUserImp::GetDirectoryPermissions(LPCTSTR DirName)
 {
   for (unsigned i = 0; i < mUser.permissions.size(); i++)
-    if (!mUser.permissions[i].dir.CompareNoCase(DirName))
+    if (!StringUtils::CompareNoCase(mUser.permissions[i].dir, DirName))
       return GetDirectoryPermissions(mUser.permissions[i]);
 
   return XBPERMISSION_DENIED;
@@ -1051,7 +1067,7 @@ void CXFUserImp::SetDirectoryPermissions(t_directory& Dir, DWORD Permissions)
 XFSTATUS CXFUserImp::SetDirectoryPermissions(LPCTSTR DirName, DWORD Permissions)
 {
   for (unsigned i = 0; i < mUser.permissions.size(); i++)
-    if (!mUser.permissions[i].dir.CompareNoCase(DirName))
+    if (!StringUtils::CompareNoCase(mUser.permissions[i].dir, DirName))
     {
       if (Permissions & XBDIR_HOME)
         for (unsigned j = 0; j < mUser.permissions.size(); j++)
@@ -1068,18 +1084,18 @@ XFSTATUS CXFUserImp::SetDirectoryPermissions(LPCTSTR DirName, DWORD Permissions)
 XFSTATUS CXFUserImp::AddDirectory(LPCTSTR DirName, DWORD Permissions)
 {
   for (unsigned i = 0; i < mUser.permissions.size(); i++)
-    if (!mUser.permissions[i].dir.CompareNoCase(DirName))
+    if (!StringUtils::CompareNoCase(mUser.permissions[i].dir, DirName))
       return XFS_ALREADY_EXISTS;
 
   t_directory newDir;
   newDir.dir = DirName;
   SetDirectoryPermissions(newDir, Permissions);
   if (Permissions & XBDIR_HOME)
-	{
-		mUser.homedir = newDir.dir;
-		for (unsigned i = 0; i < mUser.permissions.size(); i++)
-			mUser.permissions[i].bIsHome = false;
-	}
+    {
+        mUser.homedir = newDir.dir;
+        for (unsigned i = 0; i < mUser.permissions.size(); i++)
+            mUser.permissions[i].bIsHome = false;
+    }
 
   mUser.permissions.push_back(newDir);
 
@@ -1091,7 +1107,7 @@ XFSTATUS CXFUserImp::RemoveDirectory(LPCTSTR DirName)
   std::vector<t_directory>::iterator it;
 
   for (it = mUser.permissions.begin(); it != mUser.permissions.end(); ++it)
-    if (!(*it).dir.CompareNoCase(DirName))
+    if (!StringUtils::CompareNoCase((*it).dir, DirName))
     {
       mUser.permissions.erase(it);
       return XFS_OK;
@@ -1152,7 +1168,7 @@ XFSTATUS CXFPermissions::GetUser(int index, t_user& user)
   return XFS_OK;
 }
 
-CStdString CXFPermissions::GetUsername(int index)
+std::string CXFPermissions::GetUsername(int index)
 {
   if (index >= m_sUsersList.size())
     return _T("");
@@ -1162,77 +1178,77 @@ CStdString CXFPermissions::GetUsername(int index)
 
 XFSTATUS CXFPermissions::AddUser(const CUser& user)
 {
-	//Update the account list
-	m_sync.Lock();
-	
+    //Update the account list
+    m_sync.Lock();
+
   t_UsersList::iterator iter;
   for (iter = m_sUsersList.begin(); iter != m_sUsersList.end(); ++iter)
-    if (!(*iter).user.CompareNoCase(user.user))
+    if (!StringUtils::CompareNoCase((*iter).user, user.user))
     {
       m_sync.Unlock();
       return XFS_ALREADY_EXISTS;
     }
 
-	m_sUsersList.push_back(user);
-		
-	UpdateInstances();
-	
-	m_sync.Unlock();
-	
-	CMarkupSTL *pXML=COptions::GetXML();
-	if (pXML)
-	{
-		pXML->FindChildElem(_T("Users"));
-		pXML->IntoElem();
-		
-		//Save the user details
+    m_sUsersList.push_back(user);
+
+    UpdateInstances();
+
+    m_sync.Unlock();
+
+    CMarkupSTL *pXML=COptions::GetXML();
+    if (pXML)
+    {
+        pXML->FindChildElem(_T("Users"));
+        pXML->IntoElem();
+
+        //Save the user details
     pXML->AddChildElem(_T("User"));
-    pXML->AddChildAttrib(_T("Name"), user.user);
+    pXML->AddChildAttrib(_T("Name"), user.user.c_str());
     pXML->IntoElem();
-    SetKey(pXML, "Pass", user.password);
+    SetKey(pXML, "Pass", user.password.c_str());
     SetKey(pXML, "Resolve Shortcuts", user.nLnk?"1":"0");
     SetKey(pXML, "Relative", user.nRelative?"1":"0");
     SetKey(pXML, "Bypass server userlimit", user.nBypassUserLimit?"1":"0");
-    CStdString str;
-    str.Format(_T("%d"), user.nUserLimit);
-    SetKey(pXML, "User Limit", str);
-    str.Format(_T("%d"), user.nIpLimit);
-    SetKey(pXML, "IP Limit", str);
+    std::string str;
+    str = StringUtils::Format(_T("%d"), user.nUserLimit);
+    SetKey(pXML, "User Limit", str.c_str());
+    str = StringUtils::Format(_T("%d"), user.nIpLimit);
+    SetKey(pXML, "IP Limit", str.c_str());
 
     SavePermissions(pXML, user);
     pXML->OutOfElem();
 
-		if (!COptions::FreeXML(pXML))
-			return XFS_ERROR;
-	}
-	else
-		return XFS_ERROR;
+        if (!COptions::FreeXML(pXML))
+            return XFS_ERROR;
+    }
+    else
+        return XFS_ERROR;
 
-	return XFS_OK;
+    return XFS_OK;
 }
 
 XFSTATUS CXFPermissions::RemoveUser(LPCTSTR username)
 {
   //Update the account list
-	m_sync.Lock();
-	
+    m_sync.Lock();
+
   t_UsersList::iterator iter;
   for (iter = m_sUsersList.begin(); iter != m_sUsersList.end(); ++iter)
-    if (!(*iter).user.CompareNoCase(username))
+    if (!StringUtils::CompareNoCase((*iter).user, username))
     {
-      m_sUsersList.erase(iter);    
+      m_sUsersList.erase(iter);
       UpdateInstances();
       break;
     }
-	
-	m_sync.Unlock();
+
+    m_sync.Unlock();
 
   CMarkupSTL *pXML=COptions::GetXML();
-	if (pXML)
-	{
-		pXML->FindChildElem(_T("Users"));
-		pXML->IntoElem();
-		
+    if (pXML)
+    {
+        pXML->FindChildElem(_T("Users"));
+        pXML->IntoElem();
+
     bool found = false;
 
     while (pXML->FindChildElem(_T("User")) && !found)
@@ -1243,19 +1259,19 @@ XFSTATUS CXFPermissions::RemoveUser(LPCTSTR username)
         pXML->RemoveChildElem();
       }
     }
-		if (!COptions::FreeXML(pXML))
-			return XFS_ERROR;
-	}
-	else
-		return XFS_ERROR;
+        if (!COptions::FreeXML(pXML))
+            return XFS_ERROR;
+    }
+    else
+        return XFS_ERROR;
 
-	return XFS_OK;
+    return XFS_OK;
 }
 
 
 XFSTATUS CXFPermissions::ModifyUser(const CUser& user)
 {
-	RemoveUser(user.user);
+    RemoveUser(user.user.c_str());
   return AddUser(user);
 }
 
@@ -1264,7 +1280,7 @@ BOOL CXFPermissions::UserExists(LPCTSTR username)
 {
   t_UsersList::iterator iter;
   for (iter = m_sUsersList.begin(); iter != m_sUsersList.end(); ++iter)
-    if (!(*iter).user.CompareNoCase(username))
+    if (!StringUtils::CompareNoCase((*iter).user, username))
       return TRUE;
 
   return FALSE;
@@ -1287,7 +1303,7 @@ ULARGE_INTEGER CFreeSpace::GetFreeSpace()
   ULARGE_INTEGER FreeBytesAvailable;    // bytes available
   FreeBytesAvailable.QuadPart = 0;
 
-  if (mDrive.IsEmpty())
+  if (mDrive.empty())
     return FreeBytesAvailable;
 
   ULARGE_INTEGER TotalNumberOfBytes;    // bytes on disk
@@ -1295,7 +1311,7 @@ ULARGE_INTEGER CFreeSpace::GetFreeSpace()
 
   if (GetDiskFreeSpaceEx(mDrive.c_str(), &FreeBytesAvailable, &TotalNumberOfBytes, &TotalNumberOfFreeBytes))
     return FreeBytesAvailable;
-  else 
+  else
   {
     FreeBytesAvailable.QuadPart = 0;
     return FreeBytesAvailable;
@@ -1305,7 +1321,7 @@ ULARGE_INTEGER CFreeSpace::GetFreeSpace()
 
 
 /*
-	SPEEDLIMITSLIST DownloadSpeedLimits, UploadSpeedLimits;
+    SPEEDLIMITSLIST DownloadSpeedLimits, UploadSpeedLimits;
 */
 
 

@@ -20,7 +20,8 @@
 #include "interfaces/legacy/WindowDialog.h"
 #include "interfaces/legacy/Dialog.h"
 #include "interfaces/legacy/WindowXML.h"
-#include "guilib/Key.h"
+#include "input/actions/ActionIDs.h"
+#include "input/keyboard/KeyIDs.h"
 
 using namespace XBMCAddon;
 using namespace xbmcgui;
@@ -92,7 +93,7 @@ using namespace xbmcgui;
       }
       else
       {
-        // for backwards compatability in python scripts
+        // for backwards compatibility in python scripts
         PyObject* o1 = PyLong_FromLong(a1->id);
         return PyObject_RichCompare(o1, obj2, method);
       }
@@ -108,4 +109,5 @@ using namespace xbmcgui;
 
 %include "interfaces/legacy/WindowXML.h"
 
-%include "guilib/Key.h"
+%include "input/actions/ActionIDs.h"
+%include "input/keyboard/KeyIDs.h"

@@ -19,9 +19,10 @@
  */
 
 #include "SndtrkDirectory.h"
-#include "xbox/IoSupport.h"
 #include "FileItem.h"
 #include "URL.h"
+
+#include "platform/xbox/storage/IoSupport.h"
 
 SOUNDTRACK datastorage; //created a vector of the XSOUNDTRACK_DATA class to keep track of each album
 
@@ -66,13 +67,13 @@ bool CSndtrkDirectory::GetDirectory(const CURL& url, CFileItemList &items)
           size_t bufferSize = 32 * sizeof(char);
           char narrowStr[32];
           size_t numConverted = wcstombs(narrowStr, stData.szName, bufferSize);
-          if (numConverted == static_cast<size_t>(-1)) 
+          if (numConverted == static_cast<size_t>(-1))
             strName = "";
           else
             strName = narrowStr;
 
           CFileItemPtr pItem(new CFileItem(strName));
-          pItem->SetLabelPreformated(true);
+          pItem->SetLabelPreformatted(true);
           char tmpvar[4];
           sprintf(tmpvar,"%i",stData.uSoundtrackId);
           pItem->SetPath(strRoot + tmpvar);
@@ -109,7 +110,7 @@ bool CSndtrkDirectory::GetDirectory(const CURL& url, CFileItemList &items)
         size_t bufferSize = 64 * sizeof(char);
         char narrowStr[64];
         size_t numConverted = wcstombs(narrowStr, wcSong, bufferSize);
-        if (numConverted == static_cast<size_t>(-1)) 
+        if (numConverted == static_cast<size_t>(-1))
           strSong = "";
         else
           strSong = narrowStr;

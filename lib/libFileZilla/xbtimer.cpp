@@ -25,7 +25,7 @@
 #include "xbtimer.h"
 
 
-class CTimerEntry 
+class CTimerEntry
 {
 public:
   CTimerEntry(HWND hWnd, UINT nIDEvent, UINT uElapse, TIMERPROC lpTimerFunc)
@@ -49,8 +49,8 @@ public:
   {
     ((CTimerEntry*)dwUser)->Execute();
   }
- 
-  
+
+
 
   void Execute()
   {
@@ -64,7 +64,7 @@ public:
       else
         PostThreadMessage(mThreadId, WM_TIMER, mTimerId, (LPARAM)mlpTimerFunc);
   }
-    
+
 
   UINT      mTimerId;
   HWND      mhWnd;
@@ -85,8 +85,8 @@ UINT SetTimer(HWND hWnd, UINT nIDEvent, UINT uElapse, TIMERPROC lpTimerFunc)
   UINT id = gTimerEntryList.back()->mTimerId;
   gTimerEntryListCS.Unlock();
 
-  //CStdString str;
-  //str.Format(_T("0x%X : SetTimer() hWnd 0x%X, mTimerId 0x%X\n"), GetCurrentThreadId(), hWnd, id);
+  //std::string str;
+  //str = StringUtils::Format(_T("0x%X : SetTimer() hWnd 0x%X, mTimerId 0x%X\n"), GetCurrentThreadId(), hWnd, id);
   //OutputDebugString(str);
 
   return id;
@@ -101,8 +101,8 @@ BOOL KillTimer(HWND hWnd, UINT uIDEvent)
   for (it = gTimerEntryList.begin(); it != gTimerEntryList.end(); ++it)
     if ((*it)->mTimerId == uIDEvent)
     {
-      //CStdString str;
-      //str.Format(_T("0x%X : KillTimer() hWnd 0x%X, mTimerId 0x%X\n"), GetCurrentThreadId(), hWnd, uIDEvent);
+      //std::string str;
+      //str = StringUtils::Format(_T("0x%X : KillTimer() hWnd 0x%X, mTimerId 0x%X\n"), GetCurrentThreadId(), hWnd, uIDEvent);
       //OutputDebugString(str);
 
       delete *it;
